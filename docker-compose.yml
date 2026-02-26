@@ -1,0 +1,116 @@
+# ============================================================
+#  MekongTunnel — Docker Compose
+#  Author: Ing Muyleang (អុឹង មួយលៀង) — Ing_Muyleang
+#  Open Source by KhmerStack
+#
+#  QUICK START:
+#    cp .env.example .env       # fill in DOMAIN + TLS paths
+#    mkdir -p data/certs
+#    cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem data/certs/
+#    cp /etc/letsencrypt/live/yourdomain.com/privkey.pem   data/certs/
+#    docker compose up -d
+#
+#  DEV (no TLS needed):
+#    docker compose --profile dev up mekongtunnel-dev
+# ============================================================
+
+services:
+
+  # ──────────────────────────────────────────────
+  #  PRODUCTION  (default)
+  #  All config comes from .env
+  # ──────────────────────────────────────────────
+  mekongtunnel:
+    build: .
+    image: mekongtunnel:latest
+    container_name: mekongtunnel
+    restart: unless-stopped
+
+    # Load ALL environment variables from .env
+    env_file: .env
+
+    ports:
+      - "${SSH_ADDR:-:22}:22"      # SSH tunnel connections
+      - "${HTTP_ADDR:-:80}:80"     # HTTP → HTTPS redirect
+      - "${HTTPS_ADDR:-:443}:443"  # HTTPS tunnel traffic
+
+    volumes:
+      # SSH host key — auto-generated on first run, then reused
+      - ./data/host_key:/host_key
+      # TLS certificates — copy from certbot output before starting
+      - ./data/certs:/certs:ro
+
+    # Minimal Linux capabilities — only what's needed to bind ports <1024
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+    security_opt:
+      - no-new-privileges:true
+
+    # Read-only filesystem — data written only to volume mounts
+    read_only: true
+
+    # Health check: stats endpoint responds on localhost
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    labels:
+      - "maintainer=Ing Muyleang <Ing_Muyleang>"
+      - "org.opencontainers.image.title=MekongTunnel"
+      - "org.opencontainers.image.description=SSH tunnel service by KhmerStack"
+      - "org.opencontainers.image.source=https://github.com/Ing-Muyleang/mekongtunnel"
+
+
+  # ──────────────────────────────────────────────
+  #  DEVELOPMENT  (no TLS, alternate ports)
+  #  Usage: docker compose --profile dev up mekongtunnel-dev
+  #
+  #  Connect via:
+  #    ssh -t -R 80:localhost:8080 localhost -p 2223
+  # ──────────────────────────────────────────────
+  mekongtunnel-dev:
+    build: .
+    image: mekongtunnel:dev
+    container_name: mekongtunnel-dev
+    restart: unless-stopped
+    profiles:
+      - dev
+
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - SSH_ADDR=:22
+      - HTTP_ADDR=:80
+      - HTTPS_ADDR=:443
+      - STATS_ADDR=127.0.0.1:9090
+      - HOST_KEY_PATH=/host_key
+      - TLS_CERT=/certs/fullchain.pem
+      - TLS_KEY=/certs/privkey.pem
+
+    ports:
+      - "2223:22"    # SSH  — connect with: ssh -p 2223
+      - "8080:80"    # HTTP
+      - "8443:443"   # HTTPS
+
+    volumes:
+      - ./data-dev/host_key:/host_key
+      - ./data-dev/certs:/certs:ro
+
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+    security_opt:
+      - no-new-privileges:true
+
+    read_only: true
+
+    labels:
+      - "maintainer=Ing Muyleang <Ing_Muyleang>"
+      - "org.opencontainers.image.title=MekongTunnel (dev)"

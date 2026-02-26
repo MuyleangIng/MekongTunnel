@@ -1,0 +1,14 @@
+!.gitignore
+bin/
+host_key
+*.exe
+
+# Local environment config (contains secrets — never commit)
+.env
+
+# Generated data directories
+data/
+data-dev/
+
+.cluade/
+.github/

@@ -29,12 +29,32 @@ BUILD_TAGS=
 build:
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 $(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/mekongtunnel
+	CGO_ENABLED=0 $(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/mekong ./cmd/mekong
 
 # Small build with all optimizations
 build-small: clean
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 $(GOBUILD) -ldflags="$(LDFLAGS)" -trimpath -o $(BUILD_DIR)/$(BINARY) ./cmd/mekongtunnel
+	CGO_ENABLED=0 $(GOBUILD) -ldflags="$(LDFLAGS)" -trimpath -o $(BUILD_DIR)/mekong ./cmd/mekong
 	@echo "Binary size: $$(du -h $(BUILD_DIR)/$(BINARY) | cut -f1)"
+	@echo "Client size: $$(du -h $(BUILD_DIR)/mekong | cut -f1)"
+
+# Build only the client CLI
+build-client:
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 $(GOBUILD) -ldflags="$(LDFLAGS)" -trimpath -o $(BUILD_DIR)/mekong ./cmd/mekong
+	@echo "Client size: $$(du -h $(BUILD_DIR)/mekong | cut -f1)"
+
+# Build client for all platforms (Mac, Linux, Windows)
+build-client-all: clean
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 $(GOBUILD) -ldflags="$(LDFLAGS)" -trimpath -o $(BUILD_DIR)/mekong-darwin-amd64  ./cmd/mekong
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 $(GOBUILD) -ldflags="$(LDFLAGS)" -trimpath -o $(BUILD_DIR)/mekong-darwin-arm64  ./cmd/mekong
+	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 $(GOBUILD) -ldflags="$(LDFLAGS)" -trimpath -o $(BUILD_DIR)/mekong-linux-amd64   ./cmd/mekong
+	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 $(GOBUILD) -ldflags="$(LDFLAGS)" -trimpath -o $(BUILD_DIR)/mekong-linux-arm64   ./cmd/mekong
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) -ldflags="$(LDFLAGS)" -trimpath -o $(BUILD_DIR)/mekong-windows-amd64.exe ./cmd/mekong
+	@echo "Client binaries:"
+	@ls -lh $(BUILD_DIR)/mekong*
 
 # Tiny build: smallest possible binary (requires upx)
 build-tiny: build-small

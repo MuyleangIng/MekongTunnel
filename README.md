@@ -9,8 +9,81 @@
 | Author (EN) | Ing Muyleang |
 | Author (KH) | អុឹង មួយលៀង |
 | Handle | Ing_Muyleang |
-| Default Domain | muyleanging.com |
+| Live Server | mekongtunnel.dev |
 | License | MIT |
+
+---
+
+## Install mekong CLI (Recommended)
+
+The `mekong` CLI is the easiest way to use MekongTunnel — no SSH flags, auto-reconnect, QR code, and clipboard copy built in.
+
+### macOS (Apple Silicon — M1, M2, M3)
+
+```bash
+curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.0.0/mekong-darwin-arm64 -o /usr/local/bin/mekong
+chmod +x /usr/local/bin/mekong
+```
+
+### macOS (Intel)
+
+```bash
+curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.0.0/mekong-darwin-amd64 -o /usr/local/bin/mekong
+chmod +x /usr/local/bin/mekong
+```
+
+### Linux (amd64)
+
+```bash
+curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.0.0/mekong-linux-amd64 -o /usr/local/bin/mekong
+chmod +x /usr/local/bin/mekong
+```
+
+### Linux (arm64)
+
+```bash
+curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.0.0/mekong-linux-arm64 -o /usr/local/bin/mekong
+chmod +x /usr/local/bin/mekong
+```
+
+### Windows
+
+Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.0.0/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH.
+
+---
+
+## Usage
+
+```bash
+# Expose localhost:3000
+mekong 3000
+
+# Expose localhost:8080
+mekong 8080
+
+# Use a custom server
+mekong 3000 --server mekongtunnel.dev
+
+# No QR code
+mekong 3000 --no-qr
+
+# No clipboard copy
+mekong 3000 --no-clipboard
+
+# Exit on disconnect instead of reconnecting
+mekong 3000 --no-reconnect
+```
+
+You will see the tunnel banner with your public URL, a QR code to scan with your phone, and the URL is automatically copied to your clipboard.
+
+### mekong CLI Features
+
+| Feature | Description |
+|---------|-------------|
+| Auto-reconnect | Reconnects automatically if the tunnel drops |
+| QR code | Printed in terminal — scan with your phone instantly |
+| Clipboard | Public URL copied to clipboard automatically |
+| Cross-platform | macOS, Linux, Windows |
 
 ---
 
@@ -19,12 +92,12 @@
 MekongTunnel is a self-hosted SSH tunnel server written in Go.
 It works like ngrok or Cloudflare Tunnel but you run it yourself on your own domain.
 
-When a client connects via SSH with `-R` port forwarding, the server:
-1. Generates a unique public URL (e.g. `https://happy-tiger-a1b2c3d4.yourdomain.com`)
+When a client connects, the server:
+1. Generates a unique public URL (e.g. `https://happy-tiger-a1b2c3d4.mekongtunnel.dev`)
 2. Terminates TLS on port 443
 3. Reverse-proxies every HTTPS request through the SSH connection to the client's local port
 
-No client software needed — just the `ssh` command that ships with every OS.
+Use the `mekong` CLI above, or the raw `ssh` command:
 
 ---
 

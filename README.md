@@ -388,15 +388,17 @@ ssh -t -R 80:localhost:5173 yourdomain.com -p 2223
 ```
 MekongTunnel/
 ├── cmd/
-│   └── mekongtunnel/
-│       └── main.go              ← entry point (starts all 4 servers)
+│   ├── mekongtunnel/
+│   │   └── main.go              ← server entry point (starts all 4 servers)
+│   └── mekong/
+│       └── main.go              ← CLI client (auto-reconnect, QR code, clipboard)
 ├── internal/
 │   ├── config/
 │   │   └── config.go            ← constants, limits, and runtime config
 │   ├── proxy/                   ← SSH + HTTP server components
 │   │   ├── proxy.go             ← tunnel registry and server struct
 │   │   ├── ssh.go               ← SSH connection and port-forwarding handler
-│   │   ├── http.go              ← HTTPS reverse proxy and WebSocket handler
+│   │   ├── http.go              ← HTTPS reverse proxy, WebSocket, warning page
 │   │   ├── stats.go             ← JSON metrics endpoint
 │   │   └── abuse.go             ← rate limiting and IP blocking
 │   ├── domain/                  ← subdomain generation and validation
@@ -416,10 +418,12 @@ MekongTunnel/
 
 | Command | Output | Description |
 |---------|--------|-------------|
-| `make build` | `bin/mekongtunnel` | Standard optimized build |
-| `make build-small` | `bin/mekongtunnel` | Maximum size optimization (~6 MB) |
+| `make build` | `bin/mekongtunnel` + `bin/mekong` | Standard optimized build (server + client) |
+| `make build-small` | `bin/mekongtunnel` + `bin/mekong` | Maximum size optimization (~6 MB server, ~4 MB client) |
 | `make build-tiny` | `bin/mekongtunnel` | With UPX compression if available (~2 MB) |
-| `make build-all` | `bin/mekongtunnel-*` | Cross-compile for Linux + macOS (amd64 + arm64) |
+| `make build-all` | `bin/mekongtunnel-*` | Cross-compile server for Linux + macOS (amd64 + arm64) |
+| `make build-client` | `bin/mekong` | Build CLI client only |
+| `make build-client-all` | `bin/mekong-*` | Cross-compile client for Mac + Linux + Windows |
 | `make build-dev` | `bin/mekongtunnel` | Fast debug build with symbols |
 | `make test` | — | Run all tests |
 | `make clean` | — | Remove build artifacts |

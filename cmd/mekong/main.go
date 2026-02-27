@@ -218,6 +218,13 @@ func connect(server string, sshPort, localPort int, showQR, copyClip bool) error
 		return fmt.Errorf("pty error: %w", err)
 	}
 
+	// Keep stdin open so the server's channel.Read() blocks instead of getting EOF.
+	// Without this the server immediately closes the connection.
+	_, err = sess.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("stdin pipe: %w", err)
+	}
+
 	stdout, err := sess.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("stdout pipe: %w", err)

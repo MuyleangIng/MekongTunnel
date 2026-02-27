@@ -47,6 +47,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	host := stripPort(r.Host)
 
+	// Serve the warning interstitial page for requests to the root domain.
+	if host == s.domain {
+		s.serveWarningPage(w, r)
+		return
+	}
+
 	// Only accept requests for subdomains of our configured domain.
 	if !strings.HasSuffix(host, "."+s.domain) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
@@ -257,12 +263,89 @@ func hasWarningCookie(r *http.Request, sub string) bool {
 	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte("1")) == 1
 }
 
+// serveWarningPage serves the phishing-warning interstitial HTML page on the root domain.
+// It reads the redirect and subdomain from query parameters and sets a cookie on confirm.
+func (s *Server) serveWarningPage(w http.ResponseWriter, r *http.Request) {
+	redirect := r.URL.Query().Get("redirect")
+	sub := r.URL.Query().Get("subdomain")
+
+	if r.Method == http.MethodPost {
+		if redirect == "" {
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		subName := strings.TrimSuffix(sub, "."+s.domain)
+		http.SetCookie(w, &http.Cookie{
+			Name:   config.WarningCookieName + "_" + subName,
+			Value:  "1",
+			Path:   "/",
+			Domain: sub,
+			MaxAge: config.WarningCookieMaxAge,
+		})
+		http.Redirect(w, r, redirect, http.StatusSeeOther)
+		return
+	}
+
+	if redirect == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px">
+<h1>MekongTunnel</h1><p>No tunnel specified.</p></body></html>`)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MekongTunnel — Security Warning</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #0f0f0f; color: #e0e0e0; display: flex;
+         align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+  .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px;
+          max-width: 520px; width: 100%%; padding: 40px; text-align: center; }
+  .logo { color: #00bcd4; font-size: 22px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px; }
+  .author { color: #888; font-size: 13px; margin-bottom: 32px; }
+  .icon { font-size: 48px; margin-bottom: 16px; }
+  h1 { font-size: 20px; color: #f5a623; margin-bottom: 12px; }
+  p { color: #aaa; font-size: 14px; line-height: 1.6; margin-bottom: 10px; }
+  .url { background: #111; border: 1px solid #333; border-radius: 6px;
+         padding: 10px 16px; font-family: monospace; font-size: 13px;
+         color: #7c9fd4; word-break: break-all; margin: 20px 0; }
+  .btn { display: inline-block; background: #00bcd4; color: #000; font-weight: 600;
+         font-size: 15px; padding: 12px 32px; border-radius: 8px; border: none;
+         cursor: pointer; text-decoration: none; margin-top: 8px; width: 100%%; }
+  .btn:hover { background: #00acc1; }
+  .dismiss { color: #555; font-size: 12px; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">MekongTunnel</div>
+  <div class="author">by Ing Muyleang · Founder of KhmerStack</div>
+  <div class="icon">⚠️</div>
+  <h1>You are leaving a secure site</h1>
+  <p>This link points to a tunnel hosted by a third party. MekongTunnel is not responsible for its content.</p>
+  <div class="url">%s</div>
+  <p>Only proceed if you trust the person who shared this link.</p>
+  <form method="POST" action="/?redirect=%s&subdomain=%s">
+    <button class="btn" type="submit">I understand, take me there</button>
+  </form>
+  <p class="dismiss">This warning will not show again for 24 hours.</p>
+</div>
+</body>
+</html>`, redirect, url.QueryEscape(redirect), url.QueryEscape(sub))
+}
+
 // redirectToWarningPage redirects the browser to the phishing-warning interstitial page
 // on the root domain, passing the original URL and subdomain as query parameters.
 func (s *Server) redirectToWarningPage(w http.ResponseWriter, r *http.Request, sub string) {
 	originalURL := "https://" + r.Host + r.URL.RequestURI()
 	fullSubdomain := sub + "." + s.domain
-	warningURL := fmt.Sprintf("https://%s/#/warning?redirect=%s&subdomain=%s",
+	warningURL := fmt.Sprintf("https://%s/?redirect=%s&subdomain=%s",
 		s.domain,
 		url.QueryEscape(originalURL),
 		url.QueryEscape(fullSubdomain))

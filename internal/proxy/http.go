@@ -47,9 +47,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	host := stripPort(r.Host)
 
-	// Serve the warning interstitial page for requests to the root domain.
+	// Redirect root domain (mekongtunnel.dev) to the Vercel landing page.
 	if host == s.domain {
-		s.serveWarningPage(w, r)
+		target := "https://mekongtunnel-dev.vercel.app" + r.URL.RequestURI()
+		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 		return
 	}
 

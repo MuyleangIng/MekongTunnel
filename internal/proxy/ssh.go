@@ -163,13 +163,23 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 		gray      = "\033[38;5;245m"
 		boldGreen = "\033[1;32m"
 		purple    = "\033[38;5;141m"
+		cyan      = "\033[1;36m"
+		yellow    = "\033[1;33m"
 	)
 
 	urlMessage := "\r\n" +
-		gray + "Connected to " + s.domain + "." + reset + "\r\n" +
-		boldGreen + "Tunnel is live!" + reset + "\r\n" +
-		gray + "Public URL: " + purple + url + reset + "\r\n" +
-		gray + "Expires:    " + expiresLine + reset + "\r\n\r\n"
+		cyan + "  ███╗   ███╗███████╗██╗  ██╗ ██████╗ ███╗   ██╗ ██████╗ \r\n" +
+		"  ████╗ ████║██╔════╝██║ ██╔╝██╔═══██╗████╗  ██║██╔════╝ \r\n" +
+		"  ██╔████╔██║█████╗  █████╔╝ ██║   ██║██╔██╗ ██║██║  ███╗\r\n" +
+		"  ██║╚██╔╝██║██╔══╝  ██╔═██╗ ██║   ██║██║╚██╗██║██║   ██║\r\n" +
+		"  ██║ ╚═╝ ██║███████╗██║  ██╗╚██████╔╝██║ ╚████║╚██████╔╝\r\n" +
+		"  ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ " + reset + "\r\n" +
+		"\r\n" +
+		gray + "  by " + yellow + "Ing Muyleang" + gray + " · Founder of " + yellow + "KhmerStack" + reset + "\r\n" +
+		gray + "  ─────────────────────────────────────────────────────" + reset + "\r\n" +
+		boldGreen + "  ✔  Tunnel is live!" + reset + "\r\n" +
+		gray + "     URL      " + purple + url + reset + "\r\n" +
+		gray + "     Expires  " + expiresLine + reset + "\r\n\r\n"
 
 	// Background goroutine: close SSH connection if tunnel is idle or past max lifetime.
 	go func() {

@@ -295,9 +295,7 @@ func (s *Server) serveWarningPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if redirect == "" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0d0d1a;color:#fff">
-<h1 style="color:#FFD700">MekongTunnel</h1><p>គ្មានផ្លូវទំនាក់ទំនងត្រូវបានបញ្ជាក់។</p></body></html>`)
+		http.Redirect(w, r, "https://mekongtunnel-dev.vercel.app/", http.StatusTemporaryRedirect)
 		return
 	}
 

@@ -275,11 +275,13 @@ func (s *Server) serveWarningPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		subName := strings.TrimSuffix(sub, "."+s.domain)
+		// Set cookie on the parent domain (with leading dot) so it is sent
+		// to the subdomain tunnel on the next request.
 		http.SetCookie(w, &http.Cookie{
 			Name:   config.WarningCookieName + "_" + subName,
 			Value:  "1",
 			Path:   "/",
-			Domain: sub,
+			Domain: "." + s.domain,
 			MaxAge: config.WarningCookieMaxAge,
 		})
 		http.Redirect(w, r, redirect, http.StatusSeeOther)
@@ -288,53 +290,204 @@ func (s *Server) serveWarningPage(w http.ResponseWriter, r *http.Request) {
 
 	if redirect == "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px">
-<h1>MekongTunnel</h1><p>No tunnel specified.</p></body></html>`)
+		fmt.Fprintf(w, `<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0d0d1a;color:#fff">
+<h1 style="color:#FFD700">MekongTunnel</h1><p>គ្មានផ្លូវទំនាក់ទំនងត្រូវបានបញ្ជាក់។</p></body></html>`)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="en">
+<html lang="km">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MekongTunnel — Security Warning</title>
+<title>MekongTunnel — ការព្រមាន</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanuman:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-         background: #0f0f0f; color: #e0e0e0; display: flex;
-         align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
-  .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px;
-          max-width: 520px; width: 100%%; padding: 40px; text-align: center; }
-  .logo { color: #00bcd4; font-size: 22px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px; }
-  .author { color: #888; font-size: 13px; margin-bottom: 32px; }
-  .icon { font-size: 48px; margin-bottom: 16px; }
-  h1 { font-size: 20px; color: #f5a623; margin-bottom: 12px; }
-  p { color: #aaa; font-size: 14px; line-height: 1.6; margin-bottom: 10px; }
-  .url { background: #111; border: 1px solid #333; border-radius: 6px;
-         padding: 10px 16px; font-family: monospace; font-size: 13px;
-         color: #7c9fd4; word-break: break-all; margin: 20px 0; }
-  .btn { display: inline-block; background: #00bcd4; color: #000; font-weight: 600;
-         font-size: 15px; padding: 12px 32px; border-radius: 8px; border: none;
-         cursor: pointer; text-decoration: none; margin-top: 8px; width: 100%%; }
-  .btn:hover { background: #00acc1; }
-  .dismiss { color: #555; font-size: 12px; margin-top: 16px; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #0d0d1a;
+    background-image: radial-gradient(ellipse at top, #1a1035 0%%, #0d0d1a 70%%);
+    color: #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .card {
+    background: linear-gradient(145deg, #16162a, #1e1e38);
+    border: 1px solid #FFD70033;
+    border-radius: 16px;
+    max-width: 540px;
+    width: 100%%;
+    padding: 44px 40px;
+    text-align: center;
+    box-shadow: 0 0 60px #FFD70015, 0 20px 40px #00000060;
+  }
+  .top-border {
+    height: 3px;
+    background: linear-gradient(90deg, #cc0001, #FFD700, #cc0001);
+    border-radius: 3px 3px 0 0;
+    margin: -44px -40px 36px;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+  }
+  .logo {
+    font-family: 'Inter', sans-serif;
+    color: #FFD700;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .author {
+    color: #888;
+    font-size: 12px;
+    margin-bottom: 32px;
+    letter-spacing: 0.5px;
+  }
+  .author span { color: #FFD70099; }
+  .shield {
+    width: 64px;
+    height: 64px;
+    background: linear-gradient(135deg, #cc000122, #FFD70022);
+    border: 2px solid #cc000155;
+    border-radius: 50%%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    margin: 0 auto 20px;
+  }
+  .km-title {
+    font-family: 'Hanuman', serif;
+    font-size: 22px;
+    color: #FFD700;
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+  .en-subtitle {
+    font-size: 13px;
+    color: #cc4444;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .km-desc {
+    font-family: 'Hanuman', serif;
+    color: #aaa;
+    font-size: 15px;
+    line-height: 1.8;
+    margin-bottom: 8px;
+  }
+  .en-desc {
+    color: #666;
+    font-size: 12px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+  }
+  .url-box {
+    background: #0a0a16;
+    border: 1px solid #FFD70033;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: monospace;
+    font-size: 13px;
+    color: #7c9fd4;
+    word-break: break-all;
+    margin: 20px 0;
+    text-align: left;
+  }
+  .url-label {
+    font-size: 10px;
+    color: #FFD70077;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+  .divider {
+    border: none;
+    border-top: 1px solid #ffffff11;
+    margin: 20px 0;
+  }
+  .btn {
+    display: block;
+    width: 100%%;
+    background: linear-gradient(135deg, #cc0001, #8b0000);
+    color: #fff;
+    font-family: 'Hanuman', serif;
+    font-weight: 700;
+    font-size: 17px;
+    padding: 14px 32px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    margin-top: 8px;
+    letter-spacing: 0.5px;
+    transition: opacity 0.2s;
+    line-height: 1.6;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn-sub {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.7;
+    display: block;
+    margin-top: 2px;
+  }
+  .dismiss {
+    font-family: 'Hanuman', serif;
+    color: #444;
+    font-size: 13px;
+    margin-top: 20px;
+    line-height: 1.6;
+  }
 </style>
 </head>
 <body>
 <div class="card">
+  <div class="top-border"></div>
   <div class="logo">MekongTunnel</div>
-  <div class="author">by Ing Muyleang · Founder of KhmerStack</div>
-  <div class="icon">⚠️</div>
-  <h1>You are leaving a secure site</h1>
-  <p>This link points to a tunnel hosted by a third party. MekongTunnel is not responsible for its content.</p>
-  <div class="url">%s</div>
-  <p>Only proceed if you trust the person who shared this link.</p>
+  <div class="author">បង្កើតដោយ <span>អុឹង មួយលៀង (Ing Muyleang)</span> · KhmerStack</div>
+
+  <div class="shield">🛡️</div>
+
+  <div class="km-title">ការព្រមានសុវត្ថិភាព</div>
+  <div class="en-subtitle">Security Notice</div>
+
+  <div class="km-desc">
+    អ្នកកំពុងចូលទៅកាន់ផ្លូវទំនាក់ទំនងរបស់ភាគីទីបី។<br>
+    MekongTunnel មិនទទួលខុសត្រូវចំពោះមាតិការបស់ខ្លឹមសារនោះទេ។
+  </div>
+  <div class="en-desc">
+    You are about to visit a third-party tunnel.<br>
+    MekongTunnel is not responsible for its content.
+  </div>
+
+  <div class="url-box">
+    <div class="url-label">គោលដៅ · Destination</div>
+    %s
+  </div>
+
+  <div class="km-desc" style="font-size:14px;color:#888">
+    សូមបន្តតែប្រសិនបើអ្នកទុកចិត្តអ្នកដែលបានចែករំលែកតំណភ្ជាប់នេះ។
+  </div>
+
+  <hr class="divider">
+
   <form method="POST" action="/?redirect=%s&subdomain=%s">
-    <button class="btn" type="submit">I understand, take me there</button>
+    <button class="btn" type="submit">
+      ខ្ញុំយល់ព្រម បន្តទៅមុខ
+      <span class="btn-sub">I understand, take me there</span>
+    </button>
   </form>
-  <p class="dismiss">This warning will not show again for 24 hours.</p>
+
+  <p class="dismiss">ការព្រមាននេះនឹងមិនបង្ហាញម្តងទៀតក្នុងរយៈពេល ២៤ ម៉ោង។</p>
 </div>
 </body>
 </html>`, redirect, url.QueryEscape(redirect), url.QueryEscape(sub))

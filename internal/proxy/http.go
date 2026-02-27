@@ -47,10 +47,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	host := stripPort(r.Host)
 
-	// Redirect root domain (mekongtunnel.dev) to the Vercel landing page.
+	// Root domain (mekongtunnel.dev): serve warning interstitial when it's a
+	// tunnel warning flow (has redirect param or is a POST confirmation),
+	// otherwise redirect to the Vercel landing page.
 	if host == s.domain {
-		target := "https://mekongtunnel-dev.vercel.app" + r.URL.RequestURI()
-		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+		if r.URL.Query().Get("redirect") != "" || r.Method == http.MethodPost {
+			s.serveWarningPage(w, r)
+			return
+		}
+		http.Redirect(w, r, "https://mekongtunnel-dev.vercel.app/", http.StatusTemporaryRedirect)
 		return
 	}
 

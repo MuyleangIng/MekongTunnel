@@ -265,8 +265,8 @@ func connect(server string, sshPort, localPort int, showQR, copyClip bool) error
 			qrterminal.GenerateWithConfig(tunnelURL, qrterminal.Config{
 				Level:     qrterminal.L,
 				Writer:    os.Stdout,
-				BlackChar: qrterminal.BLACK,
-				WhiteChar: qrterminal.WHITE,
+				BlackChar: qrterminal.BLACK_BLACK,
+				WhiteChar: qrterminal.WHITE_WHITE,
 				QuietZone: 1,
 			})
 			fmt.Println()

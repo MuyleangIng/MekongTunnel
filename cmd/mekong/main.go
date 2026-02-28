@@ -121,14 +121,7 @@ func readState() (stateFile, error) {
 	return s, json.Unmarshal(b, &s)
 }
 
-// isPIDAlive returns true if the process is still running.
-func isPIDAlive(pid int) bool {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return p.Signal(syscall.Signal(0)) == nil
-}
+// isPIDAlive is defined in platform_unix.go / platform_windows.go
 
 // ---- subdomain validation ----
 
@@ -340,7 +333,7 @@ func spawnDaemon() error {
 	cmd := exec.Command(self, args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // detach from terminal
+	detachProcess(cmd) // platform-specific: detach from terminal
 	if err := cmd.Start(); err != nil {
 		return err
 	}

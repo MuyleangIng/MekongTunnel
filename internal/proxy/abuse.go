@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"muyleanging.com/mekongtunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
 )
 
 // BlockCallback is invoked asynchronously whenever an IP is blocked.

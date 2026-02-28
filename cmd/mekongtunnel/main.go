@@ -19,8 +19,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"muyleanging.com/mekongtunnel/internal/config"
-	"muyleanging.com/mekongtunnel/internal/proxy"
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/proxy"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module muyleanging.com/mekongtunnel
+module github.com/MuyleangIng/MekongTunnel
 
 go 1.24.5
 

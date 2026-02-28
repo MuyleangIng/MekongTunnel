@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"muyleanging.com/mekongtunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
 )
 
 // SSHCloser is an interface for closing SSH connections

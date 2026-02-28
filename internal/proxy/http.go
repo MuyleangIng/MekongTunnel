@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"muyleanging.com/mekongtunnel/internal/config"
-	"muyleanging.com/mekongtunnel/internal/domain"
-	"muyleanging.com/mekongtunnel/internal/tunnel"
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/domain"
+	"github.com/MuyleangIng/MekongTunnel/internal/tunnel"
 )
 
 // ServeHTTP implements http.Handler for all HTTPS requests.

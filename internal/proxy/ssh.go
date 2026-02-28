@@ -16,8 +16,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"muyleanging.com/mekongtunnel/internal/config"
-	"muyleanging.com/mekongtunnel/internal/tunnel"
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/tunnel"
 )
 
 // tcpipForwardRequest is the SSH wire format for a "tcpip-forward" global request.

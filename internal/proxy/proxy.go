@@ -19,9 +19,9 @@ import (
 	"github.com/mikesmitty/edkey"
 	"golang.org/x/crypto/ssh"
 
-	"muyleanging.com/mekongtunnel/internal/config"
-	"muyleanging.com/mekongtunnel/internal/domain"
-	"muyleanging.com/mekongtunnel/internal/tunnel"
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/domain"
+	"github.com/MuyleangIng/MekongTunnel/internal/tunnel"
 )
 
 // Server manages SSH tunnels and HTTP proxying.

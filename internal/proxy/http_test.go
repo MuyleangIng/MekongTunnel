@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"muyleanging.com/mekongtunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
 )
 
 func TestStripPort(t *testing.T) {

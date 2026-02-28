@@ -524,10 +524,10 @@ Your Browser
     │  HTTPS request to happy-tiger-a1b2c3d4.yourdomain.com
     ▼
 ┌────────────────────────────────────────────────────┐
-│                  MekongTunnel Server                   │
+│                  MekongTunnel Server               │
 │                                                    │
 │  SSH :22        HTTP :80        HTTPS :443         │
-│  (port fwd)  →  (redirect) →   (TLS + proxy)      │
+│  (port fwd)  →  (redirect) →   (TLS + proxy)       │
 │      │                              │              │
 │      ▼                              ▼              │
 │  Tunnel Registry  ←──────────────────────────────  │

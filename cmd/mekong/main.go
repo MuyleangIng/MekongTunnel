@@ -11,6 +11,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -29,6 +30,10 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/term"
 )
+
+// errBlocked is returned by connect() when the server reports the IP is blocked.
+// The main loop treats this as a permanent failure and stops retrying.
+var errBlocked = errors.New("IP is blocked")
 
 const (
 	reset  = "\033[0m"
@@ -122,6 +127,10 @@ func main() {
 
 		if err := connect(*serverFlag, *portFlag, localPort, !*noQR, !*noClip); err != nil {
 			fmt.Printf("%s  ✖  %v%s\n", red, err, reset)
+			if errors.Is(err, errBlocked) {
+				fmt.Printf("%s  ✖  Reconnect aborted — wait for the block to expire, then try again.%s\n\n", red, reset)
+				os.Exit(1)
+			}
 		}
 
 		if *noReconnect {
@@ -235,8 +244,10 @@ func connect(server string, sshPort, localPort int, showQR, copyClip bool) error
 	}
 
 	// Stream server output to terminal; extract the public URL on first match
+	// and signal if the server reports a blocked IP.
 	urlCh := make(chan string, 1)
-	go streamOutput(stdout, urlCh)
+	blockedCh := make(chan string, 1)
+	go streamOutput(stdout, urlCh, blockedCh)
 
 	// Once URL is found: copy to clipboard + print QR code
 	go func() {
@@ -262,26 +273,38 @@ func connect(server string, sshPort, localPort int, showQR, copyClip bool) error
 		}
 	}()
 
-	_ = sess.Wait()
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- sess.Wait() }()
+
+	select {
+	case msg := <-blockedCh:
+		return fmt.Errorf("%w: %s", errBlocked, msg)
+	case <-waitDone:
+	}
 	return nil
 }
 
-// streamOutput prints every line from the server PTY and sends the first
-// tunnel URL it finds on urlCh.
-func streamOutput(r io.Reader, urlCh chan<- string) {
+// streamOutput prints every line from the server PTY, sends the first tunnel
+// URL it finds on urlCh, and signals blockedCh if the server reports a blocked IP.
+func streamOutput(r io.Reader, urlCh chan<- string, blockedCh chan<- string) {
 	scanner := bufio.NewScanner(r)
-	found := false
+	urlFound := false
+	blockedFound := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		fmt.Println(line)
-		if !found {
-			clean := strings.TrimSpace(ansiRe.ReplaceAllString(line, ""))
+		clean := strings.TrimSpace(ansiRe.ReplaceAllString(line, ""))
+		if !urlFound {
 			if strings.Contains(clean, "URL") {
 				if m := urlRe.FindString(clean); m != "" {
-					found = true
+					urlFound = true
 					urlCh <- m
 				}
 			}
+		}
+		if !blockedFound && strings.Contains(clean, "temporarily blocked") {
+			blockedFound = true
+			blockedCh <- clean
 		}
 	}
 	close(urlCh)

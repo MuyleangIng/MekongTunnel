@@ -33,12 +33,12 @@ const (
 	MaxRequestBodySize = 128 * 1024 * 1024 // 128MB
 
 	// Connection rate limiting (new connections per IP)
-	MaxConnectionsPerMinute = 10              // max new connections per IP per minute
+	MaxConnectionsPerMinute = 30              // max new connections per IP per minute
 	ConnectionRateWindow    = 1 * time.Minute // sliding window for connection rate
 
 	// IP blocking
-	BlockDuration          = 1 * time.Hour // how long to block abusive IPs
-	RateLimitViolationsMax = 10            // violations before auto-block
+	BlockDuration          = 15 * time.Minute // how long to block abusive IPs
+	RateLimitViolationsMax = 10               // violations before auto-block
 
 	// Tunnel lifetime
 	MaxTunnelLifetime = 24 * time.Hour // max tunnel duration regardless of activity

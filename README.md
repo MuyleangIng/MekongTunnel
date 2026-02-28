@@ -90,7 +90,7 @@ You will see the tunnel banner with your public URL, a QR code to scan with your
 | Cross-platform | macOS, Linux, Windows |
 
 > **Warning — Auto-reconnect and IP blocking:**
-> The `mekong` CLI reconnects automatically when the tunnel drops. If the connection drops repeatedly in a short period, the rapid reconnect attempts can exceed the server's rate limit (10 new connections per IP per minute). After 10 violations the server will block your IP for 1 hour.
+> The `mekong` CLI reconnects automatically when the tunnel drops. If the connection drops repeatedly in a short period, the rapid reconnect attempts can exceed the server's rate limit (30 new connections per IP per minute). After 10 violations the server will block your IP for 15 minutes.
 >
 > To avoid this, use `--no-reconnect` if you are debugging a flapping connection, or use the raw `ssh` command with `ServerAliveInterval` to keep the tunnel stable instead of letting it drop:
 > ```bash
@@ -474,10 +474,10 @@ make test
 | WebSocket transfer | 1 GB per direction |
 | WebSocket idle timeout | 2 hours |
 | SSH handshake timeout | 30 seconds |
-| New connections per IP/min | 10 |
+| New connections per IP/min | 30 |
 | Inactivity timeout | 2 hours |
 | Max tunnel lifetime | 24 hours |
-| Block duration | 1 hour |
+| Block duration | 15 minutes |
 | Violations before block | 10 |
 
 ---
@@ -629,7 +629,7 @@ sudo ufw status
 
 Your IP exceeded the connection rate limit too many times and was auto-blocked for 1 hour.
 
-**Why it happens:** The server allows a maximum of 10 new SSH connections per IP per minute. After 10 violations of this limit, the IP is automatically blocked for 1 hour. This commonly happens when an SSH client is set to auto-reconnect in a tight loop (e.g. reconnecting every few seconds after a disconnect).
+**Why it happens:** The server allows a maximum of 30 new SSH connections per IP per minute. After 10 violations of this limit, the IP is automatically blocked for 15 minutes. This commonly happens when an SSH client is set to auto-reconnect in a tight loop (e.g. reconnecting every few seconds after a disconnect).
 
 **How to recover:**
 

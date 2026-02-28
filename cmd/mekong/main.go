@@ -140,6 +140,32 @@ func isValidSubdomain(s string) bool {
 	return true
 }
 
+// reorderArgs moves flags (and their values) before positional arguments so
+// that flag.Parse() works regardless of where flags appear on the command line.
+// e.g. ["3000", "--subdomain", "myapp"] → ["--subdomain", "myapp", "3000"]
+func reorderArgs(args []string) []string {
+	// Flags that consume the next token as their value.
+	valueFlags := map[string]bool{
+		"--server": true, "-server": true,
+		"--port": true, "-port": true,
+		"--subdomain": true, "-subdomain": true,
+	}
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if strings.HasPrefix(a, "-") && !strings.Contains(a, "=") {
+			flags = append(flags, a)
+			if valueFlags[a] && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+		} else {
+			positional = append(positional, a)
+		}
+	}
+	return append(flags, positional...)
+}
+
 // ---- main ----
 
 func main() {
@@ -195,6 +221,10 @@ func main() {
 		flag.PrintDefaults()
 		fmt.Fprintln(os.Stderr, "")
 	}
+	// Go's flag package stops at the first non-flag argument, so
+	// `mekong 3000 --subdomain myapp` would leave "--subdomain" as a
+	// positional arg. Reorder so flags always come before port numbers.
+	os.Args = append(os.Args[:1], reorderArgs(os.Args[1:])...)
 	flag.Parse()
 
 	if flag.NArg() < 1 {

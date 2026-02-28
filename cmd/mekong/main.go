@@ -108,6 +108,19 @@ func writeState(s stateFile) {
 
 func removeState() { _ = os.Remove(stateFilePath()) }
 
+func removeTunnelFromState(localPort int, s *stateFile, mu *sync.Mutex) {
+	mu.Lock()
+	defer mu.Unlock()
+	filtered := s.Tunnels[:0]
+	for _, t := range s.Tunnels {
+		if t.LocalPort != localPort {
+			filtered = append(filtered, t)
+		}
+	}
+	s.Tunnels = filtered
+	writeState(*s)
+}
+
 func readState() (stateFile, error) {
 	b, err := os.ReadFile(stateFilePath())
 	if err != nil {
@@ -287,14 +300,15 @@ func main() {
 					backoff = 2 * time.Second
 				}
 
-				tunnelURL, err := connect(*serverFlag, *sshPortFlag, localPort, !*noQR, !*noClip)
-				if tunnelURL != "" {
+				_, err := connect(*serverFlag, *sshPortFlag, localPort, !*noQR, !*noClip, func(u string) {
 					addTunnelState(tunnelState{
-						URL:       tunnelURL,
+						URL:       u,
 						LocalPort: localPort,
 						StartedAt: time.Now(),
 					})
-				}
+				})
+				// Tunnel disconnected — remove its entry so status stays accurate.
+				removeTunnelFromState(localPort, &state, &stateMu)
 				if err != nil {
 					fmt.Printf("%s  ✖  [:%d] %v%s\n", red, localPort, err, reset)
 					if errors.Is(err, errBlocked) {
@@ -378,7 +392,8 @@ func printBanner(server string, ports []int) {
 }
 
 // connect establishes one SSH tunnel session. Returns the tunnel URL and any error.
-func connect(server string, sshPort, localPort int, showQR, copyClip bool) (string, error) {
+// onURL is called as soon as the tunnel URL is received from the server (while still connected).
+func connect(server string, sshPort, localPort int, showQR, copyClip bool, onURL func(string)) (string, error) {
 	var auths []ssh.AuthMethod
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		if agentConn, err := net.Dial("unix", sock); err == nil {
@@ -470,6 +485,9 @@ func connect(server string, sshPort, localPort int, showQR, copyClip bool) (stri
 			return
 		}
 		tunnelURL = u
+		if onURL != nil {
+			onURL(u)
+		}
 		if copyClip {
 			if err := clipboard.WriteAll(u); err == nil {
 				fmt.Printf("%s  ✔  [:%d] Copied to clipboard!%s\n", green, localPort, reset)

@@ -3,14 +3,12 @@
 //
 //	mekong 3000
 //	mekong 3000 8080
-//	mekong 8080 --subdomain myapp
 //	mekong -d 3000          (background/daemon mode)
 //	mekong status           (show your active tunnels)
 //	mekong status 3000      (filter by port)
 //	mekong stop             (stop background tunnel)
 //
-// Features: auto-reconnect, QR code, clipboard copy, custom subdomain,
-// multi-port, daemon mode, status/stop commands.
+// Features: auto-reconnect, QR code, clipboard copy, multi-port, daemon mode, status/stop commands.
 //
 // Author: Ing Muyleang (អុឹង មួយលៀង) — Ing_Muyleang
 package main
@@ -81,10 +79,8 @@ type forwardedTCPIPData struct {
 // ---- state file ----
 
 type tunnelState struct {
-	Subdomain string    `json:"subdomain"`
 	URL       string    `json:"url"`
 	LocalPort int       `json:"local_port"`
-	Server    string    `json:"server"`
 	StartedAt time.Time `json:"started_at"`
 }
 
@@ -123,26 +119,9 @@ func readState() (stateFile, error) {
 
 // isPIDAlive is defined in platform_unix.go / platform_windows.go
 
-// ---- subdomain validation ----
-
-func isValidSubdomain(s string) bool {
-	if len(s) < 3 || len(s) > 50 {
-		return false
-	}
-	if s[0] == '-' || s[len(s)-1] == '-' {
-		return false
-	}
-	for _, c := range s {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
-			return false
-		}
-	}
-	return true
-}
-
 // reorderArgs moves flags (and their values) before positional arguments so
 // that flag.Parse() works regardless of where flags appear on the command line.
-// e.g. ["3000", "--subdomain", "myapp"] → ["--subdomain", "myapp", "3000"]
+// e.g. ["3000", "--no-qr"] → ["--no-qr", "3000"]
 func reorderArgs(args []string) []string {
 	// Flags that consume the next token as their value.
 	valueFlags := map[string]bool{
@@ -150,7 +129,6 @@ func reorderArgs(args []string) []string {
 		"--ssh-port": true, "-ssh-port": true,
 		"--port":     true, "-port":     true,
 		"-p":         true,
-		"--subdomain": true, "-subdomain": true,
 	}
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
@@ -199,7 +177,6 @@ func main() {
 		serverFlag    = flag.String("server", "mekongtunnel.dev", "MekongTunnel server hostname")
 		sshPortFlag   = flag.Int("ssh-port", 22, "SSH server port")
 		localPortFlag = flag.Int("port", 0, "Local port to expose (alternative to positional arg)")
-		subdomainFlag = flag.String("subdomain", "", "Request a custom subdomain (e.g. myapp)")
 		detachFlag    = flag.Bool("d", false, "Run tunnel in background (daemon mode)")
 		noQR          = flag.Bool("no-qr", false, "Disable QR code display")
 		noClip        = flag.Bool("no-clipboard", false, "Disable auto clipboard copy")
@@ -258,15 +235,6 @@ func main() {
 		}
 	}
 
-	if *subdomainFlag != "" && !isValidSubdomain(*subdomainFlag) {
-		fmt.Fprintf(os.Stderr, "  error: invalid subdomain %q — use lowercase letters, digits, hyphens (3–50 chars)\n", *subdomainFlag)
-		os.Exit(1)
-	}
-	if *subdomainFlag != "" && len(ports) > 1 {
-		fmt.Fprintf(os.Stderr, "  error: --subdomain can only be used with a single port\n")
-		os.Exit(1)
-	}
-
 	// --- Daemon mode ---
 	// Re-exec self without -d, redirect output to log file, detach from terminal.
 	if *detachFlag {
@@ -302,7 +270,6 @@ func main() {
 	var wg sync.WaitGroup
 	for _, localPort := range ports {
 		localPort := localPort
-		subdomain := *subdomainFlag
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -320,15 +287,11 @@ func main() {
 					backoff = 2 * time.Second
 				}
 
-				tunnelURL, err := connect(*serverFlag, *sshPortFlag, localPort, subdomain, !*noQR, !*noClip)
+				tunnelURL, err := connect(*serverFlag, *sshPortFlag, localPort, !*noQR, !*noClip)
 				if tunnelURL != "" {
-					parts := strings.SplitN(tunnelURL, ".", 2)
-					sub := strings.TrimPrefix(parts[0], "https://")
 					addTunnelState(tunnelState{
-						Subdomain: sub,
 						URL:       tunnelURL,
 						LocalPort: localPort,
-						Server:    *serverFlag,
 						StartedAt: time.Now(),
 					})
 				}
@@ -415,7 +378,7 @@ func printBanner(server string, ports []int) {
 }
 
 // connect establishes one SSH tunnel session. Returns the tunnel URL and any error.
-func connect(server string, sshPort, localPort int, subdomain string, showQR, copyClip bool) (string, error) {
+func connect(server string, sshPort, localPort int, showQR, copyClip bool) (string, error) {
 	var auths []ssh.AuthMethod
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		if agentConn, err := net.Dial("unix", sock); err == nil {
@@ -424,13 +387,8 @@ func connect(server string, sshPort, localPort int, subdomain string, showQR, co
 	}
 	auths = append(auths, ssh.Password(""))
 
-	user := "tunnel"
-	if subdomain != "" {
-		user = subdomain
-	}
-
 	cfg := &ssh.ClientConfig{
-		User:            user,
+		User:            "tunnel",
 		Auth:            auths,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec
 		Timeout:         30 * time.Second,
@@ -630,7 +588,6 @@ func runStatus(portFilter int) {
 
 	for _, t := range tunnels {
 		uptime := time.Since(t.StartedAt).Round(time.Second)
-		fmt.Printf(gray+"  Subdomain  "+purple+"%s"+reset+"\n", t.Subdomain)
 		fmt.Printf(gray+"  URL        "+cyan+"%s"+reset+"\n", t.URL)
 		fmt.Printf(gray+"  Local      "+purple+"localhost:%d"+reset+"\n", t.LocalPort)
 		fmt.Printf(gray+"  Uptime     "+purple+"%s"+reset+"\n", uptime)

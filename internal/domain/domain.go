@@ -58,35 +58,6 @@ func Generate() (string, error) {
 	return fmt.Sprintf("%s-%s-%s", adj, noun, hexSuffix), nil
 }
 
-// IsValidCustom returns true if s is a valid user-provided custom subdomain.
-// Rules: 3–50 chars, lowercase letters/digits/hyphens only, no leading or trailing hyphen.
-// Unlike IsValid, this does not require the adjective-noun-hex format.
-func IsValidCustom(s string) bool {
-	if len(s) < 3 || len(s) > 50 {
-		return false
-	}
-	if s[0] == '-' || s[len(s)-1] == '-' {
-		return false
-	}
-	for _, c := range s {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
-			return false
-		}
-	}
-	return true
-}
-
-// GenerateWithBase creates a subdomain suggestion using base as a prefix
-// and a short random hex suffix: "<base>-<4hex>" (e.g. "myapp-a1b2").
-// Used when a requested custom subdomain is already taken.
-func GenerateWithBase(base string) (string, error) {
-	b := make([]byte, 2) // 2 bytes = 4 hex chars
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("failed to generate random bytes: %w", err)
-	}
-	return fmt.Sprintf("%s-%s", base, hex.EncodeToString(b)), nil
-}
-
 // IsValid returns true if s is a validly formatted subdomain produced by Generate.
 // It checks that:
 //  1. The string has exactly three dash-separated parts

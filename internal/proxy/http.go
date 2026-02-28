@@ -67,8 +67,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	sub := strings.TrimSuffix(host, "."+s.domain)
 
-	// Accept both auto-generated (adjective-noun-hex) and custom subdomains.
-	if !domain.IsValid(sub) && !domain.IsValidCustom(sub) {
+	// Only accept auto-generated subdomains (adjective-noun-hex format).
+	if !domain.IsValid(sub) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}

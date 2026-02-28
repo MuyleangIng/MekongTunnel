@@ -36,7 +36,6 @@ xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
 ```
 
-> **macOS security prompt:** If you see _"mekong cannot be opened because it is from an unidentified developer"_, the `xattr` line above removes the quarantine flag and fixes it. You only need to run it once after installing.
 
 ### Linux (amd64)
 

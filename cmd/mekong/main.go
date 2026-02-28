@@ -213,7 +213,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  Examples:")
 		fmt.Fprintln(os.Stderr, "    mekong 3000                            expose localhost:3000")
 		fmt.Fprintln(os.Stderr, "    mekong 3000 8080                       expose two ports")
-		fmt.Fprintln(os.Stderr, "    mekong 3000 --subdomain myapp          custom subdomain")
 		fmt.Fprintln(os.Stderr, "    mekong -d 3000                         run in background")
 		fmt.Fprintln(os.Stderr, "    mekong status                          show your active tunnels")
 		fmt.Fprintln(os.Stderr, "    mekong status 3000                     show tunnel for port 3000")

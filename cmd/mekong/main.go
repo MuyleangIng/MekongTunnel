@@ -262,13 +262,7 @@ func connect(server string, sshPort, localPort int, showQR, copyClip bool) error
 		}
 		if showQR {
 			fmt.Printf("\n%s  Scan with your phone:%s\n\n", gray, reset)
-			qrterminal.GenerateWithConfig(tunnelURL, qrterminal.Config{
-				Level:     qrterminal.L,
-				Writer:    os.Stdout,
-				BlackChar: qrterminal.BLACK_BLACK,
-				WhiteChar: qrterminal.WHITE_WHITE,
-				QuietZone: 1,
-			})
+			qrterminal.GenerateHalfBlock(tunnelURL, qrterminal.L, os.Stdout)
 			fmt.Println()
 		}
 	}()

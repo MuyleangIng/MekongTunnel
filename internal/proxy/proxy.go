@@ -28,12 +28,13 @@ import (
 // It holds the tunnel registry, per-IP connection counts, SSH connections
 // (for forced closure on IP block), and the abuse tracker.
 type Server struct {
-	tunnels       map[string]*tunnel.Tunnel
-	ipConnections map[string]int
-	sshConns      map[string][]*ssh.ServerConn // SSH connections per IP for forced closure
-	mu            sync.RWMutex
-	sshConfig     *ssh.ServerConfig
-	domain        string
+	tunnels         map[string]*tunnel.Tunnel
+	ipConnections   map[string]int
+	sshConns        map[string][]*ssh.ServerConn // SSH connections per IP for forced closure
+	mu              sync.RWMutex
+	sshConfig       *ssh.ServerConfig
+	domain          string
+	maxTunnelsPerIP int
 
 	// Counters for lifetime stats
 	totalConnections uint64
@@ -47,13 +48,14 @@ type Server struct {
 // It loads (or auto-generates) the SSH host key from hostKeyPath,
 // sets up SSH server config with no client authentication,
 // and wires the abuse-tracker callback to force-close SSH connections on IP block.
-func New(hostKeyPath string, domain string) (*Server, error) {
+func New(hostKeyPath string, domain string, maxTunnelsPerIP int) (*Server, error) {
 	s := &Server{
-		tunnels:       make(map[string]*tunnel.Tunnel),
-		ipConnections: make(map[string]int),
-		sshConns:      make(map[string][]*ssh.ServerConn),
-		abuseTracker:  NewAbuseTracker(),
-		domain:        domain,
+		tunnels:         make(map[string]*tunnel.Tunnel),
+		ipConnections:   make(map[string]int),
+		sshConns:        make(map[string][]*ssh.ServerConn),
+		abuseTracker:    NewAbuseTracker(),
+		domain:          domain,
+		maxTunnelsPerIP: maxTunnelsPerIP,
 	}
 
 	// When an IP is blocked, force-close all its SSH connections.
@@ -204,8 +206,8 @@ func (s *Server) CheckAndReserveConnection(clientIP string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.ipConnections[clientIP] >= config.MaxTunnelsPerIP {
-		return fmt.Errorf("rate limit exceeded: max %d tunnels per IP", config.MaxTunnelsPerIP)
+	if s.ipConnections[clientIP] >= s.maxTunnelsPerIP {
+		return fmt.Errorf("rate limit exceeded: max %d tunnels per IP", s.maxTunnelsPerIP)
 	}
 	if len(s.tunnels) >= config.MaxTotalTunnels {
 		return fmt.Errorf("server capacity reached: max %d total tunnels", config.MaxTotalTunnels)

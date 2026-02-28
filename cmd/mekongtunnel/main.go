@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
@@ -51,9 +52,14 @@ func main() {
 	if v := os.Getenv("DOMAIN"); v != "" {
 		cfg.Domain = v
 	}
+	if v := os.Getenv("MAX_TUNNELS_PER_IP"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.MaxTunnelsPerIP = n
+		}
+	}
 
 	// Create the proxy server (loads/generates SSH host key, sets up abuse tracker).
-	srv, err := proxy.New(cfg.HostKeyPath, cfg.Domain)
+	srv, err := proxy.New(cfg.HostKeyPath, cfg.Domain, cfg.MaxTunnelsPerIP)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

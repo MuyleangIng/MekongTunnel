@@ -287,7 +287,7 @@ func TestCopyWithLimits(t *testing.T) {
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	s, err := New(t.TempDir()+"/host_key", config.DefaultDomain)
+	s, err := New(t.TempDir()+"/host_key", config.DefaultDomain, config.DefaultMaxTunnelsPerIP)
 	if err != nil {
 		t.Fatalf("failed to create test server: %v", err)
 	}

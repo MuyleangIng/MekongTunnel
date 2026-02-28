@@ -17,10 +17,10 @@ const (
 	AuthorKhName = "អុឹង មួយលៀង"
 	AuthorHandle = "Ing_Muyleang"
 
-	DefaultDomain     = "muyleanging.com"
-	InactivityTimeout = 2 * time.Hour
-	MaxTunnelsPerIP   = 3                // Reduced from 5
-	MaxTotalTunnels   = 1000
+	DefaultDomain        = "muyleanging.com"
+	InactivityTimeout    = 2 * time.Hour
+	DefaultMaxTunnelsPerIP = 3           // Default; override with MAX_TUNNELS_PER_IP env var
+	MaxTotalTunnels      = 1000
 
 	// SSH handshake timeout
 	SSHHandshakeTimeout = 30 * time.Second
@@ -71,26 +71,28 @@ const (
 
 // Config holds runtime configuration loaded from environment
 type Config struct {
-	SSHAddr     string
-	HTTPAddr    string
-	HTTPSAddr   string
-	StatsAddr   string
-	HostKeyPath string
-	TLSCert     string
-	TLSKey      string
-	Domain      string
+	SSHAddr         string
+	HTTPAddr        string
+	HTTPSAddr       string
+	StatsAddr       string
+	HostKeyPath     string
+	TLSCert         string
+	TLSKey          string
+	Domain          string
+	MaxTunnelsPerIP int
 }
 
 // Default returns configuration with default values
 func Default() *Config {
 	return &Config{
-		SSHAddr:     ":22",
-		HTTPAddr:    ":80",
-		HTTPSAddr:   ":443",
-		StatsAddr:   "127.0.0.1:9090",
-		HostKeyPath: "host_key",
-		TLSCert:     fmt.Sprintf("/etc/letsencrypt/live/%s/fullchain.pem", DefaultDomain),
-		TLSKey:      fmt.Sprintf("/etc/letsencrypt/live/%s/privkey.pem", DefaultDomain),
-		Domain:      DefaultDomain,
+		SSHAddr:         ":22",
+		HTTPAddr:        ":80",
+		HTTPSAddr:       ":443",
+		StatsAddr:       "127.0.0.1:9090",
+		HostKeyPath:     "host_key",
+		TLSCert:         fmt.Sprintf("/etc/letsencrypt/live/%s/fullchain.pem", DefaultDomain),
+		TLSKey:          fmt.Sprintf("/etc/letsencrypt/live/%s/privkey.pem", DefaultDomain),
+		Domain:          DefaultDomain,
+		MaxTunnelsPerIP: DefaultMaxTunnelsPerIP,
 	}
 }

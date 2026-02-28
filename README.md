@@ -613,6 +613,41 @@ sudo ss -tlnp | grep -E ':(22|80|443)'
 sudo ufw status
 ```
 
+### "IP is temporarily blocked"
+
+Your IP exceeded the connection rate limit too many times and was auto-blocked for 1 hour.
+
+**Why it happens:** The server allows a maximum of 10 new SSH connections per IP per minute. After 10 violations of this limit, the IP is automatically blocked for 1 hour. This commonly happens when an SSH client is set to auto-reconnect in a tight loop (e.g. reconnecting every few seconds after a disconnect).
+
+**How to recover:**
+
+Option 1 — Wait it out:
+```
+ERROR: IP x.x.x.x is temporarily blocked. Try again in 58m0s
+```
+The block expires automatically. Check the remaining time in the error message.
+
+Option 2 — Restart the server (if you have access):
+```bash
+# Docker
+docker compose restart
+
+# Systemd
+sudo systemctl restart mekongtunnel
+```
+The block list is in-memory only — a restart clears all blocks instantly.
+
+**How to prevent it:** Use `ServerAliveInterval` to keep the connection alive instead of letting it drop and reconnect:
+
+```bash
+ssh -t -R 80:localhost:8080 \
+    -o ServerAliveInterval=60 \
+    -o ServerAliveCountMax=3 \
+    yourdomain.com
+```
+
+---
+
 ### "Certificate issues"
 
 ```bash

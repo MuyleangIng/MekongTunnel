@@ -84,22 +84,25 @@ You will see the tunnel banner with your public URL, a QR code to scan with your
 
 | Feature | Description |
 |---------|-------------|
-| Auto-reconnect | Reconnects automatically if the tunnel drops |
+| Auto-reconnect | Reconnects automatically if the tunnel drops (stops immediately if IP is blocked) |
 | QR code | Printed in terminal — scan with your phone instantly |
 | Clipboard | Public URL copied to clipboard automatically |
 | Cross-platform | macOS, Linux, Windows |
 
-> **Warning — Auto-reconnect and IP blocking:**
-> The `mekong` CLI reconnects automatically when the tunnel drops. If the connection drops repeatedly in a short period, the rapid reconnect attempts can exceed the server's rate limit (30 new connections per IP per minute). After 10 violations the server will block your IP for 15 minutes.
->
-> To avoid this, use `--no-reconnect` if you are debugging a flapping connection, or use the raw `ssh` command with `ServerAliveInterval` to keep the tunnel stable instead of letting it drop:
+> **Note — Auto-reconnect and IP blocking:**
+> The `mekong` CLI reconnects automatically when the tunnel drops, using exponential backoff (2s → 4s → 8s → … → 60s max). If the server blocks your IP due to too many rapid reconnects, the CLI now **detects the block and exits immediately** instead of retrying:
+> ```
+> ✖  IP is blocked: ERROR: IP x.x.x.x is temporarily blocked. Try again in 14m0s
+> ✖  Reconnect aborted — wait for the block to expire, then try again.
+> ```
+> To prevent getting blocked in the first place, use `--no-reconnect` when debugging a flapping connection, or use the raw `ssh` command with `ServerAliveInterval` to keep the tunnel stable:
 > ```bash
 > ssh -t -R 80:localhost:8080 \
 >     -o ServerAliveInterval=60 \
 >     -o ServerAliveCountMax=3 \
 >     mekongtunnel.dev
 > ```
-> See [Troubleshooting → "IP is temporarily blocked"](#ip-is-temporarily-blocked) if you are already blocked.
+> See [Troubleshooting → "IP is temporarily blocked"](#ip-is-temporarily-blocked) for recovery steps.
 
 ---
 
@@ -627,9 +630,15 @@ sudo ufw status
 
 ### "IP is temporarily blocked"
 
-Your IP exceeded the connection rate limit too many times and was auto-blocked for 1 hour.
+Your IP exceeded the connection rate limit too many times and was auto-blocked for 15 minutes.
 
 **Why it happens:** The server allows a maximum of 30 new SSH connections per IP per minute. After 10 violations of this limit, the IP is automatically blocked for 15 minutes. This commonly happens when an SSH client is set to auto-reconnect in a tight loop (e.g. reconnecting every few seconds after a disconnect).
+
+**If you are using the `mekong` CLI:** it now detects this error automatically and exits instead of retrying. You will see:
+```
+✖  IP is blocked: ERROR: IP x.x.x.x is temporarily blocked. Try again in 14m0s
+✖  Reconnect aborted — wait for the block to expire, then try again.
+```
 
 **How to recover:**
 

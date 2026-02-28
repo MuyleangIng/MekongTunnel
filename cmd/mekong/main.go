@@ -11,14 +11,17 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -30,6 +33,9 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/term"
 )
+
+// version is set at build time via -ldflags "-X main.version=..."
+var version = "dev"
 
 // errBlocked is returned by connect() when the server reports the IP is blocked.
 // The main loop treats this as a permanent failure and stops retrying.
@@ -65,6 +71,17 @@ type forwardedTCPIPData struct {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "update":
+			selfUpdate()
+			return
+		case "version", "--version", "-v":
+			fmt.Printf("mekong %s\n", version)
+			return
+		}
+	}
+
 	var (
 		serverFlag  = flag.String("server", "mekongtunnel.dev", "MekongTunnel server hostname")
 		portFlag    = flag.Int("port", 22, "SSH server port")
@@ -302,6 +319,104 @@ func streamOutput(r io.Reader, urlCh chan<- string, blockedCh chan<- string) {
 		}
 	}
 	close(urlCh)
+}
+
+// selfUpdate checks GitHub for the latest release and replaces the running binary.
+func selfUpdate() {
+	fmt.Printf("%s  →  Checking for updates...%s\n", gray, reset)
+
+	resp, err := http.Get("https://api.github.com/repos/MuyleangIng/MekongTunnel/releases/latest") //nolint:noctx
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s  ✖  Failed to reach GitHub: %v%s\n", red, err, reset)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		fmt.Fprintf(os.Stderr, "%s  ✖  Failed to parse release info: %v%s\n", red, err, reset)
+		os.Exit(1)
+	}
+
+	latest := release.TagName
+	if latest == "" {
+		fmt.Fprintf(os.Stderr, "%s  ✖  No release found.%s\n", red, reset)
+		os.Exit(1)
+	}
+
+	if version != "dev" && version == latest {
+		fmt.Printf("%s  ✔  Already up to date (%s).%s\n", green, version, reset)
+		return
+	}
+
+	// Determine asset name for this platform
+	var assetName string
+	switch runtime.GOOS + "/" + runtime.GOARCH {
+	case "darwin/arm64":
+		assetName = "mekong-darwin-arm64"
+	case "darwin/amd64":
+		assetName = "mekong-darwin-amd64"
+	case "linux/amd64":
+		assetName = "mekong-linux-amd64"
+	case "linux/arm64":
+		assetName = "mekong-linux-arm64"
+	case "windows/amd64":
+		assetName = "mekong-windows-amd64.exe"
+	default:
+		fmt.Fprintf(os.Stderr, "%s  ✖  Unsupported platform: %s/%s%s\n", red, runtime.GOOS, runtime.GOARCH, reset)
+		os.Exit(1)
+	}
+
+	downloadURL := fmt.Sprintf("https://github.com/MuyleangIng/MekongTunnel/releases/download/%s/%s", latest, assetName)
+	fmt.Printf("%s  →  Downloading %s %s...%s\n", gray, assetName, latest, reset)
+
+	dlResp, err := http.Get(downloadURL) //nolint:noctx
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s  ✖  Download failed: %v%s\n", red, err, reset)
+		os.Exit(1)
+	}
+	defer dlResp.Body.Close()
+
+	if dlResp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "%s  ✖  Download failed: HTTP %d%s\n", red, dlResp.StatusCode, reset)
+		os.Exit(1)
+	}
+
+	// Write to a temp file next to the current binary so os.Rename is atomic
+	currentBinary, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s  ✖  Cannot locate current binary: %v%s\n", red, err, reset)
+		os.Exit(1)
+	}
+
+	tmpFile, err := os.CreateTemp("", "mekong-update-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s  ✖  Cannot create temp file: %v%s\n", red, err, reset)
+		os.Exit(1)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath) // clean up on failure
+
+	if _, err := io.Copy(tmpFile, dlResp.Body); err != nil {
+		tmpFile.Close()
+		fmt.Fprintf(os.Stderr, "%s  ✖  Write failed: %v%s\n", red, err, reset)
+		os.Exit(1)
+	}
+	tmpFile.Close()
+
+	if err := os.Chmod(tmpPath, 0755); err != nil { //nolint:gosec
+		fmt.Fprintf(os.Stderr, "%s  ✖  chmod failed: %v%s\n", red, err, reset)
+		os.Exit(1)
+	}
+
+	if err := os.Rename(tmpPath, currentBinary); err != nil {
+		fmt.Fprintf(os.Stderr, "%s  ✖  Replace failed: %v%s\n", red, err, reset)
+		os.Exit(1)
+	}
+
+	fmt.Printf("%s  ✔  Updated to %s — restart mekong to use the new version.%s\n", green, latest, reset)
 }
 
 // proxyToLocal accepts a forwarded-tcpip SSH channel and proxies it to localhost:port.

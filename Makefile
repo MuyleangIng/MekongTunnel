@@ -20,7 +20,7 @@ BUILD_TIME?=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 # Linker flags for size optimization
 # -s: Omit symbol table and debug info
 # -w: Omit DWARF symbol table
-LDFLAGS=-s -w
+LDFLAGS=-s -w -X main.version=$(VERSION)
 
 # Build tags to exclude unnecessary features
 BUILD_TAGS=

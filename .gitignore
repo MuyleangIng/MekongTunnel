@@ -2,7 +2,7 @@
 bin/
 host_key
 *.exe
-mekong
+/mekong
 certs/
 
 # Local environment config (contains secrets — never commit)

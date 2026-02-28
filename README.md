@@ -89,6 +89,18 @@ You will see the tunnel banner with your public URL, a QR code to scan with your
 | Clipboard | Public URL copied to clipboard automatically |
 | Cross-platform | macOS, Linux, Windows |
 
+> **Warning — Auto-reconnect and IP blocking:**
+> The `mekong` CLI reconnects automatically when the tunnel drops. If the connection drops repeatedly in a short period, the rapid reconnect attempts can exceed the server's rate limit (10 new connections per IP per minute). After 10 violations the server will block your IP for 1 hour.
+>
+> To avoid this, use `--no-reconnect` if you are debugging a flapping connection, or use the raw `ssh` command with `ServerAliveInterval` to keep the tunnel stable instead of letting it drop:
+> ```bash
+> ssh -t -R 80:localhost:8080 \
+>     -o ServerAliveInterval=60 \
+>     -o ServerAliveCountMax=3 \
+>     mekongtunnel.dev
+> ```
+> See [Troubleshooting → "IP is temporarily blocked"](#ip-is-temporarily-blocked) if you are already blocked.
+
 ---
 
 ## What Is This?

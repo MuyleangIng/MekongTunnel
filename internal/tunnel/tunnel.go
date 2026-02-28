@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
@@ -33,6 +34,7 @@ type Tunnel struct {
 	rateLimiter   *RateLimiter
 	sshConn       SSHCloser        // Reference to SSH connection for forced closure
 	rateLimitHits int              // Count of rate limit violations
+	requestCount  uint64           // Total HTTP requests proxied through this tunnel
 	transport     *http.Transport  // Reusable HTTP transport for proxying
 	logger        *RequestLogger   // Async request logger for SSH terminal output
 }
@@ -58,6 +60,16 @@ func New(subdomain string, listener net.Listener, bindAddr string, bindPort uint
 			IdleConnTimeout: 90 * time.Second,
 		},
 	}
+}
+
+// IncrementRequestCount atomically increments the per-tunnel HTTP request counter.
+func (t *Tunnel) IncrementRequestCount() {
+	atomic.AddUint64(&t.requestCount, 1)
+}
+
+// RequestCount returns the total number of HTTP requests proxied through this tunnel.
+func (t *Tunnel) RequestCount() uint64 {
+	return atomic.LoadUint64(&t.requestCount)
 }
 
 // Touch updates the last active timestamp

@@ -84,12 +84,13 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 
 	s.IncrementConnections()
 
-	sub, err := s.GenerateUniqueSubdomain()
+	sub, wasSuggested, err := s.ClaimSubdomain(sshConn.User())
 	if err != nil {
-		log.Printf("Failed to generate subdomain: %v", err)
+		log.Printf("Failed to assign subdomain: %v", err)
 		return
 	}
-	log.Printf("New SSH connection from %s, assigned subdomain: %s", sshConn.RemoteAddr(), sub)
+	log.Printf("New SSH connection from %s, assigned subdomain: %s (custom=%v, suggested=%v)",
+		sshConn.RemoteAddr(), sub, sshConn.User() != "tunnel" && sshConn.User() != "", wasSuggested)
 
 	// Create an internal TCP listener. The HTTP proxy will dial this address
 	// and the SSH handler will forward connections from it back to the client.
@@ -167,6 +168,12 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 		yellow    = "\033[1;33m"
 	)
 
+	suggestionLine := ""
+	requestedSub := sshConn.User()
+	if wasSuggested && requestedSub != "" && requestedSub != "tunnel" {
+		suggestionLine = yellow + "  ⚠  \"" + requestedSub + "\" was taken — using " + sub + " instead" + reset + "\r\n"
+	}
+
 	urlMessage := "\r\n" +
 		cyan + "  ███╗   ███╗███████╗██╗  ██╗ ██████╗ ███╗   ██╗ ██████╗ \r\n" +
 		"  ████╗ ████║██╔════╝██║ ██╔╝██╔═══██╗████╗  ██║██╔════╝ \r\n" +
@@ -178,6 +185,7 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 		gray + "  by " + yellow + "Ing Muyleang" + gray + " · Founder of " + yellow + "KhmerStack" + reset + "\r\n" +
 		gray + "  ─────────────────────────────────────────────────────" + reset + "\r\n" +
 		boldGreen + "  ✔  Tunnel is live!" + reset + "\r\n" +
+		suggestionLine +
 		gray + "     URL      " + purple + url + reset + "\r\n" +
 		gray + "     Expires  " + expiresLine + reset + "\r\n\r\n"
 

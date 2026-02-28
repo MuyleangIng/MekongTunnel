@@ -67,8 +67,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	sub := strings.TrimSuffix(host, "."+s.domain)
 
-	// Validate subdomain against the whitelist to prevent injection attacks.
-	if !domain.IsValid(sub) {
+	// Accept both auto-generated (adjective-noun-hex) and custom subdomains.
+	if !domain.IsValid(sub) && !domain.IsValidCustom(sub) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
@@ -94,6 +94,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tun.Touch()
 	s.IncrementRequests()
+	tun.IncrementRequestCount()
 
 	// Show a phishing-warning interstitial for first-time browser visits.
 	// The warning sets a cookie so the user only sees it once per day.

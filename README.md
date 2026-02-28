@@ -16,12 +16,12 @@
 
 ## Install mekong CLI (Recommended)
 
-The `mekong` CLI is the easiest way to use MekongTunnel — no SSH flags, auto-reconnect, QR code, and clipboard copy built in.
+The `mekong` CLI is the easiest way to use MekongTunnel — no SSH flags, auto-reconnect, QR code, clipboard copy, daemon mode, and more.
 
 ### macOS (Apple Silicon — M1, M2, M3)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.3.0/mekong-darwin-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.0/mekong-darwin-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -30,17 +30,16 @@ mekong 3000
 ### macOS (Intel)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.3.0/mekong-darwin-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.0/mekong-darwin-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
 ```
 
-
 ### Linux (amd64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.3.0/mekong-linux-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.0/mekong-linux-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
@@ -48,14 +47,14 @@ mekong 3000
 ### Linux (arm64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.3.0/mekong-linux-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.0/mekong-linux-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
 
 ### Windows
 
-Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.3.0/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
+Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.0/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
 
 ---
 
@@ -65,8 +64,26 @@ Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunne
 # Expose localhost:3000
 mekong 3000
 
-# Expose localhost:8080
-mekong 8080
+# Expose two ports at once (each gets its own URL)
+mekong 3000 8080
+
+# Request a custom subdomain
+mekong 8080 --subdomain myapp
+# → https://myapp.mekongtunnel.dev
+# If "myapp" is taken, the server suggests the next available name:
+# ⚠  "myapp" was taken — using myapp-a1b2 instead
+
+# Run tunnel in background (daemon mode) — frees your terminal
+mekong -d 3000
+
+# Show your active tunnels
+mekong status
+
+# Show tunnel for a specific port
+mekong status 3000
+
+# Stop a background tunnel
+mekong stop
 
 # Use a custom server
 mekong 3000 --server mekongtunnel.dev
@@ -79,31 +96,67 @@ mekong 3000 --no-clipboard
 
 # Exit on disconnect instead of reconnecting
 mekong 3000 --no-reconnect
-```
 
-You will see the tunnel banner with your public URL, a QR code to scan with your phone, and the URL is automatically copied to your clipboard.
+# Update mekong to the latest version
+mekong update
+```
 
 ### mekong CLI Features
 
 | Feature | Description |
 |---------|-------------|
-| Auto-reconnect | Reconnects automatically if the tunnel drops (stops immediately if IP is blocked) |
+| Auto-reconnect | Reconnects automatically with exponential backoff (2s → 60s max) |
 | QR code | Printed in terminal — scan with your phone instantly |
 | Clipboard | Public URL copied to clipboard automatically |
+| Custom subdomain | `--subdomain myapp` requests a named URL; suggests alternatives if taken |
+| Multi-port | `mekong 3000 8080` — each port gets its own URL, runs concurrently |
+| Daemon mode | `-d` runs in background; logs go to `~/.mekong/mekong.log` |
+| Status command | `mekong status` shows your active tunnels (yours only, not other users') |
+| Stop command | `mekong stop` gracefully stops a background tunnel |
+| Self-update | `mekong update` downloads and replaces the binary in one step |
 | Cross-platform | macOS, Linux, Windows |
 
+### Daemon mode
+
+Run a tunnel in the background without keeping a terminal open:
+
+```bash
+mekong -d 3000
+```
+
+```
+  ✔  mekong running in background
+     PID     48291
+     Logs    ~/.mekong/mekong.log
+     Status  mekong status
+     Stop    mekong stop
+```
+
+Check on it or stop it later:
+
+```bash
+mekong status      # show URL, uptime, local port
+mekong status 3000 # filter to a specific port
+mekong stop        # send SIGTERM and clean up
+```
+
+Logs are written to `~/.mekong/mekong.log` — each user has their own state under `~/.mekong/`.
+
+### Custom subdomain
+
+```bash
+mekong 8080 --subdomain myapp
+# → https://myapp.mekongtunnel.dev  (if available)
+# → https://myapp-a1b2.mekongtunnel.dev  (if myapp is taken — server suggests next free name)
+```
+
+Rules: lowercase letters, digits, and hyphens; 3–50 characters; no leading or trailing hyphen.
+
 > **Note — Auto-reconnect and IP blocking:**
-> The `mekong` CLI reconnects automatically when the tunnel drops, using exponential backoff (2s → 4s → 8s → … → 60s max). If the server blocks your IP due to too many rapid reconnects, the CLI now **detects the block and exits immediately** instead of retrying:
+> The `mekong` CLI reconnects automatically when the tunnel drops. If the server blocks your IP, the CLI detects it and exits instead of retrying:
 > ```
 > ✖  IP is blocked: ERROR: IP x.x.x.x is temporarily blocked. Try again in 14m0s
 > ✖  Reconnect aborted — wait for the block to expire, then try again.
-> ```
-> To prevent getting blocked in the first place, use `--no-reconnect` when debugging a flapping connection, or use the raw `ssh` command with `ServerAliveInterval` to keep the tunnel stable:
-> ```bash
-> ssh -t -R 80:localhost:8080 \
->     -o ServerAliveInterval=60 \
->     -o ServerAliveCountMax=3 \
->     mekongtunnel.dev
 > ```
 > See [Troubleshooting → "IP is temporarily blocked"](#ip-is-temporarily-blocked) for recovery steps.
 
@@ -115,7 +168,7 @@ MekongTunnel is a self-hosted SSH tunnel server written in Go.
 It works like ngrok or Cloudflare Tunnel but you run it yourself on your own domain.
 
 When a client connects, the server:
-1. Generates a unique public URL (e.g. `https://happy-tiger-a1b2c3d4.mekongtunnel.dev`)
+1. Assigns a public URL (auto-generated or your custom subdomain)
 2. Terminates TLS on port 443
 3. Reverse-proxies every HTTPS request through the SSH connection to the client's local port
 
@@ -205,7 +258,15 @@ ssh -t -R 80:localhost:8080 \
 
 ### Run multiple tunnels at the same time
 
-Each SSH connection gets its own subdomain. Just open multiple terminals:
+With `mekong`:
+
+```bash
+mekong 3000 8080
+# Port 3000 → https://happy-tiger-a1b2.mekongtunnel.dev
+# Port 8080 → https://swift-eagle-c3d4.mekongtunnel.dev
+```
+
+With raw SSH (open multiple terminals):
 
 ```bash
 # Terminal 1 — frontend
@@ -376,7 +437,7 @@ TLS_KEY=/certs/privkey.pem
 | `SSH_ADDR` | `:22` | SSH server listen address |
 | `HTTP_ADDR` | `:80` | HTTP redirect server |
 | `HTTPS_ADDR` | `:443` | HTTPS proxy server |
-| `STATS_ADDR` | `127.0.0.1:9090` | Metrics endpoint (localhost only) |
+| `STATS_ADDR` | `127.0.0.1:9090` | Dashboard and metrics (localhost only) |
 | `HOST_KEY_PATH` | `host_key` | SSH host key file (auto-generated if missing) |
 | `TLS_CERT` | `/certs/fullchain.pem` | TLS certificate (inside container) |
 | `TLS_KEY` | `/certs/privkey.pem` | TLS private key (inside container) |
@@ -409,20 +470,20 @@ MekongTunnel/
 │   ├── mekongtunnel/
 │   │   └── main.go              ← server entry point (starts all 4 servers)
 │   └── mekong/
-│       └── main.go              ← CLI client (auto-reconnect, QR code, clipboard)
+│       └── main.go              ← CLI client (reconnect, QR, daemon, status, stop)
 ├── internal/
 │   ├── config/
 │   │   └── config.go            ← constants, limits, and runtime config
 │   ├── proxy/                   ← SSH + HTTP server components
-│   │   ├── proxy.go             ← tunnel registry and server struct
+│   │   ├── proxy.go             ← tunnel registry, ClaimSubdomain logic
 │   │   ├── ssh.go               ← SSH connection and port-forwarding handler
 │   │   ├── http.go              ← HTTPS reverse proxy, WebSocket, warning page
-│   │   ├── stats.go             ← JSON metrics endpoint
+│   │   ├── stats.go             ← web dashboard (/) and JSON API (/api/stats)
 │   │   └── abuse.go             ← rate limiting and IP blocking
 │   ├── domain/                  ← subdomain generation and validation
-│   │   └── domain.go
+│   │   └── domain.go            ← auto-generate + custom subdomain support
 │   └── tunnel/                  ← per-tunnel state and lifecycle
-│       ├── tunnel.go
+│       ├── tunnel.go            ← request counter, rate limiter, logger
 │       ├── ratelimit.go         ← token-bucket rate limiter (10 req/s, burst 20)
 │       └── logger.go            ← async SSH terminal request logger
 ├── Dockerfile                   ← multi-stage build → scratch image (~6 MB)
@@ -455,15 +516,15 @@ MekongTunnel/
 make test
 
 # Or directly with Go
-/opt/homebrew/bin/go test ./...
+go test ./...
 
 # Verbose output
-/opt/homebrew/bin/go test -v ./...
+go test -v ./...
 
 # Single package
-/opt/homebrew/bin/go test -v ./internal/domain/...
-/opt/homebrew/bin/go test -v ./internal/tunnel/...
-/opt/homebrew/bin/go test -v ./internal/proxy/...
+go test -v ./internal/domain/...
+go test -v ./internal/tunnel/...
+go test -v ./internal/proxy/...
 ```
 
 ---
@@ -488,19 +549,26 @@ make test
 
 ---
 
-## Stats Endpoint
+## Admin Dashboard & Stats
 
 Available on localhost only (`127.0.0.1:9090`):
 
-```bash
-# Basic stats
-curl http://127.0.0.1:9090/
+| Endpoint | Description |
+|----------|-------------|
+| `http://127.0.0.1:9090/` | Live HTML dashboard — auto-refreshes every 3 seconds |
+| `http://127.0.0.1:9090/api/stats` | JSON metrics snapshot |
 
-# Include active subdomain names
-curl "http://127.0.0.1:9090/?subdomains=true"
+The dashboard shows active tunnel count, total requests, blocked IPs, and a per-tunnel table (subdomain, client IP, uptime, request count).
+
+```bash
+# Open dashboard in browser
+open http://127.0.0.1:9090/
+
+# JSON API
+curl http://127.0.0.1:9090/api/stats
 ```
 
-Example response:
+Example JSON response:
 
 ```json
 {
@@ -511,7 +579,10 @@ Example response:
   "blocked_ips": 1,
   "total_blocked": 5,
   "total_rate_limited": 23,
-  "subdomains": ["happy-tiger-a1b2c3d4", "calm-eagle-e5f6a7b8"]
+  "tunnels": [
+    { "subdomain": "happy-tiger-a1b2", "client_ip": "1.2.3.4", "uptime_secs": 842, "request_count": 120 },
+    { "subdomain": "myapp",            "client_ip": "5.6.7.8", "uptime_secs": 310, "request_count": 45  }
+  ]
 }
 ```
 
@@ -541,8 +612,8 @@ Your Browser
                localhost:8080  (your app)
 ```
 
-1. You run `ssh -t -R 80:localhost:8080 yourdomain.com`
-2. Server assigns you a subdomain and shows the public URL
+1. You run `mekong 8080` (or `ssh -t -R 80:localhost:8080 yourdomain.com`)
+2. Server assigns a subdomain (or honours your `--subdomain` request) and shows the public URL
 3. A browser opens `https://happy-tiger-a1b2c3d4.yourdomain.com`
 4. Server looks up the tunnel, dials the internal listener
 5. Opens a `forwarded-tcpip` SSH channel back to your client
@@ -635,9 +706,9 @@ sudo ufw status
 
 Your IP exceeded the connection rate limit too many times and was auto-blocked for 15 minutes.
 
-**Why it happens:** The server allows a maximum of 30 new SSH connections per IP per minute. After 10 violations of this limit, the IP is automatically blocked for 15 minutes. This commonly happens when an SSH client is set to auto-reconnect in a tight loop (e.g. reconnecting every few seconds after a disconnect).
+**Why it happens:** The server allows a maximum of 30 new SSH connections per IP per minute. After 10 violations, the IP is blocked for 15 minutes. This commonly happens when an SSH client reconnects in a tight loop.
 
-**If you are using the `mekong` CLI:** it now detects this error automatically and exits instead of retrying. You will see:
+**If you are using the `mekong` CLI:** it detects this error automatically and exits instead of retrying:
 ```
 ✖  IP is blocked: ERROR: IP x.x.x.x is temporarily blocked. Try again in 14m0s
 ✖  Reconnect aborted — wait for the block to expire, then try again.
@@ -645,11 +716,7 @@ Your IP exceeded the connection rate limit too many times and was auto-blocked f
 
 **How to recover:**
 
-Option 1 — Wait it out:
-```
-ERROR: IP x.x.x.x is temporarily blocked. Try again in 58m0s
-```
-The block expires automatically. Check the remaining time in the error message.
+Option 1 — Wait it out (block expires automatically — check the remaining time in the error message).
 
 Option 2 — Restart the server (if you have access):
 ```bash
@@ -661,7 +728,7 @@ sudo systemctl restart mekongtunnel
 ```
 The block list is in-memory only — a restart clears all blocks instantly.
 
-**How to prevent it:** Use `ServerAliveInterval` to keep the connection alive instead of letting it drop and reconnect:
+**How to prevent it:** Use `ServerAliveInterval` to keep the connection alive:
 
 ```bash
 ssh -t -R 80:localhost:8080 \
@@ -682,6 +749,34 @@ sudo certbot renew
 sudo cp /etc/letsencrypt/live/yourdomain.com/*.pem data/certs/
 docker compose restart
 ```
+
+---
+
+## Changelog
+
+### v1.4.0
+- **Custom subdomain** — `mekong 8080 --subdomain myapp` requests a named URL; server suggests the next available name if taken
+- **Multi-port** — `mekong 3000 8080` exposes multiple ports at once, each with its own URL
+- **Daemon mode** — `mekong -d 3000` runs in the background and frees the terminal; logs go to `~/.mekong/mekong.log`
+- **Status command** — `mekong status` shows your active tunnels (URL, uptime, local port); `mekong status 3000` filters by port
+- **Stop command** — `mekong stop` gracefully stops a background tunnel
+- **Web dashboard** — live HTML dashboard at `http://127.0.0.1:9090/` (auto-refreshes every 3s); JSON API moved to `/api/stats`
+- **Per-tunnel request counter** — dashboard and JSON API now show request counts per tunnel
+
+### v1.3.0
+- Self-update command (`mekong update`)
+- Version embedding via ldflags
+
+### v1.2.0
+- Auto-reconnect with exponential backoff
+- IP block detection — exits instead of retrying when blocked
+
+### v1.1.0
+- QR code in terminal
+- Clipboard auto-copy
+
+### v1.0.0
+- Initial release
 
 ---
 

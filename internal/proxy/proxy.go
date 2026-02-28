@@ -140,6 +140,46 @@ func (s *Server) GenerateUniqueSubdomain() (string, error) {
 	return "", fmt.Errorf("failed to generate unique subdomain after %d attempts", maxAttempts)
 }
 
+// ClaimSubdomain tries to reserve the desired custom subdomain.
+//
+//   - If desired is empty or "tunnel", auto-generates a random memorable name.
+//   - If desired is not a valid custom subdomain format, falls back to auto-generate.
+//   - If desired is available, returns it with wasSuggested=false.
+//   - If desired is already taken, tries up to 5 variations of "<desired>-<4hex>".
+//   - Falls back to full auto-generate if all suggestions are also taken.
+func (s *Server) ClaimSubdomain(desired string) (actual string, wasSuggested bool, err error) {
+	if desired == "" || desired == "tunnel" || !domain.IsValidCustom(desired) {
+		sub, err := s.GenerateUniqueSubdomain()
+		return sub, false, err
+	}
+
+	// Try exact match first.
+	s.mu.RLock()
+	_, taken := s.tunnels[desired]
+	s.mu.RUnlock()
+	if !taken {
+		return desired, false, nil
+	}
+
+	// Desired is taken — try "<desired>-<4hex>" variants.
+	for i := 0; i < 5; i++ {
+		suggestion, genErr := domain.GenerateWithBase(desired)
+		if genErr != nil {
+			continue
+		}
+		s.mu.RLock()
+		_, taken = s.tunnels[suggestion]
+		s.mu.RUnlock()
+		if !taken {
+			return suggestion, true, nil
+		}
+	}
+
+	// All suggestions taken — fall back to fully random.
+	sub, err := s.GenerateUniqueSubdomain()
+	return sub, true, err
+}
+
 // CheckAndReserveConnection checks whether a new connection from clientIP is allowed
 // and atomically reserves a slot if it is. Returns nil on success.
 // On success the caller MUST call DecrementIPConnection when the connection ends.

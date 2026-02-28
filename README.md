@@ -23,6 +23,7 @@ The `mekong` CLI is the easiest way to use MekongTunnel — no SSH flags, auto-r
 ```bash
 sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.1.0/mekong-darwin-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
+xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
 ```
 
@@ -31,8 +32,11 @@ mekong 3000
 ```bash
 sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.1.0/mekong-darwin-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
+xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
 ```
+
+> **macOS security prompt:** If you see _"mekong cannot be opened because it is from an unidentified developer"_, the `xattr` line above removes the quarantine flag and fixes it. You only need to run it once after installing.
 
 ### Linux (amd64)
 

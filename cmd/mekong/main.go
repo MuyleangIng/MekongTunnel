@@ -146,8 +146,10 @@ func isValidSubdomain(s string) bool {
 func reorderArgs(args []string) []string {
 	// Flags that consume the next token as their value.
 	valueFlags := map[string]bool{
-		"--server": true, "-server": true,
-		"--port": true, "-port": true,
+		"--server":   true, "-server":   true,
+		"--ssh-port": true, "-ssh-port": true,
+		"--port":     true, "-port":     true,
+		"-p":         true,
 		"--subdomain": true, "-subdomain": true,
 	}
 	var flags, positional []string
@@ -195,21 +197,25 @@ func main() {
 
 	var (
 		serverFlag    = flag.String("server", "mekongtunnel.dev", "MekongTunnel server hostname")
-		portFlag      = flag.Int("port", 22, "SSH server port")
+		sshPortFlag   = flag.Int("ssh-port", 22, "SSH server port")
+		localPortFlag = flag.Int("port", 0, "Local port to expose (alternative to positional arg)")
 		subdomainFlag = flag.String("subdomain", "", "Request a custom subdomain (e.g. myapp)")
 		detachFlag    = flag.Bool("d", false, "Run tunnel in background (daemon mode)")
 		noQR          = flag.Bool("no-qr", false, "Disable QR code display")
 		noClip        = flag.Bool("no-clipboard", false, "Disable auto clipboard copy")
 		noReconnect   = flag.Bool("no-reconnect", false, "Disable auto-reconnect on disconnect")
 	)
+	flag.IntVar(localPortFlag, "p", 0, "Local port to expose (shorthand for --port)")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "  Usage: mekong [flags] <local-port> [local-port...]")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "  Examples:")
 		fmt.Fprintln(os.Stderr, "    mekong 3000                            expose localhost:3000")
+		fmt.Fprintln(os.Stderr, "    mekong -p 3000 --subdomain myapp       flag-style (any order)")
+		fmt.Fprintln(os.Stderr, "    mekong --port 3000 --subdomain myapp   same, long form")
 		fmt.Fprintln(os.Stderr, "    mekong 3000 8080                       expose two ports")
-		fmt.Fprintln(os.Stderr, "    mekong 8080 --subdomain myapp          request custom subdomain")
+		fmt.Fprintln(os.Stderr, "    mekong 8080 --subdomain myapp          positional + subdomain")
 		fmt.Fprintln(os.Stderr, "    mekong -d 3000                         run in background")
 		fmt.Fprintln(os.Stderr, "    mekong status                          show your active tunnels")
 		fmt.Fprintln(os.Stderr, "    mekong status 3000                     show tunnel for port 3000")
@@ -227,28 +233,42 @@ func main() {
 	os.Args = append(os.Args[:1], reorderArgs(os.Args[1:])...)
 	flag.Parse()
 
-	if flag.NArg() < 1 {
-		flag.Usage()
-		os.Exit(1)
+	// Build port list: -p/--port flag takes priority; fall back to positional args.
+	var ports []int
+	if *localPortFlag > 0 {
+		if *localPortFlag < 1 || *localPortFlag > 65535 {
+			fmt.Fprintf(os.Stderr, "  error: invalid port %d\n", *localPortFlag)
+			os.Exit(1)
+		}
+		ports = []int{*localPortFlag}
+		// positional args not allowed when -p is used
+		if flag.NArg() > 0 {
+			fmt.Fprintf(os.Stderr, "  error: cannot mix -p/--port flag with positional port arguments\n")
+			os.Exit(1)
+		}
+	} else {
+		if flag.NArg() < 1 {
+			flag.Usage()
+			os.Exit(1)
+		}
+		ports = make([]int, 0, flag.NArg())
+		for _, arg := range flag.Args() {
+			p, err := strconv.Atoi(arg)
+			if err != nil || p < 1 || p > 65535 {
+				fmt.Fprintf(os.Stderr, "  error: invalid port %q\n", arg)
+				os.Exit(1)
+			}
+			ports = append(ports, p)
+		}
 	}
 
 	if *subdomainFlag != "" && !isValidSubdomain(*subdomainFlag) {
 		fmt.Fprintf(os.Stderr, "  error: invalid subdomain %q — use lowercase letters, digits, hyphens (3–50 chars)\n", *subdomainFlag)
 		os.Exit(1)
 	}
-	if *subdomainFlag != "" && flag.NArg() > 1 {
+	if *subdomainFlag != "" && len(ports) > 1 {
 		fmt.Fprintf(os.Stderr, "  error: --subdomain can only be used with a single port\n")
 		os.Exit(1)
-	}
-
-	ports := make([]int, 0, flag.NArg())
-	for _, arg := range flag.Args() {
-		p, err := strconv.Atoi(arg)
-		if err != nil || p < 1 || p > 65535 {
-			fmt.Fprintf(os.Stderr, "  error: invalid port %q\n", arg)
-			os.Exit(1)
-		}
-		ports = append(ports, p)
 	}
 
 	// --- Daemon mode ---
@@ -304,7 +324,7 @@ func main() {
 					backoff = 2 * time.Second
 				}
 
-				tunnelURL, err := connect(*serverFlag, *portFlag, localPort, subdomain, !*noQR, !*noClip)
+				tunnelURL, err := connect(*serverFlag, *sshPortFlag, localPort, subdomain, !*noQR, !*noClip)
 				if tunnelURL != "" {
 					parts := strings.SplitN(tunnelURL, ".", 2)
 					sub := strings.TrimPrefix(parts[0], "https://")

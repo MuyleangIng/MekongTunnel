@@ -84,13 +84,16 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 
 	s.IncrementConnections()
 
-	sub, wasSuggested, err := s.ClaimSubdomain(sshConn.User())
+	desiredSub := sshConn.User()
+	log.Printf("New SSH connection from %s, SSH User=%q", sshConn.RemoteAddr(), desiredSub)
+
+	sub, wasSuggested, err := s.ClaimSubdomain(desiredSub)
 	if err != nil {
 		log.Printf("Failed to assign subdomain: %v", err)
 		return
 	}
-	log.Printf("New SSH connection from %s, assigned subdomain: %s (custom=%v, suggested=%v)",
-		sshConn.RemoteAddr(), sub, sshConn.User() != "tunnel" && sshConn.User() != "", wasSuggested)
+	log.Printf("Assigned subdomain: %s (custom=%v, suggested=%v)",
+		sub, desiredSub != "tunnel" && desiredSub != "", wasSuggested)
 
 	// Create an internal TCP listener. The HTTP proxy will dial this address
 	// and the SSH handler will forward connections from it back to the client.
@@ -169,9 +172,13 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 	)
 
 	suggestionLine := ""
-	requestedSub := sshConn.User()
-	if wasSuggested && requestedSub != "" && requestedSub != "tunnel" {
-		suggestionLine = yellow + "  ⚠  \"" + requestedSub + "\" was taken — using " + sub + " instead" + reset + "\r\n"
+	if wasSuggested && desiredSub != "" && desiredSub != "tunnel" {
+		suggestionLine = yellow + "  ⚠  \"" + desiredSub + "\" was taken — using " + sub + " instead" + reset + "\r\n"
+	}
+
+	requestedLine := ""
+	if desiredSub != "" && desiredSub != "tunnel" {
+		requestedLine = gray + "     Requested " + purple + desiredSub + reset + "\r\n"
 	}
 
 	urlMessage := "\r\n" +
@@ -186,6 +193,7 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 		gray + "  ─────────────────────────────────────────────────────" + reset + "\r\n" +
 		boldGreen + "  ✔  Tunnel is live!" + reset + "\r\n" +
 		suggestionLine +
+		requestedLine +
 		gray + "     URL      " + purple + url + reset + "\r\n" +
 		gray + "     Expires  " + expiresLine + reset + "\r\n\r\n"
 

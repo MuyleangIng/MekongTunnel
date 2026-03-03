@@ -1,14 +1,13 @@
 // mekong — CLI client for MekongTunnel.
-// Exposes one or more local ports to the internet via MekongTunnel:
+// Exposes a local port to the internet via MekongTunnel:
 //
 //	mekong 3000
-//	mekong 3000 8080
 //	mekong -d 3000          (background/daemon mode)
 //	mekong status           (show your active tunnels)
 //	mekong status 3000      (filter by port)
 //	mekong stop             (stop background tunnel)
 //
-// Features: auto-reconnect, QR code, clipboard copy, multi-port, daemon mode, status/stop commands.
+// Features: auto-reconnect, QR code, clipboard copy, daemon mode, status/stop commands.
 //
 // Author: Ing Muyleang (អុឹង មួយលៀង) — Ing_Muyleang
 package main
@@ -198,11 +197,10 @@ func main() {
 	flag.IntVar(localPortFlag, "p", 0, "Local port to expose (shorthand for --port)")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "  Usage: mekong [flags] <local-port> [local-port...]")
+		fmt.Fprintln(os.Stderr, "  Usage: mekong [flags] <local-port>")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "  Examples:")
 		fmt.Fprintln(os.Stderr, "    mekong 3000                            expose localhost:3000")
-		fmt.Fprintln(os.Stderr, "    mekong 3000 8080                       expose two ports")
 		fmt.Fprintln(os.Stderr, "    mekong -d 3000                         run in background")
 		fmt.Fprintln(os.Stderr, "    mekong status                          show your active tunnels")
 		fmt.Fprintln(os.Stderr, "    mekong status 3000                     show tunnel for port 3000")

@@ -10,6 +10,7 @@ Highlights:
 - Added raw SSH expiry support via `--expire=...` and `MEKONG_EXPIRE`
 - Added per-tunnel lifetime handling, expiry display, and expiry-aware reconnect behavior
 - Built fresh multi-platform client binaries with `main.version=v1.4.4`
+- Clarified the client error when expiry is used against an older server that does not support the feature yet
 
 ## Tags
 

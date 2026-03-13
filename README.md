@@ -757,6 +757,7 @@ git push origin v1.4.4
 - **Expiry option** — `mekong` now supports `-e` / `--expire` with values like `30m`, `48h`, `2d`, `2day`, and `1w`
 - **Raw SSH expiry** — raw SSH tunnels can request expiry with `--expire=1w` or `-o SetEnv=MEKONG_EXPIRE=48h`
 - **Tunnel lifecycle** — tunnel banners and `mekong status` now show expiry, and `mekong` stops auto-reconnect when the requested lifetime is reached
+- **Compatibility message** — if the server is older and does not support expiry yet, `mekong` now shows a clear upgrade message instead of looping on `ssh: setenv failed`
 
 ### v1.4.3
 - **Docs** — removed custom subdomain, multi-port, and `--server` flag documentation (not yet supported)

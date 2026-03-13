@@ -52,6 +52,9 @@ var errBlocked = errors.New("IP is blocked")
 // errExpired is returned by connect() when the server closes the tunnel because it expired.
 var errExpired = errors.New("Tunnel expired")
 
+// errExpireUnsupported is returned when the server does not support expiry requests yet.
+var errExpireUnsupported = errors.New("Server does not support tunnel expiry yet")
+
 const (
 	reset  = "\033[0m"
 	cyan   = "\033[1;36m"
@@ -344,6 +347,10 @@ func main() {
 						fmt.Printf("%s  ✖  [:%d] Reconnect aborted — tunnel lifetime reached.%s\n\n", red, localPort, reset)
 						return
 					}
+					if errors.Is(err, errExpireUnsupported) {
+						fmt.Printf("%s  ✖  [:%d] Reconnect aborted — update the mekongtunnel server to v1.4.4 or newer.%s\n\n", red, localPort, reset)
+						return
+					}
 				}
 				if *noReconnect {
 					return
@@ -502,7 +509,7 @@ func connect(server string, sshPort, localPort int, requestedLifetime time.Durat
 
 	if requestedLifetime != config.DefaultTunnelLifetime {
 		if err := sess.Setenv(expiry.EnvName, expiry.Format(requestedLifetime)); err != nil {
-			return "", fmt.Errorf("set expiry: %w", err)
+			return "", fmt.Errorf("%w: update mekongtunnel server to v1.4.4 or newer (%v)", errExpireUnsupported, err)
 		}
 	}
 

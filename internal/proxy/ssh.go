@@ -211,7 +211,7 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 	// processing env/exec requests so expiry overrides are reflected here.
 	url := fmt.Sprintf("https://%s.%s", sub, s.domain)
 	expiresAt := tun.ExpiresAt().Format("Jan 02, 2006 at 15:04 MST")
-	expiresLine := fmt.Sprintf("%s (or %s idle)", expiresAt, formatDuration(config.InactivityTimeout))
+	expiresLine := fmt.Sprintf("%s (or %s idle)", expiresAt, expiry.Format(tun.InactivityTimeout()))
 
 	const (
 		reset     = "\033[0m"
@@ -442,7 +442,7 @@ func expirationMessage(tun *tunnel.Tunnel, reason tunnel.ExpirationReason) strin
 	case tunnel.ExpiredByLifetime:
 		return fmt.Sprintf("Tunnel expired after %s", expiry.Format(tun.MaxLifetime()))
 	case tunnel.ExpiredByInactivity:
-		return fmt.Sprintf("Tunnel expired after %s of inactivity", formatDuration(config.InactivityTimeout))
+		return fmt.Sprintf("Tunnel expired after %s of inactivity", expiry.Format(tun.InactivityTimeout()))
 	default:
 		return "Tunnel expired"
 	}

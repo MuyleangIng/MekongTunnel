@@ -110,7 +110,7 @@ mekong update
 | Cross-platform | macOS, Linux, Windows |
 
 Accepted expiry values: `30m`, `48h`, `2d`, `2day`, `1week`, or bare hours like `48`.
-The tunnel still expires after 2 hours of inactivity unless traffic keeps it alive.
+Idle timeout now follows the requested expiry. Example: `--expire 1w` gives a `1w` lifetime and `1w` idle timeout.
 
 ### Daemon mode
 
@@ -203,7 +203,7 @@ You will see your public URL printed in the terminal:
 Connected to localhost.
 Tunnel is live!
 Public URL: https://happy-tiger-a1b2c3d4.localhost
-Expires:    Feb 26, 2027 at 15:04 UTC (or 2h idle)
+Expires:    Feb 26, 2027 at 15:04 UTC (or 1d idle)
 ```
 
 > **The `-t` flag is required.** It allocates a TTY so the server can display your tunnel URL and stream request logs.
@@ -233,7 +233,7 @@ ssh -o SetEnv=MEKONG_EXPIRE=48h -t -R 80:localhost:3000 yourdomain.com
 ```
 
 Supported values: `30m`, `48h`, `2d`, `2day`, `1week`, or bare hours like `48`.
-Maximum requested lifetime is 1 week. Idle timeout still applies after 2 hours with no traffic.
+Maximum requested lifetime is 1 week. Idle timeout now follows the requested expiry.
 
 ### Expose a different local port
 
@@ -756,7 +756,7 @@ git push origin v1.4.4
 ### v1.4.4
 - **Expiry option** — `mekong` now supports `-e` / `--expire` with values like `30m`, `48h`, `2d`, `2day`, and `1w`
 - **Raw SSH expiry** — raw SSH tunnels can request expiry with `--expire=1w` or `-o SetEnv=MEKONG_EXPIRE=48h`
-- **Tunnel lifecycle** — tunnel banners and `mekong status` now show expiry, and `mekong` stops auto-reconnect when the requested lifetime is reached
+- **Tunnel lifecycle** — tunnel banners and `mekong status` now show expiry, idle timeout follows the requested expiry, and `mekong` stops auto-reconnect when the requested lifetime is reached
 - **Compatibility message** — if the server is older and does not support expiry yet, `mekong` now shows a clear upgrade message instead of looping on `ssh: setenv failed`
 
 ### v1.4.3

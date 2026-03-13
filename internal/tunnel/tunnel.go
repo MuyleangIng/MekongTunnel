@@ -46,6 +46,7 @@ type Tunnel struct {
 	transport     *http.Transport // Reusable HTTP transport for proxying
 	logger        *RequestLogger  // Async request logger for SSH terminal output
 	maxLifetime   time.Duration
+	inactivityTTL time.Duration
 }
 
 // New creates a new tunnel with the given parameters
@@ -71,7 +72,8 @@ func New(subdomain string, listener net.Listener, bindAddr string, bindPort uint
 			MaxIdleConns:    10,
 			IdleConnTimeout: 90 * time.Second,
 		},
-		maxLifetime: maxLifetime,
+		maxLifetime:   maxLifetime,
+		inactivityTTL: maxLifetime,
 	}
 }
 
@@ -109,7 +111,7 @@ func (t *Tunnel) TimeRemaining() time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	inactivityRemaining := config.InactivityTimeout - time.Since(t.LastActive)
+	inactivityRemaining := t.inactivityTTL - time.Since(t.LastActive)
 	lifetimeRemaining := t.maxLifetime - time.Since(t.CreatedAt)
 
 	if inactivityRemaining < lifetimeRemaining {
@@ -136,7 +138,15 @@ func (t *Tunnel) MaxLifetime() time.Duration {
 func (t *Tunnel) SetMaxLifetime(d time.Duration) {
 	t.mu.Lock()
 	t.maxLifetime = d
+	t.inactivityTTL = d
 	t.mu.Unlock()
+}
+
+// InactivityTimeout returns the idle timeout for the tunnel.
+func (t *Tunnel) InactivityTimeout() time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.inactivityTTL
 }
 
 // ExpirationReason reports why the tunnel has expired, if it has.
@@ -144,7 +154,7 @@ func (t *Tunnel) ExpirationReason() ExpirationReason {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if time.Since(t.LastActive) > config.InactivityTimeout {
+	if time.Since(t.LastActive) > t.inactivityTTL {
 		return ExpiredByInactivity
 	}
 	if time.Since(t.CreatedAt) > t.maxLifetime {

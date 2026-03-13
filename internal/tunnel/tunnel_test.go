@@ -41,7 +41,7 @@ func TestIsExpired_NotExpiredInitially(t *testing.T) {
 func TestIsExpired_Inactivity(t *testing.T) {
 	tun := newTestTunnel(t)
 	tun.mu.Lock()
-	tun.LastActive = time.Now().Add(-3 * time.Hour)
+	tun.LastActive = time.Now().Add(-25 * time.Hour)
 	tun.mu.Unlock()
 
 	if !tun.IsExpired() {
@@ -64,13 +64,12 @@ func TestTimeRemaining(t *testing.T) {
 	tun := newTestTunnel(t)
 	remaining := tun.TimeRemaining()
 
-	// For a new tunnel, remaining should be close to InactivityTimeout (2h)
-	// since it's less than the default max lifetime (24h)
+	// For a new tunnel, idle timeout follows the requested/default lifetime.
 	if remaining <= 0 {
 		t.Error("TimeRemaining() should be positive for a new tunnel")
 	}
-	if remaining > 2*time.Hour+time.Second {
-		t.Errorf("TimeRemaining() = %v, want <= 2h", remaining)
+	if remaining > 24*time.Hour+time.Second {
+		t.Errorf("TimeRemaining() = %v, want <= 24h", remaining)
 	}
 }
 
@@ -249,14 +248,14 @@ func TestClose(t *testing.T) {
 func TestTimeRemaining_LifetimeShorter(t *testing.T) {
 	tun := newTestTunnel(t)
 
-	// Set CreatedAt so lifetime remaining is shorter than inactivity remaining
+	// Set CreatedAt so lifetime remaining is shorter than inactivity remaining.
+	// Here both limits are equal unless we move CreatedAt closer to expiry.
 	tun.mu.Lock()
 	tun.CreatedAt = time.Now().Add(-23*time.Hour - 50*time.Minute)
-	tun.LastActive = time.Now() // just touched, so inactivity remaining ~2h
+	tun.LastActive = time.Now() // just touched, so inactivity remaining ~24h
 	tun.mu.Unlock()
 
 	remaining := tun.TimeRemaining()
-	// Lifetime remaining should be ~10 minutes, which is less than inactivity timeout of 2h
 	if remaining > 15*time.Minute {
 		t.Errorf("TimeRemaining() = %v, want <= 15m (lifetime should be limiting)", remaining)
 	}
@@ -269,6 +268,9 @@ func TestSetMaxLifetime(t *testing.T) {
 	if got := tun.MaxLifetime(); got != 48*time.Hour {
 		t.Fatalf("MaxLifetime() = %v, want 48h", got)
 	}
+	if got := tun.InactivityTimeout(); got != 48*time.Hour {
+		t.Fatalf("InactivityTimeout() = %v, want 48h", got)
+	}
 
 	wantExpiresAt := tun.CreatedAt.Add(48 * time.Hour)
 	if got := tun.ExpiresAt(); !got.Equal(wantExpiresAt) {
@@ -280,7 +282,7 @@ func TestExpirationReason(t *testing.T) {
 	t.Run("inactivity", func(t *testing.T) {
 		tun := newTestTunnel(t)
 		tun.mu.Lock()
-		tun.LastActive = time.Now().Add(-3 * time.Hour)
+		tun.LastActive = time.Now().Add(-25 * time.Hour)
 		tun.mu.Unlock()
 
 		if got := tun.ExpirationReason(); got != ExpiredByInactivity {

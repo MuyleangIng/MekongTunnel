@@ -79,8 +79,14 @@ mekong status
 # Show daemon logs
 mekong logs
 
+# Show daemon logs for one local port
+mekong logs 3000
+
 # Follow daemon logs live
 mekong logs -f
+
+# Follow daemon logs live for one local port
+mekong logs -f 3000
 
 # Show tunnel for a specific port
 mekong status 3000
@@ -109,7 +115,7 @@ mekong update
 | QR code | Printed in terminal — scan with your phone instantly |
 | Clipboard | Public URL copied to clipboard automatically |
 | Daemon mode | `-d` runs in background; logs go to `~/.mekong/mekong.log` |
-| Logs command | `mekong logs` prints daemon logs; `mekong logs -f` follows them live |
+| Logs command | `mekong logs [port]` prints daemon logs; `mekong logs -f [port]` follows them live, optionally filtered to one local port |
 | Custom expiry | `-e` / `--expire` sets tunnel lifetime up to 1 week |
 | Status command | `mekong status` shows your active tunnels (yours only, not other users') |
 | Stop command | `mekong stop` gracefully stops a background tunnel |
@@ -131,8 +137,8 @@ mekong -d 3000
   ✔  mekong running in background
      PID     48291
      Logs    ~/.mekong/mekong.log
-     View    mekong logs
-     Follow  mekong logs -f
+     View    mekong logs [port]
+     Follow  mekong logs -f [port]
      Status  mekong status
      Stop    mekong stop
 ```
@@ -141,7 +147,9 @@ Check on it or stop it later:
 
 ```bash
 mekong logs        # print daemon logs
+mekong logs 3000   # print only logs for localhost:3000
 mekong logs -f     # follow daemon logs live
+mekong logs -f 3000 # follow only logs for localhost:3000
 mekong status      # show URL, uptime, local port
 mekong status 3000 # filter to a specific port
 mekong stop        # send SIGTERM and clean up
@@ -765,8 +773,8 @@ git push origin main v1.4.6
 ## Changelog
 
 ### v1.4.6
-- **Daemon logs command** — `mekong logs` prints the background tunnel log file and `mekong logs -f` follows it live like `docker logs -f`
-- **Daemon help text** — background mode now shows the `mekong logs` and `mekong logs -f` commands next to the log file path
+- **Daemon logs command** — `mekong logs [port]` prints the background tunnel log file and `mekong logs -f [port]` follows it live like `docker logs -f`, optionally filtered to one local port
+- **Daemon help text** — background mode now shows the `mekong logs [port]` and `mekong logs -f [port]` commands next to the log file path
 
 ### v1.4.5
 - **Production deploy script** — `update.sh` now fetches tags, resets to a clean ref, clears Go caches, cleans old build outputs, rebuilds both binaries, prints installed versions, and restarts the service from the latest code

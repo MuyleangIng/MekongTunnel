@@ -8,6 +8,7 @@ Highlights:
 
 - Added `mekong logs` to print daemon logs from `~/.mekong/mekong.log`
 - Added `mekong logs -f` / `mekong logs --follow` to stream daemon logs live like `docker logs -f`
+- Added optional port filtering so `mekong logs 3000` and `mekong logs -f 3000` show only one local port
 - Updated daemon mode output and README examples to surface the new log commands
 - Built fresh multi-platform client binaries with `main.version=v1.4.6`
 

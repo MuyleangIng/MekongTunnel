@@ -48,6 +48,8 @@ import (
 // version is set at build time via -ldflags "-X main.version=..."
 var version = "dev"
 
+const daemonEnvName = "MEKONG_DAEMON"
+
 // errBlocked is returned by connect() when the server reports the IP is blocked.
 var errBlocked = errors.New("IP is blocked")
 
@@ -402,6 +404,7 @@ func spawnDaemon() error {
 	cmd := exec.Command(self, args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+	cmd.Env = append(os.Environ(), daemonEnvName+"=1")
 	detachProcess(cmd) // platform-specific: detach from terminal
 	if err := cmd.Start(); err != nil {
 		return err
@@ -411,8 +414,8 @@ func spawnDaemon() error {
 	fmt.Printf(green + "  ✔  mekong running in background" + reset + "\n")
 	fmt.Printf(gray+"     PID     "+purple+"%d"+reset+"\n", cmd.Process.Pid)
 	fmt.Printf(gray+"     Logs    "+purple+"%s"+reset+"\n", logFilePath())
-	fmt.Printf(gray + "     View    " + purple + "mekong logs" + reset + "\n")
-	fmt.Printf(gray + "     Follow  " + purple + "mekong logs -f" + reset + "\n")
+	fmt.Printf(gray + "     View    " + purple + "mekong logs [port]" + reset + "\n")
+	fmt.Printf(gray + "     Follow  " + purple + "mekong logs -f [port]" + reset + "\n")
 	fmt.Printf(gray + "     Status  " + purple + "mekong status" + reset + "\n")
 	fmt.Printf(gray + "     Stop    " + purple + "mekong stop" + reset + "\n\n")
 
@@ -532,7 +535,7 @@ func connect(server string, sshPort, localPort int, requestedLifetime time.Durat
 	urlCh := make(chan string, 1)
 	streamDone := make(chan struct{})
 	var status streamStatus
-	go streamOutput(stdout, urlCh, &status, streamDone)
+	go streamOutput(stdout, urlCh, &status, streamDone, logPrefixForPort(localPort))
 
 	var tunnelURL string
 	go func() {
@@ -580,13 +583,17 @@ type streamStatus struct {
 
 // streamOutput prints every line from the server PTY, extracts the tunnel URL,
 // and records status messages reported by the server.
-func streamOutput(r io.Reader, urlCh chan<- string, status *streamStatus, done chan<- struct{}) {
+func streamOutput(r io.Reader, urlCh chan<- string, status *streamStatus, done chan<- struct{}, prefix string) {
 	defer close(done)
 	scanner := bufio.NewScanner(r)
 	urlFound := false
 	for scanner.Scan() {
 		line := scanner.Text()
-		fmt.Println(line)
+		if prefix != "" {
+			fmt.Println(prefix + line)
+		} else {
+			fmt.Println(line)
+		}
 		clean := strings.TrimSpace(ansiRe.ReplaceAllString(line, ""))
 		if !urlFound {
 			if strings.Contains(clean, "URL") {
@@ -624,23 +631,38 @@ func proxyToLocal(ch ssh.Channel, port int) {
 // ---- mekong status ----
 
 func runLogsCommand(args []string) error {
-	fs := flag.NewFlagSet("logs", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-
-	follow := fs.Bool("f", false, "Follow log output")
-	fs.BoolVar(follow, "follow", false, "Follow log output")
-
-	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("usage: mekong logs [-f|--follow]")
+	follow, portFilter, err := parseLogsArgs(args)
+	if err != nil {
+		return err
 	}
-	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: mekong logs [-f|--follow]")
-	}
-
-	return runLogs(*follow)
+	return runLogs(follow, portFilter)
 }
 
-func runLogs(follow bool) error {
+func parseLogsArgs(args []string) (bool, int, error) {
+	follow := false
+	portFilter := 0
+	for _, arg := range args {
+		switch arg {
+		case "-f", "--follow":
+			follow = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return false, 0, fmt.Errorf("usage: mekong logs [-f|--follow] [port]")
+			}
+			if portFilter != 0 {
+				return false, 0, fmt.Errorf("usage: mekong logs [-f|--follow] [port]")
+			}
+			p, err := strconv.Atoi(arg)
+			if err != nil || p < 1 || p > 65535 {
+				return false, 0, fmt.Errorf("invalid port %q", arg)
+			}
+			portFilter = p
+		}
+	}
+	return follow, portFilter, nil
+}
+
+func runLogs(follow bool, portFilter int) error {
 	path := logFilePath()
 	info, err := os.Stat(path)
 	if err != nil {
@@ -652,7 +674,11 @@ func runLogs(follow bool) error {
 	}
 
 	if info.Size() == 0 && !follow {
-		fmt.Printf("\n%s  No log entries yet.%s\n\n", gray, reset)
+		if portFilter > 0 {
+			fmt.Printf("\n%s  No log entries yet for port %d.%s\n\n", gray, portFilter, reset)
+		} else {
+			fmt.Printf("\n%s  No log entries yet.%s\n\n", gray, reset)
+		}
 		return nil
 	}
 
@@ -662,27 +688,34 @@ func runLogs(follow bool) error {
 	}
 	defer func() { _ = f.Close() }()
 
-	if _, err := io.Copy(os.Stdout, f); err != nil {
-		return fmt.Errorf("read logs: %w", err)
+	matchedAny, err := printLogStream(f, portFilter)
+	if err != nil {
+		return err
 	}
 	if !follow {
+		if !matchedAny {
+			if portFilter > 0 {
+				fmt.Printf("\n%s  No log entries yet for port %d.%s\n\n", gray, portFilter, reset)
+			} else {
+				fmt.Printf("\n%s  No log entries yet.%s\n\n", gray, reset)
+			}
+		}
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "%s  Following %s (Ctrl+C to stop)%s\n", gray, path, reset)
+	if portFilter > 0 {
+		fmt.Fprintf(os.Stderr, "%s  Following %s for port %d (Ctrl+C to stop)%s\n", gray, path, portFilter, reset)
+	} else {
+		fmt.Fprintf(os.Stderr, "%s  Following %s (Ctrl+C to stop)%s\n", gray, path, reset)
+	}
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigs)
 
-	buf := make([]byte, 32*1024)
+	var pending strings.Builder
 	for {
-		n, err := f.Read(buf)
-		if n > 0 {
-			if _, writeErr := os.Stdout.Write(buf[:n]); writeErr != nil {
-				return fmt.Errorf("write logs: %w", writeErr)
-			}
-		}
+		_, err := printLogUpdates(f, portFilter, &pending)
 		if err == nil {
 			continue
 		}
@@ -716,8 +749,76 @@ func runLogs(follow bool) error {
 			}
 			_ = f.Close()
 			f = reopened
+			pending.Reset()
 		}
 	}
+}
+
+func printLogStream(r io.Reader, portFilter int) (bool, error) {
+	var pending strings.Builder
+	matched, err := printLogUpdates(r, portFilter, &pending)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return matched, fmt.Errorf("read logs: %w", err)
+	}
+	if pending.Len() > 0 {
+		line := pending.String()
+		if logLineMatchesPort(line, portFilter) {
+			if _, writeErr := io.WriteString(os.Stdout, line); writeErr != nil {
+				return matched, fmt.Errorf("write logs: %w", writeErr)
+			}
+			matched = true
+		}
+	}
+	return matched, nil
+}
+
+func printLogUpdates(r io.Reader, portFilter int, pending *strings.Builder) (bool, error) {
+	buf := make([]byte, 32*1024)
+	n, err := r.Read(buf)
+	if n == 0 {
+		return false, err
+	}
+
+	pending.Write(buf[:n])
+	data := pending.String()
+	pending.Reset()
+
+	matched := false
+	start := 0
+	for i := 0; i < len(data); i++ {
+		if data[i] != '\n' {
+			continue
+		}
+
+		line := data[start : i+1]
+		if logLineMatchesPort(line, portFilter) {
+			if _, writeErr := io.WriteString(os.Stdout, line); writeErr != nil {
+				return matched, fmt.Errorf("write logs: %w", writeErr)
+			}
+			matched = true
+		}
+		start = i + 1
+	}
+
+	if start < len(data) {
+		pending.WriteString(data[start:])
+	}
+	return matched, err
+}
+
+func logLineMatchesPort(line string, portFilter int) bool {
+	if portFilter == 0 {
+		return true
+	}
+	clean := ansiRe.ReplaceAllString(line, "")
+	return strings.Contains(clean, fmt.Sprintf("[:%d]", portFilter))
+}
+
+func logPrefixForPort(localPort int) string {
+	if os.Getenv(daemonEnvName) == "1" {
+		return fmt.Sprintf("[:%d] ", localPort)
+	}
+	return ""
 }
 
 // runStatus prints active tunnels for the current user.

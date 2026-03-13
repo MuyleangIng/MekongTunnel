@@ -21,7 +21,7 @@ The `mekong` CLI is the easiest way to use MekongTunnel — no SSH flags, auto-r
 ### macOS (Apple Silicon — M1, M2, M3)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.3/mekong-darwin-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.4/mekong-darwin-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -30,7 +30,7 @@ mekong 3000
 ### macOS (Intel)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.3/mekong-darwin-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.4/mekong-darwin-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -39,7 +39,7 @@ mekong 3000
 ### Linux (amd64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.3/mekong-linux-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.4/mekong-linux-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
@@ -47,14 +47,14 @@ mekong 3000
 ### Linux (arm64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.3/mekong-linux-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.4/mekong-linux-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
 
 ### Windows
 
-Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.3/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
+Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.4/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
 
 ---
 
@@ -63,6 +63,12 @@ Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunne
 ```bash
 # Expose localhost:3000
 mekong 3000
+
+# Keep the tunnel alive for up to 48 hours
+mekong 3000 -e 48h
+
+# Keep the tunnel alive for up to 1 week
+mekong 3000 --expire 1w
 
 # Run tunnel in background (daemon mode) — frees your terminal
 mekong -d 3000
@@ -97,10 +103,14 @@ mekong update
 | QR code | Printed in terminal — scan with your phone instantly |
 | Clipboard | Public URL copied to clipboard automatically |
 | Daemon mode | `-d` runs in background; logs go to `~/.mekong/mekong.log` |
+| Custom expiry | `-e` / `--expire` sets tunnel lifetime up to 1 week |
 | Status command | `mekong status` shows your active tunnels (yours only, not other users') |
 | Stop command | `mekong stop` gracefully stops a background tunnel |
 | Self-update | `mekong update` downloads and replaces the binary in one step |
 | Cross-platform | macOS, Linux, Windows |
+
+Accepted expiry values: `30m`, `48h`, `2d`, `2day`, `1week`, or bare hours like `48`.
+The tunnel still expires after 2 hours of inactivity unless traffic keeps it alive.
 
 ### Daemon mode
 
@@ -181,7 +191,10 @@ DOMAIN=localhost \
 python3 -m http.server 9000
 
 # Then open a tunnel to it
-ssh -t -R 80:localhost:9000 localhost -p 2222
+ssh -t -p 2222 -R 80:localhost:9000 localhost
+
+# Or request a custom lifetime
+ssh -t -p 2222 -R 80:localhost:9000 localhost --expire=1w
 ```
 
 You will see your public URL printed in the terminal:
@@ -205,6 +218,22 @@ Expires:    Feb 26, 2027 at 15:04 UTC (or 2h idle)
 # Expose localhost:8080 → https://happy-tiger-a1b2c3d4.yourdomain.com
 ssh -t -R 80:localhost:8080 yourdomain.com
 ```
+
+### Set a custom tunnel expiry
+
+```bash
+# CLI form
+mekong 3000 --expire 1w
+
+# Raw SSH one-word form
+ssh -t -R 80:localhost:3000 yourdomain.com --expire=1w
+
+# Raw SSH env form
+ssh -o SetEnv=MEKONG_EXPIRE=48h -t -R 80:localhost:3000 yourdomain.com
+```
+
+Supported values: `30m`, `48h`, `2d`, `2day`, `1week`, or bare hours like `48`.
+Maximum requested lifetime is 1 week. Idle timeout still applies after 2 hours with no traffic.
 
 ### Expose a different local port
 
@@ -258,7 +287,7 @@ wscat -c wss://happy-tiger-a1b2c3d4.yourdomain.com/ws
 If your server's SSH moved to 2222 (recommended — see Domain Setup below):
 
 ```bash
-ssh -t -R 80:localhost:8080 yourdomain.com -p 2222
+ssh -t -p 2222 -R 80:localhost:8080 yourdomain.com
 ```
 
 ---
@@ -413,7 +442,7 @@ STATS_ADDR=127.0.0.1:9091 DOMAIN=yourdomain.com \
 Connect to the dev instance:
 
 ```bash
-ssh -t -R 80:localhost:5173 yourdomain.com -p 2223
+ssh -t -p 2223 -R 80:localhost:5173 yourdomain.com
 ```
 
 ---
@@ -708,7 +737,26 @@ docker compose restart
 
 ---
 
+## GitHub Actions
+
+- `Go CI` — runs on pushes to `main` and on pull requests; builds the repo, runs the stable test suites, and cross-builds the client binaries
+- `Release Mekong CLI` — runs on tag pushes like `v1.4.4` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
+
+Release a new version:
+
+```bash
+git tag v1.4.4
+git push origin v1.4.4
+```
+
+---
+
 ## Changelog
+
+### v1.4.4
+- **Expiry option** — `mekong` now supports `-e` / `--expire` with values like `30m`, `48h`, `2d`, `2day`, and `1w`
+- **Raw SSH expiry** — raw SSH tunnels can request expiry with `--expire=1w` or `-o SetEnv=MEKONG_EXPIRE=48h`
+- **Tunnel lifecycle** — tunnel banners and `mekong status` now show expiry, and `mekong` stops auto-reconnect when the requested lifetime is reached
 
 ### v1.4.3
 - **Docs** — removed custom subdomain, multi-port, and `--server` flag documentation (not yet supported)

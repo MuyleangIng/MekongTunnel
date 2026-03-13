@@ -1,0 +1,104 @@
+name: Release Mekong CLI
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to release, for example v1.4.4"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="${{ inputs.tag }}"
+          fi
+
+          git fetch --force --tags origin
+          git rev-parse "${tag}^{commit}" >/dev/null 2>&1
+          git checkout "${tag}"
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release assets
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          ldflags="-s -w -X main.version=${TAG}"
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="${ldflags}" -trimpath -o dist/mekong-darwin-amd64 ./cmd/mekong
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="${ldflags}" -trimpath -o dist/mekong-darwin-arm64 ./cmd/mekong
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="${ldflags}" -trimpath -o dist/mekong-linux-amd64 ./cmd/mekong
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="${ldflags}" -trimpath -o dist/mekong-linux-arm64 ./cmd/mekong
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="${ldflags}" -trimpath -o dist/mekong-windows-amd64.exe ./cmd/mekong
+
+          sha256sum dist/mekong-* > "dist/SHA256SUMS-${TAG}.txt"
+
+      - name: Build release notes from changelog
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          chmod +x scripts/extract_changelog_section.sh
+          scripts/extract_changelog_section.sh "${TAG}" CHANGELOG.md > dist/release-notes.md
+
+          {
+            echo
+            echo "## Release Assets"
+            echo
+            echo "| Asset | SHA-256 |"
+            echo "| --- | --- |"
+            while read -r sum file; do
+              asset="$(basename "${file}")"
+              echo "| \`${asset}\` | \`${sum}\` |"
+            done < "dist/SHA256SUMS-${TAG}.txt"
+          } >> dist/release-notes.md
+
+      - name: Create or update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          body_path: dist/release-notes.md
+          files: |
+            dist/mekong-darwin-amd64
+            dist/mekong-darwin-arm64
+            dist/mekong-linux-amd64
+            dist/mekong-linux-arm64
+            dist/mekong-windows-amd64.exe
+            dist/SHA256SUMS-${{ steps.meta.outputs.tag }}.txt
+          fail_on_unmatched_files: true

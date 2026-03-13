@@ -13,4 +13,6 @@ data/
 data-dev/
 
 .cluade/
-.github/
+.github/*
+!.github/workflows/
+!.github/workflows/*.yml

@@ -16,6 +16,14 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
 )
 
+type ExpirationReason int
+
+const (
+	NotExpired ExpirationReason = iota
+	ExpiredByInactivity
+	ExpiredByLifetime
+)
+
 // SSHCloser is an interface for closing SSH connections
 type SSHCloser interface {
 	Close() error
@@ -32,17 +40,21 @@ type Tunnel struct {
 	ClientIP      string // SSH client IP that created this tunnel
 	mu            sync.Mutex
 	rateLimiter   *RateLimiter
-	sshConn       SSHCloser        // Reference to SSH connection for forced closure
-	rateLimitHits int              // Count of rate limit violations
-	requestCount  uint64           // Total HTTP requests proxied through this tunnel
-	transport     *http.Transport  // Reusable HTTP transport for proxying
-	logger        *RequestLogger   // Async request logger for SSH terminal output
+	sshConn       SSHCloser       // Reference to SSH connection for forced closure
+	rateLimitHits int             // Count of rate limit violations
+	requestCount  uint64          // Total HTTP requests proxied through this tunnel
+	transport     *http.Transport // Reusable HTTP transport for proxying
+	logger        *RequestLogger  // Async request logger for SSH terminal output
+	maxLifetime   time.Duration
 }
 
 // New creates a new tunnel with the given parameters
-func New(subdomain string, listener net.Listener, bindAddr string, bindPort uint32, clientIP string) *Tunnel {
+func New(subdomain string, listener net.Listener, bindAddr string, bindPort uint32, clientIP string, maxLifetime time.Duration) *Tunnel {
 	now := time.Now()
 	listenerAddr := listener.Addr().String()
+	if maxLifetime <= 0 {
+		maxLifetime = config.DefaultTunnelLifetime
+	}
 	return &Tunnel{
 		Subdomain:   subdomain,
 		Listener:    listener,
@@ -59,6 +71,7 @@ func New(subdomain string, listener net.Listener, bindAddr string, bindPort uint
 			MaxIdleConns:    10,
 			IdleConnTimeout: 90 * time.Second,
 		},
+		maxLifetime: maxLifetime,
 	}
 }
 
@@ -81,17 +94,14 @@ func (t *Tunnel) Touch() {
 
 // IsExpired returns true if the tunnel has been inactive for too long or exceeded max lifetime
 func (t *Tunnel) IsExpired() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return time.Since(t.LastActive) > config.InactivityTimeout ||
-		time.Since(t.CreatedAt) > config.MaxTunnelLifetime
+	return t.ExpirationReason() != NotExpired
 }
 
 // IsMaxLifetimeExceeded returns true if the tunnel has exceeded max lifetime
 func (t *Tunnel) IsMaxLifetimeExceeded() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return time.Since(t.CreatedAt) > config.MaxTunnelLifetime
+	return time.Since(t.CreatedAt) > t.maxLifetime
 }
 
 // TimeRemaining returns the time remaining before the tunnel expires (either by inactivity or max lifetime)
@@ -100,12 +110,47 @@ func (t *Tunnel) TimeRemaining() time.Duration {
 	defer t.mu.Unlock()
 
 	inactivityRemaining := config.InactivityTimeout - time.Since(t.LastActive)
-	lifetimeRemaining := config.MaxTunnelLifetime - time.Since(t.CreatedAt)
+	lifetimeRemaining := t.maxLifetime - time.Since(t.CreatedAt)
 
 	if inactivityRemaining < lifetimeRemaining {
 		return inactivityRemaining
 	}
 	return lifetimeRemaining
+}
+
+// ExpiresAt returns the wall-clock time when the tunnel's lifetime limit is reached.
+func (t *Tunnel) ExpiresAt() time.Time {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.CreatedAt.Add(t.maxLifetime)
+}
+
+// MaxLifetime returns the configured lifetime limit for the tunnel.
+func (t *Tunnel) MaxLifetime() time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.maxLifetime
+}
+
+// SetMaxLifetime updates the tunnel lifetime limit.
+func (t *Tunnel) SetMaxLifetime(d time.Duration) {
+	t.mu.Lock()
+	t.maxLifetime = d
+	t.mu.Unlock()
+}
+
+// ExpirationReason reports why the tunnel has expired, if it has.
+func (t *Tunnel) ExpirationReason() ExpirationReason {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if time.Since(t.LastActive) > config.InactivityTimeout {
+		return ExpiredByInactivity
+	}
+	if time.Since(t.CreatedAt) > t.maxLifetime {
+		return ExpiredByLifetime
+	}
+	return NotExpired
 }
 
 // AllowRequest checks if a request is allowed by the rate limiter

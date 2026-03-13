@@ -12,11 +12,13 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/expiry"
 	"github.com/MuyleangIng/MekongTunnel/internal/tunnel"
 )
 
@@ -34,6 +36,15 @@ type forwardedTCPPayload struct {
 	Port       uint32
 	OriginAddr string
 	OriginPort uint32
+}
+
+type envRequest struct {
+	Name  string
+	Value string
+}
+
+type execRequest struct {
+	Command string
 }
 
 // HandleSSHConnection is the main entry point for every new TCP connection on the SSH port.
@@ -155,52 +166,6 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 	// Remove tunnel from registry when this function returns (SSH disconnect).
 	defer s.RemoveTunnel(sub)
 
-	// Build the public URL and compose the terminal welcome message.
-	url := fmt.Sprintf("https://%s.%s", sub, s.domain)
-	expiresAt := tun.CreatedAt.Add(config.MaxTunnelLifetime).Format("Jan 02, 2006 at 15:04 MST")
-	expiresLine := fmt.Sprintf("%s (or %s idle)", expiresAt, formatDuration(config.InactivityTimeout))
-
-	const (
-		reset     = "\033[0m"
-		gray      = "\033[38;5;245m"
-		boldGreen = "\033[1;32m"
-		purple    = "\033[38;5;141m"
-		cyan      = "\033[1;36m"
-		yellow    = "\033[1;33m"
-	)
-
-	urlMessage := "\r\n" +
-		cyan + "  ███╗   ███╗███████╗██╗  ██╗ ██████╗ ███╗   ██╗ ██████╗ \r\n" +
-		"  ████╗ ████║██╔════╝██║ ██╔╝██╔═══██╗████╗  ██║██╔════╝ \r\n" +
-		"  ██╔████╔██║█████╗  █████╔╝ ██║   ██║██╔██╗ ██║██║  ███╗\r\n" +
-		"  ██║╚██╔╝██║██╔══╝  ██╔═██╗ ██║   ██║██║╚██╗██║██║   ██║\r\n" +
-		"  ██║ ╚═╝ ██║███████╗██║  ██╗╚██████╔╝██║ ╚████║╚██████╔╝\r\n" +
-		"  ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ " + reset + "\r\n" +
-		"\r\n" +
-		gray + "  by " + yellow + "Ing Muyleang" + gray + " · Founder of " + yellow + "KhmerStack" + reset + "\r\n" +
-		gray + "  ─────────────────────────────────────────────────────" + reset + "\r\n" +
-		boldGreen + "  ✔  Tunnel is live!" + reset + "\r\n" +
-		gray + "     URL      " + purple + url + reset + "\r\n" +
-		gray + "     Expires  " + expiresLine + reset + "\r\n\r\n"
-
-	// Background goroutine: close SSH connection if tunnel is idle or past max lifetime.
-	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if tun.IsExpired() {
-					log.Printf("Tunnel %s expired due to inactivity", sub)
-					sshConn.Close()
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
 	// The client must have passed -t (allocate TTY) for the session channel to appear.
 	// Without -t the URL message cannot be displayed.
 	sessionReceived := make(chan ssh.NewChannel, 1)
@@ -236,6 +201,41 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 		return
 	}
 
+	if err := s.setupSession(requests, tun); err != nil {
+		fmt.Fprintf(channel, "\r\n  ERROR: %s\r\n\r\n", err)
+		channel.Close()
+		return
+	}
+
+	// Build the public URL and compose the terminal welcome message after
+	// processing env/exec requests so expiry overrides are reflected here.
+	url := fmt.Sprintf("https://%s.%s", sub, s.domain)
+	expiresAt := tun.ExpiresAt().Format("Jan 02, 2006 at 15:04 MST")
+	expiresLine := fmt.Sprintf("%s (or %s idle)", expiresAt, formatDuration(config.InactivityTimeout))
+
+	const (
+		reset     = "\033[0m"
+		gray      = "\033[38;5;245m"
+		boldGreen = "\033[1;32m"
+		purple    = "\033[38;5;141m"
+		cyan      = "\033[1;36m"
+		yellow    = "\033[1;33m"
+	)
+
+	urlMessage := "\r\n" +
+		cyan + "  ███╗   ███╗███████╗██╗  ██╗ ██████╗ ███╗   ██╗ ██████╗ \r\n" +
+		"  ████╗ ████║██╔════╝██║ ██╔╝██╔═══██╗████╗  ██║██╔════╝ \r\n" +
+		"  ██╔████╔██║█████╗  █████╔╝ ██║   ██║██╔██╗ ██║██║  ███╗\r\n" +
+		"  ██║╚██╔╝██║██╔══╝  ██╔═██╗ ██║   ██║██║╚██╗██║██║   ██║\r\n" +
+		"  ██║ ╚═╝ ██║███████╗██║  ██╗╚██████╔╝██║ ╚████║╚██████╔╝\r\n" +
+		"  ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ " + reset + "\r\n" +
+		"\r\n" +
+		gray + "  by " + yellow + "Ing Muyleang" + gray + " · Founder of " + yellow + "KhmerStack" + reset + "\r\n" +
+		gray + "  ─────────────────────────────────────────────────────" + reset + "\r\n" +
+		boldGreen + "  ✔  Tunnel is live!" + reset + "\r\n" +
+		gray + "     URL      " + purple + url + reset + "\r\n" +
+		gray + "     Expires  " + expiresLine + reset + "\r\n\r\n"
+
 	// Print the URL and expiry to the SSH terminal.
 	fmt.Fprint(channel, urlMessage)
 
@@ -256,14 +256,33 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 		}
 	}()
 
-	// Handle SSH session requests (pty-req, shell, signal).
+	// Background goroutine: close SSH connection if tunnel is idle or past max lifetime.
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				reason := tun.ExpirationReason()
+				if reason == tunnel.NotExpired {
+					continue
+				}
+
+				msg := expirationMessage(tun, reason)
+				fmt.Fprintf(channel, "\r\n  ERROR: %s\r\n\r\n", msg)
+				log.Printf("Tunnel %s expired: %s", sub, msg)
+				sshConn.Close()
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Handle SSH session requests after startup.
 	go func(ch ssh.Channel, reqs <-chan *ssh.Request) {
 		for req := range reqs {
 			switch req.Type {
-			case "pty-req", "shell":
-				if req.WantReply {
-					req.Reply(true, nil)
-				}
 			case "signal":
 				// Ctrl+C arrives as a "signal" request — close the connection.
 				if req.WantReply {
@@ -295,6 +314,140 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 	log.Printf("SSH connection closed for subdomain: %s", sub)
 }
 
+func (s *Server) setupSession(requests <-chan *ssh.Request, tun *tunnel.Tunnel) error {
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+
+	for {
+		select {
+		case req, ok := <-requests:
+			if !ok {
+				return fmt.Errorf("session closed before shell started")
+			}
+
+			switch req.Type {
+			case "pty-req":
+				if req.WantReply {
+					req.Reply(true, nil)
+				}
+			case "env":
+				if err := applyEnvRequest(req, tun); err != nil {
+					if req.WantReply {
+						req.Reply(false, nil)
+					}
+					return err
+				}
+				if req.WantReply {
+					req.Reply(true, nil)
+				}
+			case "shell":
+				if req.WantReply {
+					req.Reply(true, nil)
+				}
+				return nil
+			case "exec":
+				if err := applyExecRequest(req, tun); err != nil {
+					if req.WantReply {
+						req.Reply(false, nil)
+					}
+					return err
+				}
+				if req.WantReply {
+					req.Reply(true, nil)
+				}
+				return nil
+			default:
+				if req.WantReply {
+					req.Reply(false, nil)
+				}
+			}
+		case <-timeout.C:
+			return fmt.Errorf("no session command received (use ssh -t)")
+		}
+	}
+}
+
+func applyEnvRequest(req *ssh.Request, tun *tunnel.Tunnel) error {
+	var payload envRequest
+	if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
+		return fmt.Errorf("invalid env request")
+	}
+	if payload.Name != expiry.EnvName {
+		return nil
+	}
+	return applyRequestedExpiry(payload.Value, tun)
+}
+
+func applyExecRequest(req *ssh.Request, tun *tunnel.Tunnel) error {
+	var payload execRequest
+	if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
+		return fmt.Errorf("invalid exec request")
+	}
+
+	spec, ok := parseExecExpiryCommand(payload.Command)
+	if !ok {
+		return fmt.Errorf("unsupported remote command %q (use --expire=1w)", strings.TrimSpace(payload.Command))
+	}
+	if spec == "" {
+		return nil
+	}
+	return applyRequestedExpiry(spec, tun)
+}
+
+func applyRequestedExpiry(spec string, tun *tunnel.Tunnel) error {
+	d, err := expiry.Parse(spec)
+	if err != nil {
+		return err
+	}
+	if d > config.MaxTunnelLifetime {
+		return fmt.Errorf("requested expiry %s exceeds max %s", expiry.Format(d), expiry.Format(config.MaxTunnelLifetime))
+	}
+	tun.SetMaxLifetime(d)
+	return nil
+}
+
+func parseExecExpiryCommand(command string) (string, bool) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return "", true
+	}
+	if _, err := expiry.Parse(command); err == nil {
+		return command, true
+	}
+
+	fields := strings.Fields(command)
+	if len(fields) == 1 {
+		switch {
+		case strings.HasPrefix(fields[0], "--expire="):
+			return strings.TrimSpace(strings.TrimPrefix(fields[0], "--expire=")), true
+		case strings.HasPrefix(fields[0], "-e="):
+			return strings.TrimSpace(strings.TrimPrefix(fields[0], "-e=")), true
+		case strings.HasPrefix(fields[0], "expire="):
+			return strings.TrimSpace(strings.TrimPrefix(fields[0], "expire=")), true
+		default:
+			return "", false
+		}
+	}
+	if len(fields) == 2 {
+		switch fields[0] {
+		case "--expire", "-e", "expire":
+			return fields[1], true
+		}
+	}
+	return "", false
+}
+
+func expirationMessage(tun *tunnel.Tunnel, reason tunnel.ExpirationReason) string {
+	switch reason {
+	case tunnel.ExpiredByLifetime:
+		return fmt.Sprintf("Tunnel expired after %s", expiry.Format(tun.MaxLifetime()))
+	case tunnel.ExpiredByInactivity:
+		return fmt.Sprintf("Tunnel expired after %s of inactivity", formatDuration(config.InactivityTimeout))
+	default:
+		return "Tunnel expired"
+	}
+}
+
 // sendErrorAndClose sends a human-readable error message to the SSH client
 // via its session channel and then closes the connection.
 // Used when a connection is rejected after the handshake (e.g. IP is blocked).
@@ -314,7 +467,7 @@ func (s *Server) sendErrorAndClose(sshConn *ssh.ServerConn, chans <-chan ssh.New
 		}
 		go func() {
 			for req := range requests {
-				if req.Type == "pty-req" || req.Type == "shell" {
+				if req.Type == "pty-req" || req.Type == "shell" || req.Type == "env" || req.Type == "exec" {
 					if req.WantReply {
 						req.Reply(true, nil)
 					}

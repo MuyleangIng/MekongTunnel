@@ -200,7 +200,7 @@ func (s *Server) RegisterTunnel(sub string, listener net.Listener, bindAddr stri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	t := tunnel.New(sub, listener, bindAddr, bindPort, clientIP)
+	t := tunnel.New(sub, listener, bindAddr, bindPort, clientIP, config.DefaultTunnelLifetime)
 	s.tunnels[sub] = t
 	return t
 }

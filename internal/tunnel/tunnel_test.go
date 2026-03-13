@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
 )
 
 func newTestTunnel(t *testing.T) *Tunnel {
@@ -16,7 +18,7 @@ func newTestTunnel(t *testing.T) *Tunnel {
 		t.Fatalf("failed to create test listener: %v", err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	return New("test-sub-00000000", ln, "127.0.0.1", 8080, "127.0.0.1")
+	return New("test-sub-00000000", ln, "127.0.0.1", 8080, "127.0.0.1", config.DefaultTunnelLifetime)
 }
 
 func TestTouch(t *testing.T) {
@@ -63,7 +65,7 @@ func TestTimeRemaining(t *testing.T) {
 	remaining := tun.TimeRemaining()
 
 	// For a new tunnel, remaining should be close to InactivityTimeout (2h)
-	// since it's less than MaxTunnelLifetime (24h)
+	// since it's less than the default max lifetime (24h)
 	if remaining <= 0 {
 		t.Error("TimeRemaining() should be positive for a new tunnel")
 	}
@@ -215,7 +217,7 @@ func TestClose_ClosesLogger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
 	}
-	tun := New("test-sub-00000000", ln, "127.0.0.1", 8080, "127.0.0.1")
+	tun := New("test-sub-00000000", ln, "127.0.0.1", 8080, "127.0.0.1", config.DefaultTunnelLifetime)
 
 	var buf bytes.Buffer
 	logger := NewRequestLogger(&buf, 16)
@@ -234,7 +236,7 @@ func TestClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
 	}
-	tun := New("test-sub-00000000", ln, "127.0.0.1", 8080, "127.0.0.1")
+	tun := New("test-sub-00000000", ln, "127.0.0.1", 8080, "127.0.0.1", config.DefaultTunnelLifetime)
 	tun.Close()
 
 	// Listener should be closed — Accept should fail
@@ -258,4 +260,44 @@ func TestTimeRemaining_LifetimeShorter(t *testing.T) {
 	if remaining > 15*time.Minute {
 		t.Errorf("TimeRemaining() = %v, want <= 15m (lifetime should be limiting)", remaining)
 	}
+}
+
+func TestSetMaxLifetime(t *testing.T) {
+	tun := newTestTunnel(t)
+	tun.SetMaxLifetime(48 * time.Hour)
+
+	if got := tun.MaxLifetime(); got != 48*time.Hour {
+		t.Fatalf("MaxLifetime() = %v, want 48h", got)
+	}
+
+	wantExpiresAt := tun.CreatedAt.Add(48 * time.Hour)
+	if got := tun.ExpiresAt(); !got.Equal(wantExpiresAt) {
+		t.Fatalf("ExpiresAt() = %v, want %v", got, wantExpiresAt)
+	}
+}
+
+func TestExpirationReason(t *testing.T) {
+	t.Run("inactivity", func(t *testing.T) {
+		tun := newTestTunnel(t)
+		tun.mu.Lock()
+		tun.LastActive = time.Now().Add(-3 * time.Hour)
+		tun.mu.Unlock()
+
+		if got := tun.ExpirationReason(); got != ExpiredByInactivity {
+			t.Fatalf("ExpirationReason() = %v, want %v", got, ExpiredByInactivity)
+		}
+	})
+
+	t.Run("lifetime", func(t *testing.T) {
+		tun := newTestTunnel(t)
+		tun.SetMaxLifetime(30 * time.Minute)
+		tun.mu.Lock()
+		tun.CreatedAt = time.Now().Add(-31 * time.Minute)
+		tun.LastActive = time.Now()
+		tun.mu.Unlock()
+
+		if got := tun.ExpirationReason(); got != ExpiredByLifetime {
+			t.Fatalf("ExpirationReason() = %v, want %v", got, ExpiredByLifetime)
+		}
+	})
 }

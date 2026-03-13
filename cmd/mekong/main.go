@@ -38,6 +38,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/term"
+
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/expiry"
 )
 
 // version is set at build time via -ldflags "-X main.version=..."
@@ -45,6 +48,9 @@ var version = "dev"
 
 // errBlocked is returned by connect() when the server reports the IP is blocked.
 var errBlocked = errors.New("IP is blocked")
+
+// errExpired is returned by connect() when the server closes the tunnel because it expired.
+var errExpired = errors.New("Tunnel expired")
 
 const (
 	reset  = "\033[0m"
@@ -81,6 +87,7 @@ type tunnelState struct {
 	URL       string    `json:"url"`
 	LocalPort int       `json:"local_port"`
 	StartedAt time.Time `json:"started_at"`
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
 
 type stateFile struct {
@@ -96,8 +103,8 @@ func mekongDir() string {
 	return filepath.Join(home, ".mekong")
 }
 
-func stateFilePath() string  { return filepath.Join(mekongDir(), "state.json") }
-func logFilePath() string    { return filepath.Join(mekongDir(), "mekong.log") }
+func stateFilePath() string { return filepath.Join(mekongDir(), "state.json") }
+func logFilePath() string   { return filepath.Join(mekongDir(), "mekong.log") }
 
 func writeState(s stateFile) {
 	_ = os.MkdirAll(mekongDir(), 0755)
@@ -137,10 +144,12 @@ func readState() (stateFile, error) {
 func reorderArgs(args []string) []string {
 	// Flags that consume the next token as their value.
 	valueFlags := map[string]bool{
-		"--server":   true, "-server":   true,
+		"--server": true, "-server": true,
 		"--ssh-port": true, "-ssh-port": true,
-		"--port":     true, "-port":     true,
-		"-p":         true,
+		"--port": true, "-port": true,
+		"--expire": true, "-expire": true,
+		"-e": true,
+		"-p": true,
 	}
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
@@ -189,12 +198,14 @@ func main() {
 		serverFlag    = flag.String("server", "mekongtunnel.dev", "MekongTunnel server hostname")
 		sshPortFlag   = flag.Int("ssh-port", 22, "SSH server port")
 		localPortFlag = flag.Int("port", 0, "Local port to expose (alternative to positional arg)")
+		expireFlag    = flag.String("expire", "", "Tunnel lifetime (examples: 30m, 48h, 2d, 1w, or bare hours like 48)")
 		detachFlag    = flag.Bool("d", false, "Run tunnel in background (daemon mode)")
 		noQR          = flag.Bool("no-qr", false, "Disable QR code display")
 		noClip        = flag.Bool("no-clipboard", false, "Disable auto clipboard copy")
 		noReconnect   = flag.Bool("no-reconnect", false, "Disable auto-reconnect on disconnect")
 	)
 	flag.IntVar(localPortFlag, "p", 0, "Local port to expose (shorthand for --port)")
+	flag.StringVar(expireFlag, "e", "", "Shorthand for --expire")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "  Usage: mekong [flags] <local-port>")
@@ -202,6 +213,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  Examples:")
 		fmt.Fprintln(os.Stderr, "    mekong 3000                            expose localhost:3000")
 		fmt.Fprintln(os.Stderr, "    mekong -d 3000                         run in background")
+		fmt.Fprintln(os.Stderr, "    mekong 3000 --expire 1w                keep the tunnel for up to 1 week")
 		fmt.Fprintln(os.Stderr, "    mekong status                          show your active tunnels")
 		fmt.Fprintln(os.Stderr, "    mekong status 3000                     show tunnel for port 3000")
 		fmt.Fprintln(os.Stderr, "    mekong stop                            stop background tunnel")
@@ -216,6 +228,20 @@ func main() {
 	// positional arg. Reorder so flags always come before port numbers.
 	os.Args = append(os.Args[:1], reorderArgs(os.Args[1:])...)
 	flag.Parse()
+
+	requestedLifetime := config.DefaultTunnelLifetime
+	if strings.TrimSpace(*expireFlag) != "" {
+		d, err := expiry.Parse(*expireFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+			os.Exit(1)
+		}
+		if d > config.MaxTunnelLifetime {
+			fmt.Fprintf(os.Stderr, "  error: requested expiry %s exceeds max %s\n", expiry.Format(d), expiry.Format(config.MaxTunnelLifetime))
+			os.Exit(1)
+		}
+		requestedLifetime = d
+	}
 
 	// Build port list: -p/--port flag takes priority; fall back to positional args.
 	var ports []int
@@ -266,7 +292,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	printBanner(*serverFlag, ports)
+	printBanner(*serverFlag, ports, requestedLifetime)
 
 	state := stateFile{PID: os.Getpid()}
 	var stateMu sync.Mutex
@@ -298,11 +324,12 @@ func main() {
 					backoff = 2 * time.Second
 				}
 
-				_, err := connect(*serverFlag, *sshPortFlag, localPort, !*noQR, !*noClip, func(u string) {
+				_, err := connect(*serverFlag, *sshPortFlag, localPort, requestedLifetime, !*noQR, !*noClip, func(u string) {
 					addTunnelState(tunnelState{
 						URL:       u,
 						LocalPort: localPort,
 						StartedAt: time.Now(),
+						ExpiresAt: time.Now().Add(requestedLifetime),
 					})
 				})
 				// Tunnel disconnected — remove its entry so status stays accurate.
@@ -311,6 +338,10 @@ func main() {
 					fmt.Printf("%s  ✖  [:%d] %v%s\n", red, localPort, err, reset)
 					if errors.Is(err, errBlocked) {
 						fmt.Printf("%s  ✖  [:%d] Reconnect aborted — wait for the block to expire.%s\n\n", red, localPort, reset)
+						return
+					}
+					if errors.Is(err, errExpired) {
+						fmt.Printf("%s  ✖  [:%d] Reconnect aborted — tunnel lifetime reached.%s\n\n", red, localPort, reset)
 						return
 					}
 				}
@@ -360,38 +391,39 @@ func spawnDaemon() error {
 	}
 
 	fmt.Printf("\n")
-	fmt.Printf(green+"  ✔  mekong running in background"+reset+"\n")
+	fmt.Printf(green + "  ✔  mekong running in background" + reset + "\n")
 	fmt.Printf(gray+"     PID     "+purple+"%d"+reset+"\n", cmd.Process.Pid)
 	fmt.Printf(gray+"     Logs    "+purple+"%s"+reset+"\n", logFilePath())
-	fmt.Printf(gray+"     Status  "+purple+"mekong status"+reset+"\n")
-	fmt.Printf(gray+"     Stop    "+purple+"mekong stop"+reset+"\n\n")
+	fmt.Printf(gray + "     Status  " + purple + "mekong status" + reset + "\n")
+	fmt.Printf(gray + "     Stop    " + purple + "mekong stop" + reset + "\n\n")
 
 	return nil
 }
 
 // printBanner prints the startup header.
-func printBanner(server string, ports []int) {
+func printBanner(server string, ports []int, requestedLifetime time.Duration) {
 	portStr := make([]string, len(ports))
 	for i, p := range ports {
 		portStr[i] = strconv.Itoa(p)
 	}
 	fmt.Printf("\n")
-	fmt.Printf(cyan+"  ███╗   ███╗███████╗██╗  ██╗ ██████╗ ███╗   ██╗ ██████╗ \r\n"+
-		"  ████╗ ████║██╔════╝██║ ██╔╝██╔═══██╗████╗  ██║██╔════╝ \r\n"+
-		"  ██╔████╔██║█████╗  █████╔╝ ██║   ██║██╔██╗ ██║██║  ███╗\r\n"+
-		"  ██║╚██╔╝██║██╔══╝  ██╔═██╗ ██║   ██║██║╚██╗██║██║   ██║\r\n"+
-		"  ██║ ╚═╝ ██║███████╗██║  ██╗╚██████╔╝██║ ╚████║╚██████╔╝\r\n"+
-		"  ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ "+reset+"\n")
-	fmt.Printf(gray+"  by "+yellow+"Ing Muyleang"+gray+" · Founder of "+yellow+"KhmerStack"+reset+"\n")
-	fmt.Printf(gray+"  ─────────────────────────────────────────────────────"+reset+"\n")
+	fmt.Printf(cyan + "  ███╗   ███╗███████╗██╗  ██╗ ██████╗ ███╗   ██╗ ██████╗ \r\n" +
+		"  ████╗ ████║██╔════╝██║ ██╔╝██╔═══██╗████╗  ██║██╔════╝ \r\n" +
+		"  ██╔████╔██║█████╗  █████╔╝ ██║   ██║██╔██╗ ██║██║  ███╗\r\n" +
+		"  ██║╚██╔╝██║██╔══╝  ██╔═██╗ ██║   ██║██║╚██╗██║██║   ██║\r\n" +
+		"  ██║ ╚═╝ ██║███████╗██║  ██╗╚██████╔╝██║ ╚████║╚██████╔╝\r\n" +
+		"  ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ " + reset + "\n")
+	fmt.Printf(gray + "  by " + yellow + "Ing Muyleang" + gray + " · Founder of " + yellow + "KhmerStack" + reset + "\n")
+	fmt.Printf(gray + "  ─────────────────────────────────────────────────────" + reset + "\n")
 	fmt.Printf(gray+"  Server     "+purple+"%s"+reset+"\n", server)
 	fmt.Printf(gray+"  Local      "+purple+"localhost:%s"+reset+"\n", strings.Join(portStr, ", "))
-	fmt.Printf(gray+"  ─────────────────────────────────────────────────────"+reset+"\n\n")
+	fmt.Printf(gray+"  Expire     "+purple+"%s"+reset+"\n", expiry.Format(requestedLifetime))
+	fmt.Printf(gray + "  ─────────────────────────────────────────────────────" + reset + "\n\n")
 }
 
 // connect establishes one SSH tunnel session. Returns the tunnel URL and any error.
 // onURL is called as soon as the tunnel URL is received from the server (while still connected).
-func connect(server string, sshPort, localPort int, showQR, copyClip bool, onURL func(string)) (string, error) {
+func connect(server string, sshPort, localPort int, requestedLifetime time.Duration, showQR, copyClip bool, onURL func(string)) (string, error) {
 	var auths []ssh.AuthMethod
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		if agentConn, err := net.Dial("unix", sock); err == nil {
@@ -468,13 +500,20 @@ func connect(server string, sshPort, localPort int, showQR, copyClip bool, onURL
 		return "", fmt.Errorf("stdout pipe: %w", err)
 	}
 
+	if requestedLifetime != config.DefaultTunnelLifetime {
+		if err := sess.Setenv(expiry.EnvName, expiry.Format(requestedLifetime)); err != nil {
+			return "", fmt.Errorf("set expiry: %w", err)
+		}
+	}
+
 	if err := sess.Shell(); err != nil {
 		return "", fmt.Errorf("shell: %w", err)
 	}
 
 	urlCh := make(chan string, 1)
-	blockedCh := make(chan string, 1)
-	go streamOutput(stdout, urlCh, blockedCh)
+	streamDone := make(chan struct{})
+	var status streamStatus
+	go streamOutput(stdout, urlCh, &status, streamDone)
 
 	var tunnelURL string
 	go func() {
@@ -501,20 +540,31 @@ func connect(server string, sshPort, localPort int, showQR, copyClip bool, onURL
 	waitDone := make(chan error, 1)
 	go func() { waitDone <- sess.Wait() }()
 
-	select {
-	case msg := <-blockedCh:
-		return tunnelURL, fmt.Errorf("%w: %s", errBlocked, msg)
-	case <-waitDone:
+	waitErr := <-waitDone
+	<-streamDone
+	if status.blockedMsg != "" {
+		return tunnelURL, fmt.Errorf("%w: %s", errBlocked, status.blockedMsg)
+	}
+	if status.expiredMsg != "" {
+		return tunnelURL, fmt.Errorf("%w: %s", errExpired, status.expiredMsg)
+	}
+	if waitErr != nil && tunnelURL == "" {
+		return "", waitErr
 	}
 	return tunnelURL, nil
 }
 
+type streamStatus struct {
+	blockedMsg string
+	expiredMsg string
+}
+
 // streamOutput prints every line from the server PTY, extracts the tunnel URL,
-// and signals blockedCh if the server reports a blocked IP.
-func streamOutput(r io.Reader, urlCh chan<- string, blockedCh chan<- string) {
+// and records status messages reported by the server.
+func streamOutput(r io.Reader, urlCh chan<- string, status *streamStatus, done chan<- struct{}) {
+	defer close(done)
 	scanner := bufio.NewScanner(r)
 	urlFound := false
-	blockedFound := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		fmt.Println(line)
@@ -527,9 +577,11 @@ func streamOutput(r io.Reader, urlCh chan<- string, blockedCh chan<- string) {
 				}
 			}
 		}
-		if !blockedFound && strings.Contains(clean, "temporarily blocked") {
-			blockedFound = true
-			blockedCh <- clean
+		if status.blockedMsg == "" && strings.Contains(clean, "temporarily blocked") {
+			status.blockedMsg = clean
+		}
+		if status.expiredMsg == "" && strings.Contains(clean, "Tunnel expired") {
+			status.expiredMsg = clean
 		}
 	}
 	close(urlCh)
@@ -545,8 +597,8 @@ func proxyToLocal(ch ssh.Channel, port int) {
 	defer local.Close()
 
 	done := make(chan struct{}, 2)
-	go func() { io.Copy(local, ch); done <- struct{}{} }()  //nolint:errcheck
-	go func() { io.Copy(ch, local); done <- struct{}{} }()  //nolint:errcheck
+	go func() { io.Copy(local, ch); done <- struct{}{} }() //nolint:errcheck
+	go func() { io.Copy(ch, local); done <- struct{}{} }() //nolint:errcheck
 	<-done
 }
 
@@ -594,20 +646,23 @@ func runStatus(portFilter int) {
 	}
 
 	fmt.Printf("\n")
-	fmt.Printf(gray+"  ─────────────────────────────────────────────────────"+reset+"\n")
+	fmt.Printf(gray + "  ─────────────────────────────────────────────────────" + reset + "\n")
 	if portFilter > 0 {
 		fmt.Printf(yellow+"  Tunnel for :%d  "+gray+"(PID %d)"+reset+"\n", portFilter, state.PID)
 	} else {
 		fmt.Printf(yellow+"  Active tunnels  "+gray+"(PID %d)"+reset+"\n", state.PID)
 	}
-	fmt.Printf(gray+"  ─────────────────────────────────────────────────────"+reset+"\n")
+	fmt.Printf(gray + "  ─────────────────────────────────────────────────────" + reset + "\n")
 
 	for _, t := range tunnels {
 		uptime := time.Since(t.StartedAt).Round(time.Second)
 		fmt.Printf(gray+"  URL        "+cyan+"%s"+reset+"\n", t.URL)
 		fmt.Printf(gray+"  Local      "+purple+"localhost:%d"+reset+"\n", t.LocalPort)
 		fmt.Printf(gray+"  Uptime     "+purple+"%s"+reset+"\n", uptime)
-		fmt.Printf(gray+"  ─────────────────────────────────────────────────────"+reset+"\n")
+		if !t.ExpiresAt.IsZero() {
+			fmt.Printf(gray+"  Expires    "+purple+"%s"+reset+"\n", t.ExpiresAt.Local().Format("2006-01-02 15:04:05 MST"))
+		}
+		fmt.Printf(gray + "  ─────────────────────────────────────────────────────" + reset + "\n")
 	}
 	fmt.Printf("\n")
 }

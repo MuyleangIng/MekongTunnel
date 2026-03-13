@@ -17,10 +17,10 @@ const (
 	AuthorKhName = "អុឹង មួយលៀង"
 	AuthorHandle = "Ing_Muyleang"
 
-	DefaultDomain        = "muyleanging.com"
-	InactivityTimeout    = 2 * time.Hour
-	DefaultMaxTunnelsPerIP = 3           // Default; override with MAX_TUNNELS_PER_IP env var
-	MaxTotalTunnels      = 1000
+	DefaultDomain          = "muyleanging.com"
+	InactivityTimeout      = 2 * time.Hour
+	DefaultMaxTunnelsPerIP = 3 // Default; override with MAX_TUNNELS_PER_IP env var
+	MaxTotalTunnels        = 1000
 
 	// SSH handshake timeout
 	SSHHandshakeTimeout = 30 * time.Second
@@ -41,21 +41,22 @@ const (
 	RateLimitViolationsMax = 10               // violations before auto-block
 
 	// Tunnel lifetime
-	MaxTunnelLifetime = 24 * time.Hour // max tunnel duration regardless of activity
+	DefaultTunnelLifetime = 24 * time.Hour     // default tunnel duration regardless of activity
+	MaxTunnelLifetime     = 7 * 24 * time.Hour // maximum user-requested tunnel duration
 
 	// Response size limits
 	MaxResponseBodySize = 128 * 1024 * 1024 // 128MB
 
 	// HTTP server timeouts
-	HTTPReadTimeout    = 10 * time.Second
-	HTTPWriteTimeout   = 10 * time.Second
-	HTTPIdleTimeout    = 30 * time.Second
-	HTTPSReadTimeout   = 30 * time.Second
-	HTTPSWriteTimeout  = 30 * time.Second
-	HTTPSIdleTimeout   = 120 * time.Second
-	StatsReadTimeout   = 5 * time.Second
-	StatsWriteTimeout  = 5 * time.Second
-	ShutdownTimeout    = 10 * time.Second
+	HTTPReadTimeout   = 10 * time.Second
+	HTTPWriteTimeout  = 10 * time.Second
+	HTTPIdleTimeout   = 30 * time.Second
+	HTTPSReadTimeout  = 30 * time.Second
+	HTTPSWriteTimeout = 30 * time.Second
+	HTTPSIdleTimeout  = 120 * time.Second
+	StatsReadTimeout  = 5 * time.Second
+	StatsWriteTimeout = 5 * time.Second
+	ShutdownTimeout   = 10 * time.Second
 
 	// WebSocket limits
 	WebSocketIdleTimeout = 2 * time.Hour

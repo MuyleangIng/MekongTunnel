@@ -21,7 +21,7 @@ The `mekong` CLI is the easiest way to use MekongTunnel — no SSH flags, auto-r
 ### macOS (Apple Silicon — M1, M2, M3)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.5/mekong-darwin-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.6/mekong-darwin-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 sudo xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -30,7 +30,7 @@ mekong 3000
 ### macOS (Intel)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.5/mekong-darwin-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.6/mekong-darwin-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 sudo xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -39,7 +39,7 @@ mekong 3000
 ### Linux (amd64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.5/mekong-linux-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.6/mekong-linux-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
@@ -47,14 +47,14 @@ mekong 3000
 ### Linux (arm64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.5/mekong-linux-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.6/mekong-linux-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
 
 ### Windows
 
-Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.5/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
+Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.6/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
 
 ---
 
@@ -75,6 +75,12 @@ mekong -d 3000
 
 # Show your active tunnels
 mekong status
+
+# Show daemon logs
+mekong logs
+
+# Follow daemon logs live
+mekong logs -f
 
 # Show tunnel for a specific port
 mekong status 3000
@@ -103,6 +109,7 @@ mekong update
 | QR code | Printed in terminal — scan with your phone instantly |
 | Clipboard | Public URL copied to clipboard automatically |
 | Daemon mode | `-d` runs in background; logs go to `~/.mekong/mekong.log` |
+| Logs command | `mekong logs` prints daemon logs; `mekong logs -f` follows them live |
 | Custom expiry | `-e` / `--expire` sets tunnel lifetime up to 1 week |
 | Status command | `mekong status` shows your active tunnels (yours only, not other users') |
 | Stop command | `mekong stop` gracefully stops a background tunnel |
@@ -124,6 +131,8 @@ mekong -d 3000
   ✔  mekong running in background
      PID     48291
      Logs    ~/.mekong/mekong.log
+     View    mekong logs
+     Follow  mekong logs -f
      Status  mekong status
      Stop    mekong stop
 ```
@@ -131,6 +140,8 @@ mekong -d 3000
 Check on it or stop it later:
 
 ```bash
+mekong logs        # print daemon logs
+mekong logs -f     # follow daemon logs live
 mekong status      # show URL, uptime, local port
 mekong status 3000 # filter to a specific port
 mekong stop        # send SIGTERM and clean up
@@ -740,18 +751,22 @@ docker compose restart
 ## GitHub Actions
 
 - `Go CI` — runs on pushes to `main` and on pull requests; builds the repo, runs the stable test suites, and cross-builds the client binaries
-- `Release Mekong CLI` — runs on tag pushes like `v1.4.5` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
+- `Release Mekong CLI` — runs on tag pushes like `v1.4.6` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
 
 Release a new version:
 
 ```bash
-git tag v1.4.5
-git push origin main v1.4.5
+git tag v1.4.6
+git push origin main v1.4.6
 ```
 
 ---
 
 ## Changelog
+
+### v1.4.6
+- **Daemon logs command** — `mekong logs` prints the background tunnel log file and `mekong logs -f` follows it live like `docker logs -f`
+- **Daemon help text** — background mode now shows the `mekong logs` and `mekong logs -f` commands next to the log file path
 
 ### v1.4.5
 - **Production deploy script** — `update.sh` now fetches tags, resets to a clean ref, clears Go caches, cleans old build outputs, rebuilds both binaries, prints installed versions, and restarts the service from the latest code

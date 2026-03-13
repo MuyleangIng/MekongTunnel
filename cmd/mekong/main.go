@@ -3,11 +3,13 @@
 //
 //	mekong 3000
 //	mekong -d 3000          (background/daemon mode)
+//	mekong logs             (show daemon logs)
+//	mekong logs -f          (follow daemon logs)
 //	mekong status           (show your active tunnels)
 //	mekong status 3000      (filter by port)
 //	mekong stop             (stop background tunnel)
 //
-// Features: auto-reconnect, QR code, clipboard copy, daemon mode, status/stop commands.
+// Features: auto-reconnect, QR code, clipboard copy, daemon mode, logs, status/stop commands.
 //
 // Author: Ing Muyleang (អុឹង មួយលៀង) — Ing_Muyleang
 package main
@@ -175,6 +177,12 @@ func reorderArgs(args []string) []string {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "logs":
+			if err := runLogsCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "status":
 			// Optional port filter: mekong status 3000
 			portFilter := 0
@@ -216,6 +224,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  Examples:")
 		fmt.Fprintln(os.Stderr, "    mekong 3000                            expose localhost:3000")
 		fmt.Fprintln(os.Stderr, "    mekong -d 3000                         run in background")
+		fmt.Fprintln(os.Stderr, "    mekong logs                            show daemon logs")
+		fmt.Fprintln(os.Stderr, "    mekong logs -f                         follow daemon logs")
 		fmt.Fprintln(os.Stderr, "    mekong 3000 --expire 1w                keep the tunnel for up to 1 week")
 		fmt.Fprintln(os.Stderr, "    mekong status                          show your active tunnels")
 		fmt.Fprintln(os.Stderr, "    mekong status 3000                     show tunnel for port 3000")
@@ -401,6 +411,8 @@ func spawnDaemon() error {
 	fmt.Printf(green + "  ✔  mekong running in background" + reset + "\n")
 	fmt.Printf(gray+"     PID     "+purple+"%d"+reset+"\n", cmd.Process.Pid)
 	fmt.Printf(gray+"     Logs    "+purple+"%s"+reset+"\n", logFilePath())
+	fmt.Printf(gray + "     View    " + purple + "mekong logs" + reset + "\n")
+	fmt.Printf(gray + "     Follow  " + purple + "mekong logs -f" + reset + "\n")
 	fmt.Printf(gray + "     Status  " + purple + "mekong status" + reset + "\n")
 	fmt.Printf(gray + "     Stop    " + purple + "mekong stop" + reset + "\n\n")
 
@@ -610,6 +622,103 @@ func proxyToLocal(ch ssh.Channel, port int) {
 }
 
 // ---- mekong status ----
+
+func runLogsCommand(args []string) error {
+	fs := flag.NewFlagSet("logs", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	follow := fs.Bool("f", false, "Follow log output")
+	fs.BoolVar(follow, "follow", false, "Follow log output")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("usage: mekong logs [-f|--follow]")
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: mekong logs [-f|--follow]")
+	}
+
+	return runLogs(*follow)
+}
+
+func runLogs(follow bool) error {
+	path := logFilePath()
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("\n%s  No log file yet. Start a background tunnel first.%s\n\n", gray, reset)
+			return nil
+		}
+		return fmt.Errorf("stat log file: %w", err)
+	}
+
+	if info.Size() == 0 && !follow {
+		fmt.Printf("\n%s  No log entries yet.%s\n\n", gray, reset)
+		return nil
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if _, err := io.Copy(os.Stdout, f); err != nil {
+		return fmt.Errorf("read logs: %w", err)
+	}
+	if !follow {
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "%s  Following %s (Ctrl+C to stop)%s\n", gray, path, reset)
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := f.Read(buf)
+		if n > 0 {
+			if _, writeErr := os.Stdout.Write(buf[:n]); writeErr != nil {
+				return fmt.Errorf("write logs: %w", writeErr)
+			}
+		}
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, io.EOF) {
+			return fmt.Errorf("read logs: %w", err)
+		}
+
+		select {
+		case <-sigs:
+			fmt.Fprintln(os.Stderr)
+			return nil
+		case <-time.After(500 * time.Millisecond):
+		}
+
+		currentOffset, seekErr := f.Seek(0, io.SeekCurrent)
+		if seekErr != nil {
+			return fmt.Errorf("seek log file: %w", seekErr)
+		}
+
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			if os.IsNotExist(statErr) {
+				continue
+			}
+			return fmt.Errorf("stat log file: %w", statErr)
+		}
+		if info.Size() < currentOffset {
+			reopened, openErr := os.Open(path)
+			if openErr != nil {
+				return fmt.Errorf("reopen log file: %w", openErr)
+			}
+			_ = f.Close()
+			f = reopened
+		}
+	}
+}
 
 // runStatus prints active tunnels for the current user.
 // If portFilter > 0, only the tunnel for that local port is shown.

@@ -2,6 +2,15 @@
 
 Includes Git tags fetched from `origin` on 2026-03-13.
 
+## v1.4.6 - 2026-03-13
+
+Highlights:
+
+- Added `mekong logs` to print daemon logs from `~/.mekong/mekong.log`
+- Added `mekong logs -f` / `mekong logs --follow` to stream daemon logs live like `docker logs -f`
+- Updated daemon mode output and README examples to surface the new log commands
+- Built fresh multi-platform client binaries with `main.version=v1.4.6`
+
 ## v1.4.5 - 2026-03-13
 
 Highlights:
@@ -25,6 +34,7 @@ Highlights:
 
 | Tag | Date |
 | --- | --- |
+| `v1.4.6` | 2026-03-13 |
 | `v1.4.5` | 2026-03-13 |
 | `v1.4.4` | 2026-03-13 |
 | `v1.4.3` | 2026-03-03 |

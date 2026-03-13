@@ -5,6 +5,8 @@ set -euo pipefail
 APP_DIR="${APP_DIR:-/opt/mekongtunnel}"
 SERVICE_NAME="${SERVICE_NAME:-mekongtunnel.service}"
 TARGET_REF="${1:-origin/main}"
+SERVER_BIN="${SERVER_BIN:-/usr/local/bin/mekongtunnel}"
+CLIENT_BIN="${CLIENT_BIN:-/usr/local/bin/mekong}"
 
 cd "${APP_DIR}"
 
@@ -26,7 +28,7 @@ git reset --hard "${TARGET_REF}"
 git clean -fdx -e host_key -e data/ -e data-dev/ -e certs/ -e .env -e .env.* -e logs/
 
 echo "→ Cleaning old binaries and Go caches..."
-rm -f mekongtunnel /usr/local/bin/mekong
+rm -f mekongtunnel "${SERVER_BIN}" "${CLIENT_BIN}"
 go clean -cache -testcache -modcache
 
 VERSION="$(git describe --tags --always)"
@@ -34,14 +36,16 @@ LDFLAGS="-s -w -X main.version=${VERSION}"
 
 echo "→ Building server binary (${VERSION})..."
 CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -trimpath -o mekongtunnel ./cmd/mekongtunnel
+install -m 0755 mekongtunnel "${SERVER_BIN}"
 
 echo "→ Building mekong client binary (${VERSION})..."
-CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -trimpath -o /usr/local/bin/mekong ./cmd/mekong
-chmod +x /usr/local/bin/mekong
+CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -trimpath -o "${CLIENT_BIN}" ./cmd/mekong
+chmod +x "${CLIENT_BIN}"
 
 echo "→ Installed versions:"
 ./mekongtunnel version
-/usr/local/bin/mekong version
+"${SERVER_BIN}" version
+"${CLIENT_BIN}" version
 
 echo "→ Starting service..."
 systemctl start "${SERVICE_NAME}"

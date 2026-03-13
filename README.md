@@ -91,8 +91,11 @@ mekong logs -f 3000
 # Show tunnel for a specific port
 mekong status 3000
 
-# Stop a background tunnel
-mekong stop
+# Stop the background tunnel for one local port
+mekong stop 3000
+
+# Stop all background tunnels
+mekong stop --all
 
 # No QR code
 mekong 3000 --no-qr
@@ -118,7 +121,7 @@ mekong update
 | Logs command | `mekong logs [port]` prints daemon logs; `mekong logs -f [port]` follows them live, optionally filtered to one local port |
 | Custom expiry | `-e` / `--expire` sets tunnel lifetime up to 1 week |
 | Status command | `mekong status` shows your active tunnels (yours only, not other users') |
-| Stop command | `mekong stop` gracefully stops a background tunnel |
+| Stop command | `mekong stop <port>` stops one daemon tunnel; `mekong stop --all` stops every daemon tunnel |
 | Self-update | `mekong update` downloads and replaces the binary in one step |
 | Cross-platform | macOS, Linux, Windows |
 
@@ -137,10 +140,11 @@ mekong -d 3000
   ✔  mekong running in background
      PID     48291
      Logs    ~/.mekong/mekong.log
-     View    mekong logs [port]
-     Follow  mekong logs -f [port]
+     View    mekong logs 3000
+     Follow  mekong logs -f 3000
      Status  mekong status
-     Stop    mekong stop
+     Stop    mekong stop 3000
+     StopAll mekong stop --all
 ```
 
 Check on it or stop it later:
@@ -152,7 +156,8 @@ mekong logs -f     # follow daemon logs live
 mekong logs -f 3000 # follow only logs for localhost:3000
 mekong status      # show URL, uptime, local port
 mekong status 3000 # filter to a specific port
-mekong stop        # send SIGTERM and clean up
+mekong stop 3000   # stop only localhost:3000
+mekong stop --all  # stop all daemon tunnels
 ```
 
 Logs are written to `~/.mekong/mekong.log` — each user has their own state under `~/.mekong/`.
@@ -774,6 +779,7 @@ git push origin main v1.4.6
 
 ### v1.4.6
 - **Daemon logs command** — `mekong logs [port]` prints the background tunnel log file and `mekong logs -f [port]` follows it live like `docker logs -f`, optionally filtered to one local port
+- **Specific stop command** — `mekong stop 3000` stops one daemon tunnel by local port, and `mekong stop --all` stops every daemon tunnel
 - **Daemon help text** — background mode now shows the `mekong logs [port]` and `mekong logs -f [port]` commands next to the log file path
 
 ### v1.4.5

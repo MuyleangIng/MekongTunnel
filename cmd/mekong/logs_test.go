@@ -62,3 +62,38 @@ func TestLogLineMatchesPort(t *testing.T) {
 		})
 	}
 }
+
+func TestParseStopArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantPort int
+		wantAll  bool
+		wantErr  bool
+	}{
+		{name: "no args", args: nil},
+		{name: "specific port", args: []string{"5500"}, wantPort: 5500},
+		{name: "all", args: []string{"--all"}, wantAll: true},
+		{name: "bad flag", args: []string{"--bad"}, wantErr: true},
+		{name: "bad port", args: []string{"abc"}, wantErr: true},
+		{name: "mixed port and all", args: []string{"5500", "--all"}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotPort, gotAll, err := parseStopArgs(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseStopArgs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if gotPort != tt.wantPort {
+				t.Fatalf("parseStopArgs() port = %d, want %d", gotPort, tt.wantPort)
+			}
+			if gotAll != tt.wantAll {
+				t.Fatalf("parseStopArgs() all = %v, want %v", gotAll, tt.wantAll)
+			}
+		})
+	}
+}

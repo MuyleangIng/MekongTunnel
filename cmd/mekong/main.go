@@ -7,9 +7,10 @@
 //	mekong logs -f          (follow daemon logs)
 //	mekong status           (show your active tunnels)
 //	mekong status 3000      (filter by port)
-//	mekong stop             (stop background tunnel)
+//	mekong stop 3000        (stop one background tunnel)
+//	mekong stop --all       (stop all background tunnels)
 //
-// Features: auto-reconnect, QR code, clipboard copy, daemon mode, logs, status/stop commands.
+// Features: auto-reconnect, QR code, clipboard copy, daemon mode, logs, and per-port stop commands.
 //
 // Author: Ing Muyleang (អុឹង មួយលៀង) — Ing_Muyleang
 package main
@@ -91,12 +92,14 @@ type forwardedTCPIPData struct {
 // ---- state file ----
 
 type tunnelState struct {
+	PID       int       `json:"pid,omitempty"`
 	URL       string    `json:"url"`
 	LocalPort int       `json:"local_port"`
 	StartedAt time.Time `json:"started_at"`
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
 
+// stateFile is the legacy aggregate daemon state format kept for compatibility.
 type stateFile struct {
 	PID     int           `json:"pid"`
 	Tunnels []tunnelState `json:"tunnels"`
@@ -112,6 +115,12 @@ func mekongDir() string {
 
 func stateFilePath() string { return filepath.Join(mekongDir(), "state.json") }
 func logFilePath() string   { return filepath.Join(mekongDir(), "mekong.log") }
+func tunnelStateDir() string {
+	return filepath.Join(mekongDir(), "tunnels")
+}
+func tunnelStatePath(port int) string {
+	return filepath.Join(tunnelStateDir(), fmt.Sprintf("%d.json", port))
+}
 
 func writeState(s stateFile) {
 	_ = os.MkdirAll(mekongDir(), 0755)
@@ -121,7 +130,28 @@ func writeState(s stateFile) {
 
 func removeState() { _ = os.Remove(stateFilePath()) }
 
+func writeTunnelState(ts tunnelState) {
+	_ = os.MkdirAll(tunnelStateDir(), 0755)
+	b, _ := json.MarshalIndent(ts, "", "  ")
+	_ = os.WriteFile(tunnelStatePath(ts.LocalPort), b, 0600)
+}
+
+func removeTunnelStateFile(localPort int) {
+	_ = os.Remove(tunnelStatePath(localPort))
+}
+
+func removePIDStateFiles(pid int, states []tunnelState) {
+	for _, t := range states {
+		if t.PID == pid {
+			removeTunnelStateFile(t.LocalPort)
+		}
+	}
+	removeState()
+}
+
 func removeTunnelFromState(localPort int, s *stateFile, mu *sync.Mutex) {
+	removeTunnelStateFile(localPort)
+
 	mu.Lock()
 	defer mu.Unlock()
 	filtered := s.Tunnels[:0]
@@ -131,7 +161,6 @@ func removeTunnelFromState(localPort int, s *stateFile, mu *sync.Mutex) {
 		}
 	}
 	s.Tunnels = filtered
-	writeState(*s)
 }
 
 func readState() (stateFile, error) {
@@ -141,6 +170,62 @@ func readState() (stateFile, error) {
 	}
 	var s stateFile
 	return s, json.Unmarshal(b, &s)
+}
+
+func readTunnelStates() ([]tunnelState, error) {
+	entries, err := os.ReadDir(tunnelStateDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	states := make([]tunnelState, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+
+		b, err := os.ReadFile(filepath.Join(tunnelStateDir(), entry.Name()))
+		if err != nil {
+			continue
+		}
+
+		var ts tunnelState
+		if err := json.Unmarshal(b, &ts); err != nil {
+			continue
+		}
+		states = append(states, ts)
+	}
+	return states, nil
+}
+
+func readActiveTunnelStates() ([]tunnelState, error) {
+	states, err := readTunnelStates()
+	if err != nil {
+		return nil, err
+	}
+	if len(states) > 0 {
+		return states, nil
+	}
+
+	legacy, err := readState()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	states = make([]tunnelState, 0, len(legacy.Tunnels))
+	for _, ts := range legacy.Tunnels {
+		if ts.PID == 0 {
+			ts.PID = legacy.PID
+		}
+		states = append(states, ts)
+	}
+	return states, nil
 }
 
 // isPIDAlive is defined in platform_unix.go / platform_windows.go
@@ -196,7 +281,10 @@ func main() {
 			runStatus(portFilter)
 			return
 		case "stop":
-			runStop()
+			if err := runStopCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+				os.Exit(1)
+			}
 			return
 		case "update":
 			selfUpdate()
@@ -231,7 +319,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "    mekong 3000 --expire 1w                keep the tunnel for up to 1 week")
 		fmt.Fprintln(os.Stderr, "    mekong status                          show your active tunnels")
 		fmt.Fprintln(os.Stderr, "    mekong status 3000                     show tunnel for port 3000")
-		fmt.Fprintln(os.Stderr, "    mekong stop                            stop background tunnel")
+		fmt.Fprintln(os.Stderr, "    mekong stop 3000                       stop the background tunnel for port 3000")
+		fmt.Fprintln(os.Stderr, "    mekong stop --all                      stop all background tunnels")
 		fmt.Fprintln(os.Stderr, "    mekong update                          self-update binary")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "  Flags:")
@@ -290,12 +379,15 @@ func main() {
 	// --- Daemon mode ---
 	// Re-exec self without -d, redirect output to log file, detach from terminal.
 	if *detachFlag {
-		if err := spawnDaemon(); err != nil {
+		if err := spawnDaemon(ports, *serverFlag, *sshPortFlag, requestedLifetime, *noReconnect); err != nil {
 			fmt.Fprintf(os.Stderr, "%s  ✖  Failed to start daemon: %v%s\n", red, err, reset)
 			os.Exit(1)
 		}
 		return
 	}
+
+	state := stateFile{PID: os.Getpid()}
+	var stateMu sync.Mutex
 
 	// Graceful Ctrl+C / SIGTERM.
 	sigs := make(chan os.Signal, 1)
@@ -303,20 +395,17 @@ func main() {
 	go func() {
 		<-sigs
 		fmt.Printf("\n%s  ✖  Disconnected. Goodbye!%s\n\n", yellow, reset)
+		removePIDStateFiles(os.Getpid(), state.Tunnels)
 		removeState()
 		os.Exit(0)
 	}()
 
 	printBanner(*serverFlag, ports, requestedLifetime)
 
-	state := stateFile{PID: os.Getpid()}
-	var stateMu sync.Mutex
-
 	addTunnelState := func(ts tunnelState) {
 		stateMu.Lock()
 		defer stateMu.Unlock()
 		state.Tunnels = append(state.Tunnels, ts)
-		writeState(state)
 	}
 
 	var wg sync.WaitGroup
@@ -340,12 +429,15 @@ func main() {
 				}
 
 				_, err := connect(*serverFlag, *sshPortFlag, localPort, requestedLifetime, !*noQR, !*noClip, func(u string) {
-					addTunnelState(tunnelState{
+					ts := tunnelState{
+						PID:       os.Getpid(),
 						URL:       u,
 						LocalPort: localPort,
 						StartedAt: time.Now(),
 						ExpiresAt: time.Now().Add(requestedLifetime),
-					})
+					}
+					writeTunnelState(ts)
+					addTunnelState(ts)
 				})
 				// Tunnel disconnected — remove its entry so status stays accurate.
 				removeTunnelFromState(localPort, &state, &stateMu)
@@ -377,47 +469,70 @@ func main() {
 
 // spawnDaemon re-execs the current binary without the -d flag, detached from
 // the terminal. Stdout/stderr are redirected to ~/.mekong/mekong.log.
-func spawnDaemon() error {
+func spawnDaemon(ports []int, server string, sshPort int, requestedLifetime time.Duration, noReconnect bool) error {
 	_ = os.MkdirAll(mekongDir(), 0755)
 
 	logFile, err := os.OpenFile(logFilePath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("cannot open log file: %w", err)
 	}
+	defer logFile.Close()
 
-	// Build args: same as current invocation minus the -d flag.
-	args := make([]string, 0, len(os.Args)-1)
-	for _, a := range os.Args[1:] {
-		if a == "-d" || a == "--d" {
-			continue
-		}
-		args = append(args, a)
+	baseArgs := []string{
+		"--server", server,
+		"--ssh-port", strconv.Itoa(sshPort),
 	}
 	// Force no-qr and no-clipboard in daemon mode (terminal is detached).
-	args = append(args, "--no-qr", "--no-clipboard")
+	baseArgs = append(baseArgs, "--no-qr", "--no-clipboard")
+	if requestedLifetime != config.DefaultTunnelLifetime {
+		baseArgs = append(baseArgs, "--expire", expiry.Format(requestedLifetime))
+	}
+	if noReconnect {
+		baseArgs = append(baseArgs, "--no-reconnect")
+	}
 
 	self, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("cannot locate binary: %w", err)
 	}
 
-	cmd := exec.Command(self, args...)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.Env = append(os.Environ(), daemonEnvName+"=1")
-	detachProcess(cmd) // platform-specific: detach from terminal
-	if err := cmd.Start(); err != nil {
-		return err
+	type daemonProc struct {
+		port int
+		pid  int
+	}
+	processes := make([]daemonProc, 0, len(ports))
+
+	for _, port := range ports {
+		args := append(append([]string{}, baseArgs...), strconv.Itoa(port))
+		cmd := exec.Command(self, args...)
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+		cmd.Env = append(os.Environ(), daemonEnvName+"=1")
+		detachProcess(cmd) // platform-specific: detach from terminal
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		processes = append(processes, daemonProc{port: port, pid: cmd.Process.Pid})
 	}
 
 	fmt.Printf("\n")
 	fmt.Printf(green + "  ✔  mekong running in background" + reset + "\n")
-	fmt.Printf(gray+"     PID     "+purple+"%d"+reset+"\n", cmd.Process.Pid)
+	for _, proc := range processes {
+		fmt.Printf(gray+"     PID     "+purple+"%d"+reset+gray+"  [:%d]"+reset+"\n", proc.pid, proc.port)
+	}
 	fmt.Printf(gray+"     Logs    "+purple+"%s"+reset+"\n", logFilePath())
-	fmt.Printf(gray + "     View    " + purple + "mekong logs [port]" + reset + "\n")
-	fmt.Printf(gray + "     Follow  " + purple + "mekong logs -f [port]" + reset + "\n")
+	if len(ports) == 1 {
+		fmt.Printf(gray+"     View    "+purple+"mekong logs %d"+reset+"\n", ports[0])
+		fmt.Printf(gray+"     Follow  "+purple+"mekong logs -f %d"+reset+"\n", ports[0])
+		fmt.Printf(gray+"     Stop    "+purple+"mekong stop %d"+reset+"\n", ports[0])
+	} else {
+		fmt.Printf(gray + "     View    " + purple + "mekong logs [port]" + reset + "\n")
+		fmt.Printf(gray + "     Follow  " + purple + "mekong logs -f [port]" + reset + "\n")
+		fmt.Printf(gray + "     Stop    " + purple + "mekong stop [port]" + reset + "\n")
+	}
+	fmt.Printf(gray + "     StopAll " + purple + "mekong stop --all" + reset + "\n")
 	fmt.Printf(gray + "     Status  " + purple + "mekong status" + reset + "\n")
-	fmt.Printf(gray + "     Stop    " + purple + "mekong stop" + reset + "\n\n")
+	fmt.Printf("\n")
 
 	return nil
 }
@@ -628,7 +743,7 @@ func proxyToLocal(ch ssh.Channel, port int) {
 	<-done
 }
 
-// ---- mekong status ----
+// ---- mekong logs / status / stop ----
 
 func runLogsCommand(args []string) error {
 	follow, portFilter, err := parseLogsArgs(args)
@@ -824,7 +939,7 @@ func logPrefixForPort(localPort int) string {
 // runStatus prints active tunnels for the current user.
 // If portFilter > 0, only the tunnel for that local port is shown.
 func runStatus(portFilter int) {
-	state, err := readState()
+	states, err := readActiveTunnelStates()
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Printf("\n%s  No active tunnels.%s\n\n", gray, reset)
@@ -834,26 +949,38 @@ func runStatus(portFilter int) {
 		return
 	}
 
-	if !isPIDAlive(state.PID) {
+	if len(states) == 0 {
+		fmt.Printf("\n%s  No active tunnels.%s\n\n", gray, reset)
+		return
+	}
+
+	alive := states[:0]
+	for _, state := range states {
+		if state.PID > 0 && isPIDAlive(state.PID) {
+			alive = append(alive, state)
+			continue
+		}
+		removeTunnelStateFile(state.LocalPort)
+	}
+	states = alive
+	if len(states) == 0 {
 		fmt.Printf("\n%s  No active tunnels (mekong is not running — stale state file).%s\n\n", gray, reset)
-		// Clean up stale file automatically.
 		removeState()
 		return
 	}
 
 	// Apply port filter.
-	tunnels := state.Tunnels
 	if portFilter > 0 {
-		filtered := tunnels[:0]
-		for _, t := range tunnels {
+		filtered := states[:0]
+		for _, t := range states {
 			if t.LocalPort == portFilter {
 				filtered = append(filtered, t)
 			}
 		}
-		tunnels = filtered
+		states = filtered
 	}
 
-	if len(tunnels) == 0 {
+	if len(states) == 0 {
 		if portFilter > 0 {
 			fmt.Printf("\n%s  No active tunnel for port %d.%s\n\n", gray, portFilter, reset)
 		} else {
@@ -865,16 +992,19 @@ func runStatus(portFilter int) {
 	fmt.Printf("\n")
 	fmt.Printf(gray + "  ─────────────────────────────────────────────────────" + reset + "\n")
 	if portFilter > 0 {
-		fmt.Printf(yellow+"  Tunnel for :%d  "+gray+"(PID %d)"+reset+"\n", portFilter, state.PID)
+		fmt.Printf(yellow+"  Tunnel for :%d"+reset+"\n", portFilter)
 	} else {
-		fmt.Printf(yellow+"  Active tunnels  "+gray+"(PID %d)"+reset+"\n", state.PID)
+		fmt.Printf(yellow + "  Active tunnels" + reset + "\n")
 	}
 	fmt.Printf(gray + "  ─────────────────────────────────────────────────────" + reset + "\n")
 
-	for _, t := range tunnels {
+	for _, t := range states {
 		uptime := time.Since(t.StartedAt).Round(time.Second)
 		fmt.Printf(gray+"  URL        "+cyan+"%s"+reset+"\n", t.URL)
 		fmt.Printf(gray+"  Local      "+purple+"localhost:%d"+reset+"\n", t.LocalPort)
+		if t.PID > 0 {
+			fmt.Printf(gray+"  PID        "+purple+"%d"+reset+"\n", t.PID)
+		}
 		fmt.Printf(gray+"  Uptime     "+purple+"%s"+reset+"\n", uptime)
 		if !t.ExpiresAt.IsZero() {
 			fmt.Printf(gray+"  Expires    "+purple+"%s"+reset+"\n", t.ExpiresAt.Local().Format("2006-01-02 15:04:05 MST"))
@@ -884,38 +1014,137 @@ func runStatus(portFilter int) {
 	fmt.Printf("\n")
 }
 
-// ---- mekong stop ----
+func runStopCommand(args []string) error {
+	portFilter, stopAll, err := parseStopArgs(args)
+	if err != nil {
+		return err
+	}
+	return runStop(portFilter, stopAll)
+}
 
-// runStop reads the PID from the state file and sends SIGTERM.
-func runStop() {
-	state, err := readState()
+func parseStopArgs(args []string) (int, bool, error) {
+	portFilter := 0
+	stopAll := false
+	for _, arg := range args {
+		switch arg {
+		case "--all":
+			stopAll = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return 0, false, fmt.Errorf("usage: mekong stop [port] [--all]")
+			}
+			if portFilter != 0 {
+				return 0, false, fmt.Errorf("usage: mekong stop [port] [--all]")
+			}
+			p, err := strconv.Atoi(arg)
+			if err != nil || p < 1 || p > 65535 {
+				return 0, false, fmt.Errorf("invalid port %q", arg)
+			}
+			portFilter = p
+		}
+	}
+	if stopAll && portFilter != 0 {
+		return 0, false, fmt.Errorf("usage: mekong stop [port] [--all]")
+	}
+	return portFilter, stopAll, nil
+}
+
+// runStop stops either a specific tunnel daemon, all tunnel daemons, or the
+// single active daemon when only one tunnel is running.
+func runStop(portFilter int, stopAll bool) error {
+	states, err := readActiveTunnelStates()
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Printf("\n%s  No background tunnel to stop.%s\n\n", gray, reset)
-		} else {
-			fmt.Fprintf(os.Stderr, "  error reading state: %v\n", err)
+			return nil
 		}
-		return
+		return fmt.Errorf("reading tunnel state: %w", err)
 	}
 
-	if !isPIDAlive(state.PID) {
+	if len(states) == 0 {
+		fmt.Printf("\n%s  No background tunnel to stop.%s\n\n", gray, reset)
+		return nil
+	}
+
+	alive := states[:0]
+	for _, state := range states {
+		if state.PID > 0 && isPIDAlive(state.PID) {
+			alive = append(alive, state)
+			continue
+		}
+		removeTunnelStateFile(state.LocalPort)
+	}
+	states = alive
+	if len(states) == 0 {
 		fmt.Printf("\n%s  mekong is not running (stale state file cleaned up).%s\n\n", gray, reset)
 		removeState()
-		return
+		return nil
 	}
 
-	p, err := os.FindProcess(state.PID)
+	if stopAll {
+		pids := uniquePIDs(states)
+		stopped := 0
+		for _, pid := range pids {
+			p, err := os.FindProcess(pid)
+			if err != nil {
+				continue
+			}
+			if err := p.Signal(syscall.SIGTERM); err == nil {
+				stopped++
+			}
+			removePIDStateFiles(pid, states)
+		}
+		fmt.Printf("\n%s  ✔  Stopped %d mekong process(es).%s\n\n", green, stopped, reset)
+		return nil
+	}
+
+	if portFilter == 0 {
+		if len(states) > 1 {
+			fmt.Printf("\n%s  Multiple active tunnels. Use mekong stop <port> or mekong stop --all.%s\n\n", yellow, reset)
+			return nil
+		}
+		portFilter = states[0].LocalPort
+	}
+
+	var target *tunnelState
+	for i := range states {
+		if states[i].LocalPort == portFilter {
+			target = &states[i]
+			break
+		}
+	}
+	if target == nil {
+		fmt.Printf("\n%s  No active tunnel for port %d.%s\n\n", gray, portFilter, reset)
+		return nil
+	}
+
+	p, err := os.FindProcess(target.PID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  error finding process: %v\n", err)
-		return
+		return fmt.Errorf("finding process: %w", err)
 	}
 	if err := p.Signal(syscall.SIGTERM); err != nil {
-		fmt.Fprintf(os.Stderr, "  error sending signal: %v\n", err)
-		return
+		return fmt.Errorf("sending signal: %w", err)
 	}
 
-	removeState()
-	fmt.Printf("\n%s  ✔  Stopped mekong (PID %d)%s\n\n", green, state.PID, reset)
+	removePIDStateFiles(target.PID, states)
+	fmt.Printf("\n%s  ✔  Stopped mekong for :%d (PID %d)%s\n\n", green, target.LocalPort, target.PID, reset)
+	return nil
+}
+
+func uniquePIDs(states []tunnelState) []int {
+	seen := make(map[int]struct{}, len(states))
+	pids := make([]int, 0, len(states))
+	for _, state := range states {
+		if state.PID == 0 {
+			continue
+		}
+		if _, ok := seen[state.PID]; ok {
+			continue
+		}
+		seen[state.PID] = struct{}{}
+		pids = append(pids, state.PID)
+	}
+	return pids
 }
 
 // ---- self-update ----

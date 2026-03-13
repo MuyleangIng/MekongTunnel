@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing git tag to release, for example v1.4.4"
+        description: "Existing git tag to release, for example v1.4.5"
         required: true
         type: string
 

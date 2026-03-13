@@ -18,13 +18,25 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
 	"github.com/MuyleangIng/MekongTunnel/internal/proxy"
 )
 
+// version is set at build time via -ldflags "-X main.version=..."
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 {
+		switch strings.TrimSpace(os.Args[1]) {
+		case "version", "--version", "-v":
+			fmt.Printf("mekongtunnel %s\n", version)
+			return
+		}
+	}
+
 	// Load configuration from environment variables, falling back to defaults.
 	cfg := config.Default()
 

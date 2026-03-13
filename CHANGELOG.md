@@ -2,6 +2,15 @@
 
 Includes Git tags fetched from `origin` on 2026-03-13.
 
+## v1.4.5 - 2026-03-13
+
+Highlights:
+
+- Hardened `update.sh` so production deploys fetch tags, reset to a clean ref, clear Go caches, clean old build outputs, rebuild both binaries, and restart from the latest code
+- Added `mekongtunnel version` for direct server binary verification after deploys
+- Updated install docs to use `sudo xattr` for macOS binaries installed into `/usr/local/bin`
+- Built fresh multi-platform client binaries with `main.version=v1.4.5`
+
 ## v1.4.4 - 2026-03-13
 
 Highlights:
@@ -16,6 +25,8 @@ Highlights:
 
 | Tag | Date |
 | --- | --- |
+| `v1.4.5` | 2026-03-13 |
+| `v1.4.4` | 2026-03-13 |
 | `v1.4.3` | 2026-03-03 |
 | `v1.4.2` | 2026-02-28 |
 | `v1.4.1` | 2026-02-28 |

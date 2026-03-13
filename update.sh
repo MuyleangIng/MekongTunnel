@@ -1,27 +1,50 @@
-#!/bin/bash
-# update.sh — pull latest code, clean, rebuild, and restart mekongtunnel
-set -e
+#!/usr/bin/env bash
+# update.sh — fetch the latest code, reset to a clean ref, rebuild, and restart MekongTunnel
+set -euo pipefail
 
-cd /opt/mekongtunnel
+APP_DIR="${APP_DIR:-/opt/mekongtunnel}"
+SERVICE_NAME="${SERVICE_NAME:-mekongtunnel.service}"
+TARGET_REF="${1:-origin/main}"
+
+cd "${APP_DIR}"
 
 echo "→ Stopping service..."
-systemctl stop mekongtunnel.service
+systemctl stop "${SERVICE_NAME}"
 
-echo "→ Pulling latest code..."
-git pull
+echo "→ Fetching latest code and tags..."
+git fetch --force --prune --tags origin
+git rev-parse --verify "${TARGET_REF}^{commit}" >/dev/null
 
-echo "→ Cleaning old binaries..."
+echo "→ Resetting repository to ${TARGET_REF}..."
+if [[ "${TARGET_REF}" == origin/* ]]; then
+  branch="${TARGET_REF#origin/}"
+  git checkout -B "${branch}" "${TARGET_REF}"
+else
+  git checkout --detach "${TARGET_REF}"
+fi
+git reset --hard "${TARGET_REF}"
+git clean -fdx -e host_key -e data/ -e data-dev/ -e certs/ -e .env -e .env.* -e logs/
+
+echo "→ Cleaning old binaries and Go caches..."
 rm -f mekongtunnel /usr/local/bin/mekong
+go clean -cache -testcache -modcache
 
-echo "→ Building server binary..."
-go build -ldflags="-s -w -X main.version=$(git describe --tags --always)" -trimpath -o mekongtunnel ./cmd/mekongtunnel
+VERSION="$(git describe --tags --always)"
+LDFLAGS="-s -w -X main.version=${VERSION}"
 
-echo "→ Building mekong client binary..."
-go build -ldflags="-s -w -X main.version=$(git describe --tags --always)" -trimpath -o /usr/local/bin/mekong ./cmd/mekong
+echo "→ Building server binary (${VERSION})..."
+CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -trimpath -o mekongtunnel ./cmd/mekongtunnel
+
+echo "→ Building mekong client binary (${VERSION})..."
+CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -trimpath -o /usr/local/bin/mekong ./cmd/mekong
 chmod +x /usr/local/bin/mekong
 
+echo "→ Installed versions:"
+./mekongtunnel version
+/usr/local/bin/mekong version
+
 echo "→ Starting service..."
-systemctl start mekongtunnel.service
+systemctl start "${SERVICE_NAME}"
 
 echo "→ Status:"
-systemctl status mekongtunnel.service --no-pager
+systemctl status "${SERVICE_NAME}" --no-pager

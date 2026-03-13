@@ -21,25 +21,25 @@ The `mekong` CLI is the easiest way to use MekongTunnel — no SSH flags, auto-r
 ### macOS (Apple Silicon — M1, M2, M3)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.4/mekong-darwin-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.5/mekong-darwin-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
-xattr -d com.apple.quarantine /usr/local/bin/mekong
+sudo xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
 ```
 
 ### macOS (Intel)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.4/mekong-darwin-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.5/mekong-darwin-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
-xattr -d com.apple.quarantine /usr/local/bin/mekong
+sudo xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
 ```
 
 ### Linux (amd64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.4/mekong-linux-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.5/mekong-linux-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
@@ -47,14 +47,14 @@ mekong 3000
 ### Linux (arm64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.4/mekong-linux-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.5/mekong-linux-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
 
 ### Windows
 
-Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.4/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
+Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.5/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
 
 ---
 
@@ -740,18 +740,23 @@ docker compose restart
 ## GitHub Actions
 
 - `Go CI` — runs on pushes to `main` and on pull requests; builds the repo, runs the stable test suites, and cross-builds the client binaries
-- `Release Mekong CLI` — runs on tag pushes like `v1.4.4` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
+- `Release Mekong CLI` — runs on tag pushes like `v1.4.5` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
 
 Release a new version:
 
 ```bash
-git tag v1.4.4
-git push origin v1.4.4
+git tag v1.4.5
+git push origin main v1.4.5
 ```
 
 ---
 
 ## Changelog
+
+### v1.4.5
+- **Production deploy script** — `update.sh` now fetches tags, resets to a clean ref, clears Go caches, cleans old build outputs, rebuilds both binaries, prints installed versions, and restarts the service from the latest code
+- **Server version command** — `mekongtunnel version` now prints the running server binary version for easier production verification
+- **macOS install fix** — install docs now use `sudo xattr` so the quarantine removal step works after installing into `/usr/local/bin`
 
 ### v1.4.4
 - **Expiry option** — `mekong` now supports `-e` / `--expire` with values like `30m`, `48h`, `2d`, `2day`, and `1w`

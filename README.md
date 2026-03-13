@@ -780,6 +780,7 @@ git push origin main v1.4.6
 ### v1.4.6
 - **Daemon logs command** — `mekong logs [port]` prints the background tunnel log file and `mekong logs -f [port]` follows it live like `docker logs -f`, optionally filtered to one local port
 - **Specific stop command** — `mekong stop 3000` stops one daemon tunnel by local port, and `mekong stop --all` stops every daemon tunnel
+- **Log cleanup on stop** — stopping a daemon tunnel now clears that port’s old log lines so the next `mekong logs 3000` starts clean
 - **Daemon help text** — background mode now shows the `mekong logs [port]` and `mekong logs -f [port]` commands next to the log file path
 
 ### v1.4.5

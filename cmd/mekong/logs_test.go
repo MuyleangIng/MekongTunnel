@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseLogsArgs(t *testing.T) {
 	tests := []struct {
@@ -95,5 +99,68 @@ func TestParseStopArgs(t *testing.T) {
 				t.Fatalf("parseStopArgs() all = %v, want %v", gotAll, tt.wantAll)
 			}
 		})
+	}
+}
+
+func TestPruneLogFile(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	logDir := filepath.Join(tmpHome, ".mekong")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	path := filepath.Join(logDir, "mekong.log")
+	content := "global line\n[:3000] first line\n[:4000] keep me\n[:3000] second line\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if err := pruneLogFile(3000, false); err != nil {
+		t.Fatalf("pruneLogFile() error = %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	want := "global line\n[:4000] keep me\n"
+	if string(got) != want {
+		t.Fatalf("pruneLogFile() = %q, want %q", string(got), want)
+	}
+}
+
+func TestRunStopStaleCleansPortLogs(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	logDir := filepath.Join(tmpHome, ".mekong")
+	tunnelDir := filepath.Join(logDir, "tunnels")
+	if err := os.MkdirAll(tunnelDir, 0755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	logPath := filepath.Join(logDir, "mekong.log")
+	if err := os.WriteFile(logPath, []byte("[:3000] old line\n[:4000] keep line\n"), 0644); err != nil {
+		t.Fatalf("WriteFile(log) error = %v", err)
+	}
+
+	state := []byte("{\n  \"pid\": 999999,\n  \"url\": \"https://example.test\",\n  \"local_port\": 3000,\n  \"started_at\": \"2026-03-13T00:00:00Z\",\n  \"expires_at\": \"2026-03-20T00:00:00Z\"\n}\n")
+	if err := os.WriteFile(filepath.Join(tunnelDir, "3000.json"), state, 0600); err != nil {
+		t.Fatalf("WriteFile(state) error = %v", err)
+	}
+
+	if err := runStop(3000, false); err != nil {
+		t.Fatalf("runStop() error = %v", err)
+	}
+
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != "[:4000] keep line\n" {
+		t.Fatalf("runStop() log = %q, want %q", string(got), "[:4000] keep line\n")
 	}
 }

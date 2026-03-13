@@ -394,7 +394,7 @@ func main() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigs
-		fmt.Printf("\n%s  ✖  Disconnected. Goodbye!%s\n\n", yellow, reset)
+		fmt.Printf("\n%s\n\n", formatOutputForPorts(ports, yellow+"  ✖  Disconnected. Goodbye!"+reset))
 		removePIDStateFiles(os.Getpid(), state.Tunnels)
 		removeState()
 		os.Exit(0)
@@ -471,6 +471,11 @@ func main() {
 // the terminal. Stdout/stderr are redirected to ~/.mekong/mekong.log.
 func spawnDaemon(ports []int, server string, sshPort int, requestedLifetime time.Duration, noReconnect bool) error {
 	_ = os.MkdirAll(mekongDir(), 0755)
+	for _, port := range ports {
+		if err := pruneLogFile(port, false); err != nil {
+			return fmt.Errorf("clean log for port %d: %w", port, err)
+		}
+	}
 
 	logFile, err := os.OpenFile(logFilePath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -543,19 +548,26 @@ func printBanner(server string, ports []int, requestedLifetime time.Duration) {
 	for i, p := range ports {
 		portStr[i] = strconv.Itoa(p)
 	}
+	lines := []string{
+		cyan + "  ███╗   ███╗███████╗██╗  ██╗ ██████╗ ███╗   ██╗ ██████╗ " + reset,
+		cyan + "  ████╗ ████║██╔════╝██║ ██╔╝██╔═══██╗████╗  ██║██╔════╝ " + reset,
+		cyan + "  ██╔████╔██║█████╗  █████╔╝ ██║   ██║██╔██╗ ██║██║  ███╗" + reset,
+		cyan + "  ██║╚██╔╝██║██╔══╝  ██╔═██╗ ██║   ██║██║╚██╗██║██║   ██║" + reset,
+		cyan + "  ██║ ╚═╝ ██║███████╗██║  ██╗╚██████╔╝██║ ╚████║╚██████╔╝" + reset,
+		cyan + "  ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ " + reset,
+		gray + "  by " + yellow + "Ing Muyleang" + gray + " · Founder of " + yellow + "KhmerStack" + reset,
+		gray + "  ─────────────────────────────────────────────────────" + reset,
+		fmt.Sprintf(gray+"  Server     "+purple+"%s"+reset, server),
+		fmt.Sprintf(gray+"  Local      "+purple+"localhost:%s"+reset, strings.Join(portStr, ", ")),
+		fmt.Sprintf(gray+"  Expire     "+purple+"%s"+reset, expiry.Format(requestedLifetime)),
+		gray + "  ─────────────────────────────────────────────────────" + reset,
+	}
+
 	fmt.Printf("\n")
-	fmt.Printf(cyan + "  ███╗   ███╗███████╗██╗  ██╗ ██████╗ ███╗   ██╗ ██████╗ \r\n" +
-		"  ████╗ ████║██╔════╝██║ ██╔╝██╔═══██╗████╗  ██║██╔════╝ \r\n" +
-		"  ██╔████╔██║█████╗  █████╔╝ ██║   ██║██╔██╗ ██║██║  ███╗\r\n" +
-		"  ██║╚██╔╝██║██╔══╝  ██╔═██╗ ██║   ██║██║╚██╗██║██║   ██║\r\n" +
-		"  ██║ ╚═╝ ██║███████╗██║  ██╗╚██████╔╝██║ ╚████║╚██████╔╝\r\n" +
-		"  ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ " + reset + "\n")
-	fmt.Printf(gray + "  by " + yellow + "Ing Muyleang" + gray + " · Founder of " + yellow + "KhmerStack" + reset + "\n")
-	fmt.Printf(gray + "  ─────────────────────────────────────────────────────" + reset + "\n")
-	fmt.Printf(gray+"  Server     "+purple+"%s"+reset+"\n", server)
-	fmt.Printf(gray+"  Local      "+purple+"localhost:%s"+reset+"\n", strings.Join(portStr, ", "))
-	fmt.Printf(gray+"  Expire     "+purple+"%s"+reset+"\n", expiry.Format(requestedLifetime))
-	fmt.Printf(gray + "  ─────────────────────────────────────────────────────" + reset + "\n\n")
+	for _, line := range lines {
+		fmt.Println(formatOutputForPorts(ports, line))
+	}
+	fmt.Printf("\n")
 }
 
 // connect establishes one SSH tunnel session. Returns the tunnel URL and any error.
@@ -936,6 +948,13 @@ func logPrefixForPort(localPort int) string {
 	return ""
 }
 
+func formatOutputForPorts(ports []int, line string) string {
+	if os.Getenv(daemonEnvName) == "1" && len(ports) == 1 {
+		return logPrefixForPort(ports[0]) + line
+	}
+	return line
+}
+
 // runStatus prints active tunnels for the current user.
 // If portFilter > 0, only the tunnel for that local port is shown.
 func runStatus(portFilter int) {
@@ -1076,6 +1095,11 @@ func runStop(portFilter int, stopAll bool) error {
 	}
 	states = alive
 	if len(states) == 0 {
+		if stopAll {
+			_ = pruneLogFile(0, true)
+		} else if portFilter > 0 {
+			_ = pruneLogFile(portFilter, false)
+		}
 		fmt.Printf("\n%s  mekong is not running (stale state file cleaned up).%s\n\n", gray, reset)
 		removeState()
 		return nil
@@ -1092,7 +1116,13 @@ func runStop(portFilter int, stopAll bool) error {
 			if err := p.Signal(syscall.SIGTERM); err == nil {
 				stopped++
 			}
+			waitForPIDExit(pid, 3*time.Second)
+		}
+		for _, pid := range pids {
 			removePIDStateFiles(pid, states)
+		}
+		if err := pruneLogFile(0, true); err != nil {
+			return fmt.Errorf("clean log file: %w", err)
 		}
 		fmt.Printf("\n%s  ✔  Stopped %d mekong process(es).%s\n\n", green, stopped, reset)
 		return nil
@@ -1114,6 +1144,7 @@ func runStop(portFilter int, stopAll bool) error {
 		}
 	}
 	if target == nil {
+		_ = pruneLogFile(portFilter, false)
 		fmt.Printf("\n%s  No active tunnel for port %d.%s\n\n", gray, portFilter, reset)
 		return nil
 	}
@@ -1126,7 +1157,11 @@ func runStop(portFilter int, stopAll bool) error {
 		return fmt.Errorf("sending signal: %w", err)
 	}
 
+	waitForPIDExit(target.PID, 3*time.Second)
 	removePIDStateFiles(target.PID, states)
+	if err := pruneLogFile(target.LocalPort, false); err != nil {
+		return fmt.Errorf("clean log for port %d: %w", target.LocalPort, err)
+	}
 	fmt.Printf("\n%s  ✔  Stopped mekong for :%d (PID %d)%s\n\n", green, target.LocalPort, target.PID, reset)
 	return nil
 }
@@ -1145,6 +1180,45 @@ func uniquePIDs(states []tunnelState) []int {
 		pids = append(pids, state.PID)
 	}
 	return pids
+}
+
+func waitForPIDExit(pid int, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for isPIDAlive(pid) && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func pruneLogFile(portFilter int, clearAll bool) error {
+	path := logFilePath()
+	if clearAll {
+		if err := os.WriteFile(path, nil, 0644); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	parts := strings.SplitAfter(string(data), "\n")
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		if logLineMatchesPort(part, portFilter) {
+			continue
+		}
+		kept = append(kept, part)
+	}
+
+	return os.WriteFile(path, []byte(strings.Join(kept, "")), 0644)
 }
 
 // ---- self-update ----

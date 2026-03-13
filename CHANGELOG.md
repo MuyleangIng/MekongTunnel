@@ -10,6 +10,7 @@ Highlights:
 - Added `mekong logs -f` / `mekong logs --follow` to stream daemon logs live like `docker logs -f`
 - Added optional port filtering so `mekong logs 3000` and `mekong logs -f 3000` show only one local port
 - Added `mekong stop 3000` to stop a single daemon tunnel by local port and `mekong stop --all` to stop every daemon tunnel
+- Stopping a daemon tunnel now clears that port's old log lines from `~/.mekong/mekong.log`
 - Updated daemon mode output and README examples to surface the new log commands
 - Built fresh multi-platform client binaries with `main.version=v1.4.6`
 

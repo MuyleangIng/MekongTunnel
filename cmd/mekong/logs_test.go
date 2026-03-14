@@ -67,6 +67,38 @@ func TestLogLineMatchesPort(t *testing.T) {
 	}
 }
 
+func TestExtractServerErrorMessage(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{
+			name:   "plain error line",
+			output: "\r\n  ERROR: rate limit exceeded: max 3 tunnels per IP\r\n\r\n",
+			want:   "rate limit exceeded: max 3 tunnels per IP",
+		},
+		{
+			name:   "ansi wrapped error line",
+			output: "\x1b[1;31m  ERROR: IP 127.0.0.1 is temporarily blocked. Try again in 15m\x1b[0m\n",
+			want:   "IP 127.0.0.1 is temporarily blocked. Try again in 15m",
+		},
+		{
+			name:   "no error line",
+			output: "welcome\n",
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := extractServerErrorMessage(tt.output); got != tt.want {
+				t.Fatalf("extractServerErrorMessage() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseStopArgs(t *testing.T) {
 	tests := []struct {
 		name     string

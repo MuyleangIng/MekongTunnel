@@ -21,7 +21,7 @@ The `mekong` CLI is the easiest way to use MekongTunnel — no SSH flags, auto-r
 ### macOS (Apple Silicon — M1, M2, M3)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.6/mekong-darwin-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.7/mekong-darwin-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 sudo xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -30,7 +30,7 @@ mekong 3000
 ### macOS (Intel)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.6/mekong-darwin-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.7/mekong-darwin-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 sudo xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -39,7 +39,7 @@ mekong 3000
 ### Linux (amd64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.6/mekong-linux-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.7/mekong-linux-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
@@ -47,14 +47,14 @@ mekong 3000
 ### Linux (arm64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.6/mekong-linux-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.7/mekong-linux-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
 
 ### Windows
 
-Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.6/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
+Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.7/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
 
 ---
 
@@ -447,6 +447,11 @@ TLS_KEY=/certs/privkey.pem
 | `HTTP_ADDR` | `:80` | HTTP redirect server |
 | `HTTPS_ADDR` | `:443` | HTTPS proxy server |
 | `STATS_ADDR` | `127.0.0.1:9090` | Dashboard and metrics (localhost only) |
+| `IMAGE_TAG` | `latest` | Docker Compose image tag for the production service build |
+| `DEV_IMAGE_TAG` | `dev` | Docker Compose image tag for the dev service build |
+| `MAX_TUNNELS_PER_IP` | `10` | Active tunnel limit per source IP |
+| `MAX_TOTAL_TUNNELS` | `5000` | Total active tunnel capacity for the server |
+| `MAX_CONNECTIONS_PER_MINUTE` | `600` | New SSH tunnel attempts allowed per IP each minute |
 | `HOST_KEY_PATH` | `host_key` | SSH host key file (auto-generated if missing) |
 | `TLS_CERT` | `/certs/fullchain.pem` | TLS certificate (inside container) |
 | `TLS_KEY` | `/certs/privkey.pem` | TLS private key (inside container) |
@@ -461,6 +466,20 @@ DOMAIN=yourdomain.com ./bin/mekongtunnel
 SSH_ADDR=:2223 HTTP_ADDR=:8080 HTTPS_ADDR=:8443 \
 STATS_ADDR=127.0.0.1:9091 DOMAIN=yourdomain.com \
 ./bin/mekongtunnel
+```
+
+To allow one IP to open 300+ concurrent tunnels, start the server with higher limits:
+
+```bash
+MAX_TUNNELS_PER_IP=350 MAX_TOTAL_TUNNELS=5000 \
+MAX_CONNECTIONS_PER_MINUTE=600 DOMAIN=yourdomain.com \
+./bin/mekongtunnel
+```
+
+Build a versioned Docker image for release `v1.4.7`:
+
+```bash
+docker build --build-arg VERSION=v1.4.7 -t mekongtunnel:v1.4.7 -t mekongtunnel:latest .
 ```
 
 Connect to the dev instance:
@@ -764,18 +783,24 @@ docker compose restart
 ## GitHub Actions
 
 - `Go CI` — runs on pushes to `main` and on pull requests; builds the repo, runs the stable test suites, and cross-builds the client binaries
-- `Release Mekong CLI` — runs on tag pushes like `v1.4.6` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
+- `Release Mekong CLI` — runs on tag pushes like `v1.4.7` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
 
 Release a new version:
 
 ```bash
-git tag v1.4.6
-git push origin main v1.4.6
+git tag v1.4.7
+git push origin main v1.4.7
 ```
 
 ---
 
 ## Changelog
+
+### v1.4.7
+- **Port-forward rejection details** — `mekong` now reads and prints the server’s actual `tcpip-forward` rejection reason instead of collapsing everything into a generic error
+- **Higher-capacity defaults** — server defaults now allow `10` active tunnels per IP, `5000` total tunnels, and `600` new connections per IP per minute
+- **Configurable server capacity** — `MAX_TOTAL_TUNNELS` and `MAX_CONNECTIONS_PER_MINUTE` are now first-class runtime env vars alongside `MAX_TUNNELS_PER_IP`
+- **Versioned Docker builds** — Docker builds now embed `main.version`, expose OCI version metadata, and support versioned Compose image tags
 
 ### v1.4.6
 - **Daemon logs command** — `mekong logs [port]` prints the background tunnel log file and `mekong logs -f [port]` follows it live like `docker logs -f`, optionally filtered to one local port
@@ -803,7 +828,7 @@ git push origin main v1.4.6
 
 ### v1.4.1
 - **Bug fix** — `--subdomain` flag now works in any position (`mekong 3000 --subdomain myapp` no longer errors)
-- **Server** — per-IP tunnel limit is now configurable via `MAX_TUNNELS_PER_IP` env var (default: 3)
+- **Server** — per-IP tunnel limit is now configurable via `MAX_TUNNELS_PER_IP` env var (default is now `10`), with `MAX_TOTAL_TUNNELS` and `MAX_CONNECTIONS_PER_MINUTE` available for higher-capacity deployments
 
 ### v1.4.0
 - **Daemon mode** — `mekong -d 3000` runs in the background and frees the terminal; logs go to `~/.mekong/mekong.log`

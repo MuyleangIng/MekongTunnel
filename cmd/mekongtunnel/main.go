@@ -69,9 +69,25 @@ func main() {
 			cfg.MaxTunnelsPerIP = n
 		}
 	}
+	if v := os.Getenv("MAX_TOTAL_TUNNELS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.MaxTotalTunnels = n
+		}
+	}
+	if v := os.Getenv("MAX_CONNECTIONS_PER_MINUTE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.MaxConnectionsPerMinute = n
+		}
+	}
 
 	// Create the proxy server (loads/generates SSH host key, sets up abuse tracker).
-	srv, err := proxy.New(cfg.HostKeyPath, cfg.Domain, cfg.MaxTunnelsPerIP)
+	srv, err := proxy.New(
+		cfg.HostKeyPath,
+		cfg.Domain,
+		cfg.MaxTunnelsPerIP,
+		cfg.MaxTotalTunnels,
+		cfg.MaxConnectionsPerMinute,
+	)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

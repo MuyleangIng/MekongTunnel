@@ -17,10 +17,11 @@ const (
 	AuthorKhName = "អុឹង មួយលៀង"
 	AuthorHandle = "Ing_Muyleang"
 
-	DefaultDomain          = "muyleanging.com"
-	InactivityTimeout      = 2 * time.Hour
-	DefaultMaxTunnelsPerIP = 3 // Default; override with MAX_TUNNELS_PER_IP env var
-	MaxTotalTunnels        = 1000
+	DefaultDomain               = "muyleanging.com"
+	InactivityTimeout           = 2 * time.Hour
+	DefaultMaxTunnelsPerIP      = 10   // Default; override with MAX_TUNNELS_PER_IP env var
+	DefaultMaxTotalTunnels      = 5000 // Default; override with MAX_TOTAL_TUNNELS env var
+	DefaultMaxConnectionsPerMin = 600  // Default; override with MAX_CONNECTIONS_PER_MINUTE env var
 
 	// SSH handshake timeout
 	SSHHandshakeTimeout = 30 * time.Second
@@ -33,8 +34,7 @@ const (
 	MaxRequestBodySize = 128 * 1024 * 1024 // 128MB
 
 	// Connection rate limiting (new connections per IP)
-	MaxConnectionsPerMinute = 30              // max new connections per IP per minute
-	ConnectionRateWindow    = 1 * time.Minute // sliding window for connection rate
+	ConnectionRateWindow = 1 * time.Minute // sliding window for connection rate
 
 	// IP blocking
 	BlockDuration          = 15 * time.Minute // how long to block abusive IPs
@@ -72,28 +72,32 @@ const (
 
 // Config holds runtime configuration loaded from environment
 type Config struct {
-	SSHAddr         string
-	HTTPAddr        string
-	HTTPSAddr       string
-	StatsAddr       string
-	HostKeyPath     string
-	TLSCert         string
-	TLSKey          string
-	Domain          string
-	MaxTunnelsPerIP int
+	SSHAddr                 string
+	HTTPAddr                string
+	HTTPSAddr               string
+	StatsAddr               string
+	HostKeyPath             string
+	TLSCert                 string
+	TLSKey                  string
+	Domain                  string
+	MaxTunnelsPerIP         int
+	MaxTotalTunnels         int
+	MaxConnectionsPerMinute int
 }
 
 // Default returns configuration with default values
 func Default() *Config {
 	return &Config{
-		SSHAddr:         ":22",
-		HTTPAddr:        ":80",
-		HTTPSAddr:       ":443",
-		StatsAddr:       "127.0.0.1:9090",
-		HostKeyPath:     "host_key",
-		TLSCert:         fmt.Sprintf("/etc/letsencrypt/live/%s/fullchain.pem", DefaultDomain),
-		TLSKey:          fmt.Sprintf("/etc/letsencrypt/live/%s/privkey.pem", DefaultDomain),
-		Domain:          DefaultDomain,
-		MaxTunnelsPerIP: DefaultMaxTunnelsPerIP,
+		SSHAddr:                 ":22",
+		HTTPAddr:                ":80",
+		HTTPSAddr:               ":443",
+		StatsAddr:               "127.0.0.1:9090",
+		HostKeyPath:             "host_key",
+		TLSCert:                 fmt.Sprintf("/etc/letsencrypt/live/%s/fullchain.pem", DefaultDomain),
+		TLSKey:                  fmt.Sprintf("/etc/letsencrypt/live/%s/privkey.pem", DefaultDomain),
+		Domain:                  DefaultDomain,
+		MaxTunnelsPerIP:         DefaultMaxTunnelsPerIP,
+		MaxTotalTunnels:         DefaultMaxTotalTunnels,
+		MaxConnectionsPerMinute: DefaultMaxConnectionsPerMin,
 	}
 }

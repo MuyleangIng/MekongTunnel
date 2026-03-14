@@ -21,8 +21,11 @@ services:
   #  All config comes from .env
   # ──────────────────────────────────────────────
   mekongtunnel:
-    build: .
-    image: mekongtunnel:latest
+    build:
+      context: .
+      args:
+        VERSION: ${IMAGE_TAG:-dev}
+    image: mekongtunnel:${IMAGE_TAG:-latest}
     container_name: mekongtunnel
     restart: unless-stopped
 
@@ -75,8 +78,11 @@ services:
   #    ssh -t -R 80:localhost:8080 localhost -p 2223
   # ──────────────────────────────────────────────
   mekongtunnel-dev:
-    build: .
-    image: mekongtunnel:dev
+    build:
+      context: .
+      args:
+        VERSION: ${DEV_IMAGE_TAG:-dev}
+    image: mekongtunnel:${DEV_IMAGE_TAG:-dev}
     container_name: mekongtunnel-dev
     restart: unless-stopped
     profiles:
@@ -88,6 +94,9 @@ services:
       - HTTP_ADDR=:80
       - HTTPS_ADDR=:443
       - STATS_ADDR=127.0.0.1:9090
+      - MAX_TUNNELS_PER_IP=${MAX_TUNNELS_PER_IP:-10}
+      - MAX_TOTAL_TUNNELS=${MAX_TOTAL_TUNNELS:-5000}
+      - MAX_CONNECTIONS_PER_MINUTE=${MAX_CONNECTIONS_PER_MINUTE:-600}
       - HOST_KEY_PATH=/host_key
       - TLS_CERT=/certs/fullchain.pem
       - TLS_KEY=/certs/privkey.pem

@@ -603,7 +603,7 @@ func connect(server string, sshPort, localPort int, requestedLifetime time.Durat
 		return "", fmt.Errorf("port-forward request error: %w", err)
 	}
 	if !ok {
-		return "", fmt.Errorf("server rejected port-forward request")
+		return "", portForwardRejectedError(client)
 	}
 
 	fwdChans := client.HandleChannelOpen("forwarded-tcpip")
@@ -701,6 +701,63 @@ func connect(server string, sshPort, localPort int, requestedLifetime time.Durat
 		return "", waitErr
 	}
 	return tunnelURL, nil
+}
+
+func portForwardRejectedError(client *ssh.Client) error {
+	msg, err := readPortForwardRejectMessage(client)
+	if err == nil && msg != "" {
+		if strings.Contains(msg, "temporarily blocked") {
+			return fmt.Errorf("%w: %s", errBlocked, msg)
+		}
+		return fmt.Errorf("server rejected port-forward request: %s", msg)
+	}
+	return fmt.Errorf("server rejected port-forward request")
+}
+
+func readPortForwardRejectMessage(client *ssh.Client) (string, error) {
+	sess, err := client.NewSession()
+	if err != nil {
+		return "", err
+	}
+	defer sess.Close()
+
+	stdout, err := sess.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+
+	if err := sess.Shell(); err != nil {
+		return "", err
+	}
+
+	output, readErr := io.ReadAll(stdout)
+	waitErr := sess.Wait()
+	if readErr != nil {
+		return "", readErr
+	}
+
+	msg := extractServerErrorMessage(string(output))
+	if msg != "" {
+		return msg, nil
+	}
+	if waitErr != nil {
+		return "", waitErr
+	}
+	return "", nil
+}
+
+func extractServerErrorMessage(output string) string {
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		clean := strings.TrimSpace(ansiRe.ReplaceAllString(scanner.Text(), ""))
+		if idx := strings.Index(clean, "ERROR:"); idx >= 0 {
+			msg := strings.TrimSpace(clean[idx+len("ERROR:"):])
+			if msg != "" {
+				return msg
+			}
+		}
+	}
+	return ""
 }
 
 type streamStatus struct {

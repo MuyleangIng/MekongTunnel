@@ -11,7 +11,7 @@ import (
 
 func newTestTracker(t *testing.T) *AbuseTracker {
 	t.Helper()
-	at := NewAbuseTracker()
+	at := NewAbuseTracker(10)
 	t.Cleanup(func() { at.Stop() })
 	return at
 }
@@ -150,7 +150,7 @@ func TestAbuseTracker_GetStats_RateLimited(t *testing.T) {
 }
 
 func TestAbuseTracker_Stop(t *testing.T) {
-	at := NewAbuseTracker()
+	at := NewAbuseTracker(10)
 	at.Stop()
 }
 

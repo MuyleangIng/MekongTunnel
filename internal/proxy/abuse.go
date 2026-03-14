@@ -28,9 +28,10 @@ type BlockCallback func(ip string)
 type AbuseTracker struct {
 	mu sync.RWMutex
 
-	connectionTimes map[string][]time.Time // recent connection timestamps per IP
-	blockedIPs      map[string]time.Time   // blocked IPs → expiry time
-	violationCounts map[string]int         // rate-limit violation count per IP
+	connectionTimes         map[string][]time.Time // recent connection timestamps per IP
+	blockedIPs              map[string]time.Time   // blocked IPs → expiry time
+	violationCounts         map[string]int         // rate-limit violation count per IP
+	maxConnectionsPerMinute int
 
 	onBlock BlockCallback // called (in a goroutine) when an IP is blocked
 
@@ -44,13 +45,17 @@ type AbuseTracker struct {
 }
 
 // NewAbuseTracker creates a new AbuseTracker and starts its background cleanup goroutine.
-func NewAbuseTracker() *AbuseTracker {
+func NewAbuseTracker(maxConnectionsPerMinute int) *AbuseTracker {
+	if maxConnectionsPerMinute <= 0 {
+		maxConnectionsPerMinute = config.DefaultMaxConnectionsPerMin
+	}
 	at := &AbuseTracker{
-		connectionTimes: make(map[string][]time.Time),
-		blockedIPs:      make(map[string]time.Time),
-		violationCounts: make(map[string]int),
-		stopCleanup:     make(chan struct{}),
-		cleanupDone:     make(chan struct{}),
+		connectionTimes:         make(map[string][]time.Time),
+		blockedIPs:              make(map[string]time.Time),
+		violationCounts:         make(map[string]int),
+		maxConnectionsPerMinute: maxConnectionsPerMinute,
+		stopCleanup:             make(chan struct{}),
+		cleanupDone:             make(chan struct{}),
 	}
 
 	go at.cleanup()
@@ -136,7 +141,7 @@ func (at *AbuseTracker) CheckConnectionRate(ip string) bool {
 		}
 	}
 
-	if len(validTimes) >= config.MaxConnectionsPerMinute {
+	if len(validTimes) >= at.maxConnectionsPerMinute {
 		at.violationCounts[ip]++
 
 		blocked := false
@@ -163,6 +168,13 @@ func (at *AbuseTracker) CheckConnectionRate(ip string) bool {
 
 	at.mu.Unlock()
 	return true
+}
+
+// MaxConnectionsPerMinute returns the configured per-IP connection burst limit.
+func (at *AbuseTracker) MaxConnectionsPerMinute() int {
+	at.mu.RLock()
+	defer at.mu.RUnlock()
+	return at.maxConnectionsPerMinute
 }
 
 // GetStats returns abuse-protection statistics:

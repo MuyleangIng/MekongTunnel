@@ -1,6 +1,16 @@
 # Changelog
 
-Includes Git tags fetched from `origin` on 2026-03-13.
+Includes tags present in this repo on 2026-03-14.
+
+## v1.4.7 - 2026-03-14
+
+Highlights:
+
+- Surfaced the server's real `tcpip-forward` rejection reason in `mekong` instead of a generic `server rejected port-forward request`
+- Raised the default per-IP active tunnel limit from `3` to `10`
+- Added configurable `MAX_TOTAL_TUNNELS` and `MAX_CONNECTIONS_PER_MINUTE` server env vars for higher-capacity deployments, including 300+ tunnels from one IP when explicitly configured
+- Versioned Docker builds now embed `main.version`, publish OCI image version metadata, and support versioned Compose image tags
+- Built fresh multi-platform client binaries with `main.version=v1.4.7`
 
 ## v1.4.6 - 2026-03-13
 
@@ -37,6 +47,7 @@ Highlights:
 
 | Tag | Date |
 | --- | --- |
+| `v1.4.7` | 2026-03-14 |
 | `v1.4.6` | 2026-03-13 |
 | `v1.4.5` | 2026-03-13 |
 | `v1.4.4` | 2026-03-13 |

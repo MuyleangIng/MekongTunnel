@@ -125,9 +125,9 @@ func TestSetSecurityHeaders(t *testing.T) {
 
 	expected := map[string]string{
 		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":       "DENY",
-		"X-Xss-Protection":      "1; mode=block",
-		"Referrer-Policy":       "strict-origin-when-cross-origin",
+		"X-Frame-Options":        "DENY",
+		"X-Xss-Protection":       "1; mode=block",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
 	}
 
 	for header, want := range expected {
@@ -287,7 +287,13 @@ func TestCopyWithLimits(t *testing.T) {
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	s, err := New(t.TempDir()+"/host_key", config.DefaultDomain, config.DefaultMaxTunnelsPerIP)
+	s, err := New(
+		t.TempDir()+"/host_key",
+		config.DefaultDomain,
+		config.DefaultMaxTunnelsPerIP,
+		config.DefaultMaxTotalTunnels,
+		config.DefaultMaxConnectionsPerMin,
+	)
 	if err != nil {
 		t.Fatalf("failed to create test server: %v", err)
 	}

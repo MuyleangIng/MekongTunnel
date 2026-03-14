@@ -15,6 +15,8 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
+ARG VERSION=dev
+
 # git + ca-certificates needed for go mod download over HTTPS
 RUN apk add --no-cache git ca-certificates
 
@@ -26,7 +28,7 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X main.version=${VERSION}" \
     -trimpath \
     -o mekongtunnel \
     ./cmd/mekongtunnel
@@ -36,6 +38,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Use scratch (empty base) for the smallest possible image.
 # Only what we need: CA certs (for outbound TLS) + the binary.
 FROM scratch
+
+ARG VERSION=dev
 
 # CA certificates let the binary verify TLS when making outbound requests
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
@@ -55,6 +59,7 @@ USER 65534:65534
 LABEL maintainer="Ing Muyleang <Ing_Muyleang>" \
       org.opencontainers.image.title="MekongTunnel" \
       org.opencontainers.image.description="Minimal SSH tunnel service — Open Source by KhmerStack" \
+      org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.source="https://github.com/Ing-Muyleang/mekongtunnel"
 
 ENTRYPOINT ["/mekongtunnel"]

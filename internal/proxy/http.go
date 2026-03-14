@@ -28,10 +28,10 @@ import (
 //
 // Request flow:
 //  1. Set security headers on every response
-//  2. Enforce request body size limit (128 MB)
+//  2. Enforce request body size limit when configured
 //  3. Extract and validate the subdomain from the Host header
 //  4. Look up the active tunnel in the registry
-//  5. Check per-tunnel rate limit (10 req/s, burst 20)
+//  5. Check per-tunnel rate limit when configured
 //  6. Optionally show a phishing-warning page for browser requests
 //  7. Handle WebSocket upgrade or reverse-proxy the request
 //  8. Log request (method, path, status, latency) to the SSH terminal
@@ -39,11 +39,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
 
 	// Reject oversized request bodies early to avoid memory pressure.
-	if r.ContentLength > config.MaxRequestBodySize {
-		http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
-		return
+	if config.MaxRequestBodySize > 0 {
+		if r.ContentLength > config.MaxRequestBodySize {
+			http.Error(w, "Request Entity Too Large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, config.MaxRequestBodySize)
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, config.MaxRequestBodySize)
 
 	host := stripPort(r.Host)
 
@@ -125,13 +127,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Transport: tun.Transport(),
 		ModifyResponse: func(resp *http.Response) error {
 			// Reject responses that declare they are too large.
-			if resp.ContentLength > config.MaxResponseBodySize {
+			if config.MaxResponseBodySize > 0 && resp.ContentLength > config.MaxResponseBodySize {
 				return fmt.Errorf("response too large: %d bytes (max %d)", resp.ContentLength, config.MaxResponseBodySize)
 			}
 			// Wrap the body for chunked/unknown-length responses to enforce the limit.
-			resp.Body = &limitedReadCloser{
-				rc:    resp.Body,
-				limit: config.MaxResponseBodySize,
+			if config.MaxResponseBodySize > 0 {
+				resp.Body = &limitedReadCloser{
+					rc:    resp.Body,
+					limit: config.MaxResponseBodySize,
+				}
 			}
 			return nil
 		},
@@ -155,7 +159,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // handleWebSocket handles WebSocket upgrade requests by hijacking the client connection,
 // dialling the backend tunnel listener, forwarding the upgrade handshake, then copying
-// data bidirectionally with a per-direction 1 GB limit and 2-hour idle timeout.
+// data bidirectionally with configured transfer and idle limits.
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request, tun *tunnel.Tunnel, sub string) {
 	backendConn, err := net.DialTimeout("tcp", tun.Listener.Addr().String(), 10*time.Second)
 	if err != nil {
@@ -223,7 +227,7 @@ func copyWithLimits(dst, src net.Conn, maxBytes int64, idleTimeout time.Duration
 		n, readErr := src.Read(buf)
 		if n > 0 {
 			written += int64(n)
-			if written > maxBytes {
+			if maxBytes > 0 && written > maxBytes {
 				return written, fmt.Errorf("transfer limit exceeded")
 			}
 			if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
@@ -534,6 +538,9 @@ type limitedReadCloser struct {
 }
 
 func (l *limitedReadCloser) Read(p []byte) (n int, err error) {
+	if l.limit <= 0 {
+		return l.rc.Read(p)
+	}
 	if l.read >= l.limit {
 		return 0, fmt.Errorf("response body too large (exceeded %d bytes)", l.limit)
 	}

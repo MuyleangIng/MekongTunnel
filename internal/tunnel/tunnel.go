@@ -179,6 +179,9 @@ func (t *Tunnel) SetSSHConn(conn SSHCloser) {
 func (t *Tunnel) RecordRateLimitHit() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if config.RateLimitViolationsMax <= 0 {
+		return false
+	}
 	t.rateLimitHits++
 	return t.rateLimitHits >= config.RateLimitViolationsMax
 }

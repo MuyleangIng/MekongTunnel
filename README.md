@@ -21,7 +21,7 @@ The `mekong` CLI is the easiest way to use MekongTunnel — no SSH flags, auto-r
 ### macOS (Apple Silicon — M1, M2, M3)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.7/mekong-darwin-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.8/mekong-darwin-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 sudo xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -30,7 +30,7 @@ mekong 3000
 ### macOS (Intel)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.7/mekong-darwin-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.8/mekong-darwin-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 sudo xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -39,7 +39,7 @@ mekong 3000
 ### Linux (amd64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.7/mekong-linux-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.8/mekong-linux-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
@@ -47,14 +47,14 @@ mekong 3000
 ### Linux (arm64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.7/mekong-linux-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.8/mekong-linux-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
 
 ### Windows
 
-Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.7/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
+Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.8/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
 
 ---
 
@@ -476,10 +476,10 @@ MAX_CONNECTIONS_PER_MINUTE=600 DOMAIN=yourdomain.com \
 ./bin/mekongtunnel
 ```
 
-Build a versioned Docker image for release `v1.4.7`:
+Build a versioned Docker image for release `v1.4.8`:
 
 ```bash
-docker build --build-arg VERSION=v1.4.7 -t mekongtunnel:v1.4.7 -t mekongtunnel:latest .
+docker build --build-arg VERSION=v1.4.8 -t mekongtunnel:v1.4.8 -t mekongtunnel:latest .
 ```
 
 Connect to the dev instance:
@@ -512,7 +512,7 @@ MekongTunnel/
 │   │   └── domain.go            ← auto-generate random subdomains
 │   └── tunnel/                  ← per-tunnel state and lifecycle
 │       ├── tunnel.go            ← request counter, rate limiter, logger
-│       ├── ratelimit.go         ← token-bucket rate limiter (10 req/s, burst 20)
+│       ├── ratelimit.go         ← token-bucket rate limiter (0 disables the cap)
 │       └── logger.go            ← async SSH terminal request logger
 ├── Dockerfile                   ← multi-stage build → scratch image (~6 MB)
 ├── docker-compose.yml           ← production + dev services
@@ -561,18 +561,18 @@ go test -v ./internal/proxy/...
 
 | Limit | Value |
 |-------|-------|
-| Tunnels per IP | 3 |
-| Total server tunnels | 1,000 |
-| Requests per tunnel | 10/s (burst 20) |
-| Request body size | 128 MB |
-| Response body size | 128 MB |
-| WebSocket transfer | 1 GB per direction |
-| WebSocket idle timeout | 2 hours |
+| Tunnels per IP | 1,000 by default (`0` = unlimited) |
+| Total server tunnels | Unlimited by default (`0`) |
+| Requests per tunnel | Unlimited by default (`REQUESTS_PER_SECOND=0`, `BURST_SIZE=0`) |
+| Request body size | 1 GB by default (`0` = unlimited) |
+| Response body size | 1 GB by default (`0` = unlimited) |
+| WebSocket transfer | Unlimited by default (`0`) |
+| WebSocket idle timeout | 6 hours |
 | SSH handshake timeout | 30 seconds |
-| New connections per IP/min | 30 |
+| New connections per IP/min | Unlimited by default (`0`) |
 | Inactivity timeout | 2 hours |
 | Max tunnel lifetime | 24 hours |
-| Block duration | 15 minutes |
+| Block duration | Disabled by default (`BLOCK_DURATION=0s`) |
 | Violations before block | 10 |
 
 ---
@@ -732,9 +732,9 @@ sudo ufw status
 
 ### "IP is temporarily blocked"
 
-Your IP exceeded the connection rate limit too many times and was auto-blocked for 15 minutes.
+This only applies if you enable blocking with `BLOCK_DURATION` and `RATE_LIMIT_VIOLATIONS_MAX`.
 
-**Why it happens:** The server allows a maximum of 30 new SSH connections per IP per minute. After 10 violations, the IP is blocked for 15 minutes. This commonly happens when an SSH client reconnects in a tight loop.
+**Why it happens:** If you configure a per-IP connection cap and repeated violation threshold, the server can temporarily block abusive reconnect loops.
 
 **If you are using the `mekong` CLI:** it detects this error automatically and exits instead of retrying:
 ```
@@ -783,18 +783,24 @@ docker compose restart
 ## GitHub Actions
 
 - `Go CI` — runs on pushes to `main` and on pull requests; builds the repo, runs the stable test suites, and cross-builds the client binaries
-- `Release Mekong CLI` — runs on tag pushes like `v1.4.7` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
+- `Release Mekong CLI` — runs on tag pushes like `v1.4.8` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
 
 Release a new version:
 
 ```bash
-git tag v1.4.7
-git push origin main v1.4.7
+git tag v1.4.8
+git push origin main v1.4.8
 ```
 
 ---
 
 ## Changelog
+
+### v1.4.8
+- **High-capacity defaults** — one IP can now hold `1000` active tunnels by default, while total tunnel count and per-minute connection caps are unlimited by default when set to `0`
+- **Blocking off by default** — automatic block duration and repeated-violation blocking are disabled unless explicitly configured
+- **Larger app support** — request and response body limits now default to `1 GB`, and WebSocket transfer is unlimited by default
+- **Runtime limit controls** — server now accepts env vars for request rate, burst size, block duration, violation threshold, and body/transfer sizes
 
 ### v1.4.7
 - **Port-forward rejection details** — `mekong` now reads and prints the server’s actual `tcpip-forward` rejection reason instead of collapsing everything into a generic error

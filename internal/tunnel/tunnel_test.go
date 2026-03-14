@@ -11,8 +11,27 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
 )
 
+func withTestLimits(t *testing.T) {
+	t.Helper()
+
+	prevRPS := config.RequestsPerSecond
+	prevBurst := config.BurstSize
+	prevViolations := config.RateLimitViolationsMax
+
+	config.RequestsPerSecond = 10
+	config.BurstSize = 20
+	config.RateLimitViolationsMax = 10
+
+	t.Cleanup(func() {
+		config.RequestsPerSecond = prevRPS
+		config.BurstSize = prevBurst
+		config.RateLimitViolationsMax = prevViolations
+	})
+}
+
 func newTestTunnel(t *testing.T) *Tunnel {
 	t.Helper()
+	withTestLimits(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to create test listener: %v", err)

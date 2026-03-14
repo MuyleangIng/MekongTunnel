@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
 	"github.com/MuyleangIng/MekongTunnel/internal/proxy"
@@ -65,18 +66,53 @@ func main() {
 		cfg.Domain = v
 	}
 	if v := os.Getenv("MAX_TUNNELS_PER_IP"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.MaxTunnelsPerIP = n
 		}
 	}
 	if v := os.Getenv("MAX_TOTAL_TUNNELS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.MaxTotalTunnels = n
 		}
 	}
 	if v := os.Getenv("MAX_CONNECTIONS_PER_MINUTE"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.MaxConnectionsPerMinute = n
+		}
+	}
+	if v := os.Getenv("REQUESTS_PER_SECOND"); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n >= 0 {
+			config.RequestsPerSecond = n
+		}
+	}
+	if v := os.Getenv("BURST_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			config.BurstSize = n
+		}
+	}
+	if v := os.Getenv("RATE_LIMIT_VIOLATIONS_MAX"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			config.RateLimitViolationsMax = n
+		}
+	}
+	if v := os.Getenv("BLOCK_DURATION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			config.BlockDuration = d
+		}
+	}
+	if v := os.Getenv("MAX_REQUEST_BODY_MB"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
+			config.MaxRequestBodySize = n * 1024 * 1024
+		}
+	}
+	if v := os.Getenv("MAX_RESPONSE_BODY_MB"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
+			config.MaxResponseBodySize = n * 1024 * 1024
+		}
+	}
+	if v := os.Getenv("MAX_WEBSOCKET_TRANSFER_MB"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
+			config.MaxWebSocketTransfer = n * 1024 * 1024
 		}
 	}
 

@@ -46,7 +46,7 @@ type AbuseTracker struct {
 
 // NewAbuseTracker creates a new AbuseTracker and starts its background cleanup goroutine.
 func NewAbuseTracker(maxConnectionsPerMinute int) *AbuseTracker {
-	if maxConnectionsPerMinute <= 0 {
+	if maxConnectionsPerMinute < 0 {
 		maxConnectionsPerMinute = config.DefaultMaxConnectionsPerMin
 	}
 	at := &AbuseTracker{
@@ -110,8 +110,11 @@ func (at *AbuseTracker) GetBlockExpiry(ip string) time.Time {
 	return expiry
 }
 
-// BlockIP blocks ip for config.BlockDuration (default 1 hour) and triggers the onBlock callback.
+// BlockIP blocks ip for config.BlockDuration and triggers the onBlock callback.
 func (at *AbuseTracker) BlockIP(ip string) {
+	if config.BlockDuration <= 0 {
+		return
+	}
 	at.mu.Lock()
 	at.blockedIPs[ip] = time.Now().Add(config.BlockDuration)
 	at.mu.Unlock()
@@ -129,6 +132,11 @@ func (at *AbuseTracker) BlockIP(ip string) {
 func (at *AbuseTracker) CheckConnectionRate(ip string) bool {
 	at.mu.Lock()
 
+	if at.maxConnectionsPerMinute == 0 {
+		at.mu.Unlock()
+		return true
+	}
+
 	now := time.Now()
 	windowStart := now.Add(-config.ConnectionRateWindow)
 
@@ -145,7 +153,7 @@ func (at *AbuseTracker) CheckConnectionRate(ip string) bool {
 		at.violationCounts[ip]++
 
 		blocked := false
-		if at.violationCounts[ip] >= config.RateLimitViolationsMax {
+		if config.RateLimitViolationsMax > 0 && config.BlockDuration > 0 && at.violationCounts[ip] >= config.RateLimitViolationsMax {
 			// Auto-block: too many repeated rate-limit violations.
 			at.blockedIPs[ip] = now.Add(config.BlockDuration)
 			delete(at.violationCounts, ip)

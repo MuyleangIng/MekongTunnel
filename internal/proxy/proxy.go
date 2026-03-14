@@ -51,13 +51,13 @@ type Server struct {
 // sets up SSH server config with no client authentication,
 // and wires the abuse-tracker callback to force-close SSH connections on IP block.
 func New(hostKeyPath string, domain string, maxTunnelsPerIP int, maxTotalTunnels int, maxConnectionsPerMinute int) (*Server, error) {
-	if maxTunnelsPerIP <= 0 {
+	if maxTunnelsPerIP < 0 {
 		maxTunnelsPerIP = config.DefaultMaxTunnelsPerIP
 	}
-	if maxTotalTunnels <= 0 {
+	if maxTotalTunnels < 0 {
 		maxTotalTunnels = config.DefaultMaxTotalTunnels
 	}
-	if maxConnectionsPerMinute <= 0 {
+	if maxConnectionsPerMinute < 0 {
 		maxConnectionsPerMinute = config.DefaultMaxConnectionsPerMin
 	}
 
@@ -180,10 +180,10 @@ func (s *Server) CheckAndReserveConnection(clientIP string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.ipConnections[clientIP] >= s.maxTunnelsPerIP {
+	if s.maxTunnelsPerIP > 0 && s.ipConnections[clientIP] >= s.maxTunnelsPerIP {
 		return fmt.Errorf("rate limit exceeded: max %d tunnels per IP", s.maxTunnelsPerIP)
 	}
-	if len(s.tunnels) >= s.maxTotalTunnels {
+	if s.maxTotalTunnels > 0 && len(s.tunnels) >= s.maxTotalTunnels {
 		return fmt.Errorf("server capacity reached: max %d total tunnels", s.maxTotalTunnels)
 	}
 

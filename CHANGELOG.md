@@ -2,6 +2,17 @@
 
 Includes tags present in this repo on 2026-03-14.
 
+## v1.4.8 - 2026-03-14
+
+Highlights:
+
+- Raised the default per-IP active tunnel limit to `1000`
+- Made total tunnel capacity and per-minute connection caps unlimited by default via `0`
+- Disabled automatic blocking by default so aggressive reconnect/load testing is not rejected unless explicitly configured
+- Raised default request and response body limits to `1 GB` and made WebSocket transfer unlimited by default
+- Added runtime env vars for request rate, burst size, block duration, violation threshold, and payload sizes
+- Built fresh multi-platform client binaries with `main.version=v1.4.8`
+
 ## v1.4.7 - 2026-03-14
 
 Highlights:
@@ -47,6 +58,7 @@ Highlights:
 
 | Tag | Date |
 | --- | --- |
+| `v1.4.8` | 2026-03-14 |
 | `v1.4.7` | 2026-03-14 |
 | `v1.4.6` | 2026-03-13 |
 | `v1.4.5` | 2026-03-13 |

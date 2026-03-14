@@ -7,10 +7,22 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
 )
 
 func newTestTracker(t *testing.T) *AbuseTracker {
 	t.Helper()
+	prevBlockDuration := config.BlockDuration
+	prevViolations := config.RateLimitViolationsMax
+
+	config.BlockDuration = time.Hour
+	config.RateLimitViolationsMax = 10
+	t.Cleanup(func() {
+		config.BlockDuration = prevBlockDuration
+		config.RateLimitViolationsMax = prevViolations
+	})
+
 	at := NewAbuseTracker(10)
 	t.Cleanup(func() { at.Stop() })
 	return at
@@ -150,6 +162,15 @@ func TestAbuseTracker_GetStats_RateLimited(t *testing.T) {
 }
 
 func TestAbuseTracker_Stop(t *testing.T) {
+	prevBlockDuration := config.BlockDuration
+	prevViolations := config.RateLimitViolationsMax
+	config.BlockDuration = time.Hour
+	config.RateLimitViolationsMax = 10
+	defer func() {
+		config.BlockDuration = prevBlockDuration
+		config.RateLimitViolationsMax = prevViolations
+	}()
+
 	at := NewAbuseTracker(10)
 	at.Stop()
 }

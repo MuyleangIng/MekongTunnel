@@ -17,35 +17,18 @@ const (
 	AuthorKhName = "អុឹង មួយលៀង"
 	AuthorHandle = "Ing_Muyleang"
 
-	DefaultDomain               = "muyleanging.com"
-	InactivityTimeout           = 2 * time.Hour
-	DefaultMaxTunnelsPerIP      = 10   // Default; override with MAX_TUNNELS_PER_IP env var
-	DefaultMaxTotalTunnels      = 5000 // Default; override with MAX_TOTAL_TUNNELS env var
-	DefaultMaxConnectionsPerMin = 600  // Default; override with MAX_CONNECTIONS_PER_MINUTE env var
+	DefaultDomain     = "muyleanging.com"
+	InactivityTimeout = 2 * time.Hour
 
 	// SSH handshake timeout
 	SSHHandshakeTimeout = 30 * time.Second
 
-	// HTTP rate limiting per tunnel
-	RequestsPerSecond = 10 // requests per second per tunnel
-	BurstSize         = 20 // max burst size
-
-	// Request size limits
-	MaxRequestBodySize = 128 * 1024 * 1024 // 128MB
-
 	// Connection rate limiting (new connections per IP)
 	ConnectionRateWindow = 1 * time.Minute // sliding window for connection rate
-
-	// IP blocking
-	BlockDuration          = 15 * time.Minute // how long to block abusive IPs
-	RateLimitViolationsMax = 10               // violations before auto-block
 
 	// Tunnel lifetime
 	DefaultTunnelLifetime = 24 * time.Hour     // default tunnel duration regardless of activity
 	MaxTunnelLifetime     = 7 * 24 * time.Hour // maximum user-requested tunnel duration
-
-	// Response size limits
-	MaxResponseBodySize = 128 * 1024 * 1024 // 128MB
 
 	// HTTP server timeouts
 	HTTPReadTimeout   = 10 * time.Second
@@ -58,16 +41,34 @@ const (
 	StatsWriteTimeout = 5 * time.Second
 	ShutdownTimeout   = 10 * time.Second
 
-	// WebSocket limits
-	WebSocketIdleTimeout = 2 * time.Hour
-	MaxWebSocketTransfer = 1024 * 1024 * 1024 // 1GB
-
 	// Request logging
 	LogBufferSize = 128 // buffered channel size for SSH terminal request logs
 
 	// Interstitial warning cookie
 	WarningCookieName   = "mekong_warned"
 	WarningCookieMaxAge = 86400 // 1 day
+)
+
+var (
+	DefaultMaxTunnelsPerIP      = 1000 // 0 means unlimited; override with MAX_TUNNELS_PER_IP
+	DefaultMaxTotalTunnels      = 0    // 0 means unlimited; override with MAX_TOTAL_TUNNELS
+	DefaultMaxConnectionsPerMin = 0    // 0 means unlimited; override with MAX_CONNECTIONS_PER_MINUTE
+
+	// Per-tunnel HTTP rate limit. Setting either to 0 disables the limiter.
+	RequestsPerSecond = 0.0
+	BurstSize         = 0
+
+	// Upload/download limits. 0 means unlimited.
+	MaxRequestBodySize   int64 = 1024 * 1024 * 1024 // 1GB
+	MaxResponseBodySize  int64 = 1024 * 1024 * 1024 // 1GB
+	MaxWebSocketTransfer int64 = 0                  // unlimited
+
+	// Blocking controls. 0 disables automatic IP blocking for repeated abuse.
+	BlockDuration          = time.Duration(0)
+	RateLimitViolationsMax = 0
+
+	// WebSocket idle timeout remains finite so dead peers do not hang forever.
+	WebSocketIdleTimeout = 6 * time.Hour
 )
 
 // Config holds runtime configuration loaded from environment

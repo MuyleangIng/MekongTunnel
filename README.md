@@ -21,7 +21,7 @@ The `mekong` CLI is the easiest way to use MekongTunnel — no SSH flags, auto-r
 ### macOS (Apple Silicon — M1, M2, M3)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.8/mekong-darwin-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.9/mekong-darwin-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 sudo xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -30,7 +30,7 @@ mekong 3000
 ### macOS (Intel)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.8/mekong-darwin-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.9/mekong-darwin-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 sudo xattr -d com.apple.quarantine /usr/local/bin/mekong
 mekong 3000
@@ -39,7 +39,7 @@ mekong 3000
 ### Linux (amd64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.8/mekong-linux-amd64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.9/mekong-linux-amd64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
@@ -47,14 +47,14 @@ mekong 3000
 ### Linux (arm64)
 
 ```bash
-sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.8/mekong-linux-arm64 -o /usr/local/bin/mekong
+sudo curl -L https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.9/mekong-linux-arm64 -o /usr/local/bin/mekong
 sudo chmod +x /usr/local/bin/mekong
 mekong 3000
 ```
 
 ### Windows
 
-Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.8/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
+Download [`mekong-windows-amd64.exe`](https://github.com/MuyleangIng/MekongTunnel/releases/download/v1.4.9/mekong-windows-amd64.exe), rename it to `mekong.exe`, and add it to your PATH. Then run `mekong 3000`.
 
 ---
 
@@ -476,10 +476,10 @@ MAX_CONNECTIONS_PER_MINUTE=600 DOMAIN=yourdomain.com \
 ./bin/mekongtunnel
 ```
 
-Build a versioned Docker image for release `v1.4.8`:
+Build a versioned Docker image for release `v1.4.9`:
 
 ```bash
-docker build --build-arg VERSION=v1.4.8 -t mekongtunnel:v1.4.8 -t mekongtunnel:latest .
+docker build --build-arg VERSION=v1.4.9 -t mekongtunnel:v1.4.9 -t mekongtunnel:latest .
 ```
 
 Connect to the dev instance:
@@ -783,18 +783,23 @@ docker compose restart
 ## GitHub Actions
 
 - `Go CI` — runs on pushes to `main` and on pull requests; builds the repo, runs the stable test suites, and cross-builds the client binaries
-- `Release Mekong CLI` — runs on tag pushes like `v1.4.8` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
+- `Release Mekong CLI` — runs on tag pushes like `v1.4.9` or manual dispatch; builds the release binaries, generates SHA-256 checksums, extracts the matching `CHANGELOG.md` section, and creates or updates the GitHub release
 
 Release a new version:
 
 ```bash
-git tag v1.4.8
-git push origin main v1.4.8
+git tag v1.4.9
+git push origin main v1.4.9
 ```
 
 ---
 
 ## Changelog
+
+### v1.4.9
+- **Safer self-update** — `mekong update` now verifies the release checksum before replacing the running binary
+- **Retry on flaky downloads** — transient HTTPS failures like `tls: bad record MAC` now retry automatically instead of failing on the first read error
+- **Atomic install path** — the updater only swaps the binary after a complete verified download succeeds
 
 ### v1.4.8
 - **High-capacity defaults** — one IP can now hold `1000` active tunnels by default, while total tunnel count and per-minute connection caps are unlimited by default when set to `0`

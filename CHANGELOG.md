@@ -2,6 +2,15 @@
 
 Includes tags present in this repo on 2026-03-14.
 
+## v1.4.9 - 2026-03-14
+
+Highlights:
+
+- Hardened `mekong update` with checksum verification for release assets
+- Added retry logic for transient HTTPS download failures such as `tls: bad record MAC`
+- Prevented the updater from replacing the current binary until a full verified download is complete
+- Built fresh multi-platform client binaries with `main.version=v1.4.9`
+
 ## v1.4.8 - 2026-03-14
 
 Highlights:
@@ -58,6 +67,7 @@ Highlights:
 
 | Tag | Date |
 | --- | --- |
+| `v1.4.9` | 2026-03-14 |
 | `v1.4.8` | 2026-03-14 |
 | `v1.4.7` | 2026-03-14 |
 | `v1.4.6` | 2026-03-13 |

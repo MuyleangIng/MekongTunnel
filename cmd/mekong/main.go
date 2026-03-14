@@ -17,6 +17,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -50,6 +51,11 @@ import (
 var version = "dev"
 
 const daemonEnvName = "MEKONG_DAEMON"
+
+const (
+	updateHTTPTimeout = 2 * time.Minute
+	updateMaxAttempts = 3
+)
 
 // errBlocked is returned by connect() when the server reports the IP is blocked.
 var errBlocked = errors.New("IP is blocked")
@@ -1283,22 +1289,13 @@ func pruneLogFile(portFilter int, clearAll bool) error {
 func selfUpdate() {
 	fmt.Printf("%s  →  Checking for updates...%s\n", gray, reset)
 
-	resp, err := http.Get("https://api.github.com/repos/MuyleangIng/MekongTunnel/releases/latest") //nolint:noctx
+	client := &http.Client{Timeout: updateHTTPTimeout}
+
+	latest, err := latestReleaseTag(client)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s  ✖  Failed to reach GitHub: %v%s\n", red, err, reset)
+		fmt.Fprintf(os.Stderr, "%s  ✖  Failed to check latest release: %v%s\n", red, err, reset)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
-
-	var release struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		fmt.Fprintf(os.Stderr, "%s  ✖  Failed to parse release info: %v%s\n", red, err, reset)
-		os.Exit(1)
-	}
-
-	latest := release.TagName
 	if latest == "" {
 		fmt.Fprintf(os.Stderr, "%s  ✖  No release found.%s\n", red, reset)
 		os.Exit(1)
@@ -1309,37 +1306,19 @@ func selfUpdate() {
 		return
 	}
 
-	var assetName string
-	switch runtime.GOOS + "/" + runtime.GOARCH {
-	case "darwin/arm64":
-		assetName = "mekong-darwin-arm64"
-	case "darwin/amd64":
-		assetName = "mekong-darwin-amd64"
-	case "linux/amd64":
-		assetName = "mekong-linux-amd64"
-	case "linux/arm64":
-		assetName = "mekong-linux-arm64"
-	case "windows/amd64":
-		assetName = "mekong-windows-amd64.exe"
-	default:
+	assetName, ok := releaseAssetName()
+	if !ok {
 		fmt.Fprintf(os.Stderr, "%s  ✖  Unsupported platform: %s/%s%s\n", red, runtime.GOOS, runtime.GOARCH, reset)
 		os.Exit(1)
 	}
 
 	downloadURL := fmt.Sprintf("https://github.com/MuyleangIng/MekongTunnel/releases/download/%s/%s", latest, assetName)
-	fmt.Printf("%s  →  Downloading %s %s...%s\n", gray, assetName, latest, reset)
-
-	dlResp, err := http.Get(downloadURL) //nolint:noctx
+	expectedChecksum, err := fetchReleaseChecksum(client, latest, assetName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s  ✖  Download failed: %v%s\n", red, err, reset)
+		fmt.Fprintf(os.Stderr, "%s  ✖  Checksum fetch failed: %v%s\n", red, err, reset)
 		os.Exit(1)
 	}
-	defer dlResp.Body.Close()
-
-	if dlResp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "%s  ✖  Download failed: HTTP %d%s\n", red, dlResp.StatusCode, reset)
-		os.Exit(1)
-	}
+	fmt.Printf("%s  →  Downloading %s %s...%s\n", gray, assetName, latest, reset)
 
 	currentBinary, err := os.Executable()
 	if err != nil {
@@ -1347,25 +1326,12 @@ func selfUpdate() {
 		os.Exit(1)
 	}
 
-	tmpFile, err := os.CreateTemp("", "mekong-update-*")
+	tmpPath, err := downloadReleaseAsset(client, downloadURL, assetName, expectedChecksum)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s  ✖  Cannot create temp file: %v%s\n", red, err, reset)
+		fmt.Fprintf(os.Stderr, "%s  ✖  Download failed: %v%s\n", red, err, reset)
 		os.Exit(1)
 	}
-	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath)
-
-	if _, err := io.Copy(tmpFile, dlResp.Body); err != nil {
-		tmpFile.Close()
-		fmt.Fprintf(os.Stderr, "%s  ✖  Write failed: %v%s\n", red, err, reset)
-		os.Exit(1)
-	}
-	tmpFile.Close()
-
-	if err := os.Chmod(tmpPath, 0755); err != nil { //nolint:gosec
-		fmt.Fprintf(os.Stderr, "%s  ✖  chmod failed: %v%s\n", red, err, reset)
-		os.Exit(1)
-	}
 
 	if err := os.Rename(tmpPath, currentBinary); err != nil {
 		fmt.Fprintf(os.Stderr, "%s  ✖  Replace failed: %v%s\n", red, err, reset)
@@ -1373,4 +1339,149 @@ func selfUpdate() {
 	}
 
 	fmt.Printf("%s  ✔  Updated to %s — restart mekong to use the new version.%s\n", green, latest, reset)
+}
+
+func latestReleaseTag(client *http.Client) (string, error) {
+	resp, err := client.Get("https://api.github.com/repos/MuyleangIng/MekongTunnel/releases/latest") //nolint:noctx
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub API returned HTTP %d", resp.StatusCode)
+	}
+
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(release.TagName), nil
+}
+
+func releaseAssetName() (string, bool) {
+	switch runtime.GOOS + "/" + runtime.GOARCH {
+	case "darwin/arm64":
+		return "mekong-darwin-arm64", true
+	case "darwin/amd64":
+		return "mekong-darwin-amd64", true
+	case "linux/amd64":
+		return "mekong-linux-amd64", true
+	case "linux/arm64":
+		return "mekong-linux-arm64", true
+	case "windows/amd64":
+		return "mekong-windows-amd64.exe", true
+	default:
+		return "", false
+	}
+}
+
+func fetchReleaseChecksum(client *http.Client, tag, assetName string) (string, error) {
+	checksumURL := fmt.Sprintf("https://github.com/MuyleangIng/MekongTunnel/releases/download/%s/SHA256SUMS-%s.txt", tag, tag)
+	resp, err := client.Get(checksumURL) //nolint:noctx
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("checksum download returned HTTP %d", resp.StatusCode)
+	}
+
+	return parseReleaseChecksum(resp.Body, assetName)
+}
+
+func parseReleaseChecksum(r io.Reader, assetName string) (string, error) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 {
+			continue
+		}
+		if fields[1] == assetName {
+			return fields[0], nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("asset %s not found in checksum file", assetName)
+}
+
+func downloadReleaseAsset(client *http.Client, downloadURL, assetName, expectedChecksum string) (string, error) {
+	var lastErr error
+	for attempt := 1; attempt <= updateMaxAttempts; attempt++ {
+		tmpPath, err := downloadReleaseAssetOnce(client, downloadURL, expectedChecksum)
+		if err == nil {
+			return tmpPath, nil
+		}
+
+		lastErr = err
+		if attempt == updateMaxAttempts || !shouldRetryUpdateDownload(err) {
+			break
+		}
+		fmt.Fprintf(os.Stderr, "%s  ↺  Download retry %d/%d for %s after: %v%s\n", yellow, attempt+1, updateMaxAttempts, assetName, err, reset)
+		time.Sleep(time.Duration(attempt) * time.Second)
+	}
+
+	return "", lastErr
+}
+
+func downloadReleaseAssetOnce(client *http.Client, downloadURL, expectedChecksum string) (string, error) {
+	resp, err := client.Get(downloadURL) //nolint:noctx
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	tmpFile, err := os.CreateTemp("", "mekong-update-*")
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmpFile.Name()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmpFile, hasher), resp.Body); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return "", err
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return "", err
+	}
+
+	gotChecksum := fmt.Sprintf("%x", hasher.Sum(nil))
+	if !strings.EqualFold(gotChecksum, expectedChecksum) {
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("checksum mismatch: got %s, want %s", gotChecksum, expectedChecksum)
+	}
+
+	if err := os.Chmod(tmpPath, 0755); err != nil { //nolint:gosec
+		os.Remove(tmpPath)
+		return "", err
+	}
+
+	return tmpPath, nil
+}
+
+func shouldRetryUpdateDownload(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "tls:") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "unexpected EOF") ||
+		strings.Contains(msg, "checksum mismatch")
 }

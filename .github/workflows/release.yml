@@ -63,6 +63,7 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="${ldflags}" -trimpath -o dist/mekong-linux-amd64 ./cmd/mekong
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="${ldflags}" -trimpath -o dist/mekong-linux-arm64 ./cmd/mekong
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="${ldflags}" -trimpath -o dist/mekong-windows-amd64.exe ./cmd/mekong
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -ldflags="${ldflags}" -trimpath -o dist/mekong-windows-arm64.exe ./cmd/mekong
 
           sha256sum dist/mekong-* > "dist/SHA256SUMS-${TAG}.txt"
 
@@ -100,5 +101,6 @@ jobs:
             dist/mekong-linux-amd64
             dist/mekong-linux-arm64
             dist/mekong-windows-amd64.exe
+            dist/mekong-windows-arm64.exe
             dist/SHA256SUMS-${{ steps.meta.outputs.tag }}.txt
           fail_on_unmatched_files: true

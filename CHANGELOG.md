@@ -1,6 +1,19 @@
 # Changelog
 
-Includes tags present in this repo on 2026-03-14.
+## v1.5.0 - 2026-03-23
+
+Highlights:
+
+- Added `mekong login`, `mekong logout`, and `mekong whoami` commands for account management
+- Added `mekong test` command for connectivity and auth self-diagnostics
+- Added `--token` flag and `MEKONG_TOKEN` env var for reserved subdomains without interactive login
+- Updated install.sh to install to `/usr/local/bin` on macOS (VS Code and all SDKs find it without PATH tricks); falls back gracefully to `~/.local/bin` when piped without sudo
+- Updated install.ps1 to install to `%LOCALAPPDATA%\Programs\mekong\` on Windows (no admin required)
+- Added Windows arm64 binary (`mekong-windows-arm64.exe`) to release assets
+- VS Code extension v1.5.0: login/account panel, email + plan badge, auto-detects login state
+- npm mekong-cli v2.0.0: Node.js SDK with support for Next.js, Vite, Nuxt, Remix, SvelteKit, Astro, Express
+- Python mekong-tunnel v2.1.0: pip SDK with support for FastAPI, Flask, Django, uvicorn, gunicorn, Granian, Hypercorn
+- All SDKs (VS Code, npm, pip) search `/usr/local/bin` first on macOS, then `~/.local/bin`, with full Windows path coverage
 
 ## v1.4.9 - 2026-03-14
 

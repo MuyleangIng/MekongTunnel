@@ -47,6 +47,7 @@ type Tunnel struct {
 	logger        *RequestLogger  // Async request logger for SSH terminal output
 	maxLifetime   time.Duration
 	inactivityTTL time.Duration
+	apiToken      string // raw API token sent by the client via MEKONG_API_TOKEN env var
 }
 
 // New creates a new tunnel with the given parameters
@@ -210,6 +211,20 @@ func (t *Tunnel) Logger() *RequestLogger {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.logger
+}
+
+// SetAPIToken stores the raw API token sent by the client.
+func (t *Tunnel) SetAPIToken(token string) {
+	t.mu.Lock()
+	t.apiToken = token
+	t.mu.Unlock()
+}
+
+// GetAPIToken returns the raw API token, or "" if none was provided.
+func (t *Tunnel) GetAPIToken() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.apiToken
 }
 
 // Transport returns the reusable HTTP transport for this tunnel

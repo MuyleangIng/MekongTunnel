@@ -6,6 +6,7 @@
 package proxy
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
@@ -23,6 +24,15 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/domain"
 	"github.com/MuyleangIng/MekongTunnel/internal/tunnel"
 )
+
+// TokenValidator is an optional interface the proxy uses to validate API tokens
+// and look up reserved subdomains. Implemented by *db.DB when DATABASE_URL is set.
+type TokenValidator interface {
+	// ValidateToken returns (userID, nil) when the token is valid and not revoked.
+	ValidateToken(ctx context.Context, rawToken string) (string, error)
+	// GetFirstReservedSubdomain returns the first reserved subdomain for the user, or "" if none.
+	GetFirstReservedSubdomain(ctx context.Context, userID string) (string, error)
+}
 
 // Server manages SSH tunnels and HTTP proxying.
 // It holds the tunnel registry, per-IP connection counts, SSH connections
@@ -44,6 +54,34 @@ type Server struct {
 
 	// Abuse protection subsystem
 	abuseTracker *AbuseTracker
+
+	// Optional: validates API tokens and resolves reserved subdomains.
+	// Nil when DATABASE_URL is not configured (anonymous-only mode).
+	tokenValidator TokenValidator
+}
+
+// SetTokenValidator wires a DB-backed token validator into the proxy server.
+// Call this after New() when DATABASE_URL is available.
+func (s *Server) SetTokenValidator(v TokenValidator) {
+	s.tokenValidator = v
+}
+
+// RenameTunnel moves an already-registered tunnel to a new subdomain key.
+// Used when a token is validated and a reserved subdomain should replace the random one.
+// Returns false if oldSub is not registered or newSub is already taken.
+func (s *Server) RenameTunnel(oldSub, newSub string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tun, ok := s.tunnels[oldSub]
+	if !ok {
+		return false
+	}
+	if _, taken := s.tunnels[newSub]; taken {
+		return false // reserved subdomain already in use
+	}
+	delete(s.tunnels, oldSub)
+	s.tunnels[newSub] = tun
+	return true
 }
 
 // New creates and initialises a Server instance.

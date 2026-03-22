@@ -1,0 +1,75 @@
+name: Publish npm Package
+
+# Triggers:
+#   1. Push a tag like  npm-v1.2.1  →  automatic publish
+#   2. GitHub UI → Run workflow  →  manual publish
+on:
+  push:
+    tags:
+      - "npm-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 1.2.1) — must match package.json"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish mekong-cli to npm
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mekong-cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Publishing mekong-cli v${PKG_VERSION}"
+
+      - name: Verify version matches tag (tag trigger only)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#npm-v}"
+          PKG_VERSION="${{ steps.meta.outputs.version }}"
+          if [[ "${TAG_VERSION}" != "${PKG_VERSION}" ]]; then
+            echo "❌ Tag version (${TAG_VERSION}) does not match package.json version (${PKG_VERSION})"
+            exit 1
+          fi
+
+      - name: Check version is not already published
+        shell: bash
+        run: |
+          PKG_VERSION="${{ steps.meta.outputs.version }}"
+          PUBLISHED=$(npm view mekong-cli@"${PKG_VERSION}" version 2>/dev/null || echo "")
+          if [[ -n "${PUBLISHED}" ]]; then
+            echo "❌ mekong-cli@${PKG_VERSION} is already published on npm"
+            exit 1
+          fi
+          echo "✅ v${PKG_VERSION} is not yet published — proceeding"
+
+      - name: Run tests
+        run: npm test
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

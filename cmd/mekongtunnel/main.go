@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/db"
 	"github.com/MuyleangIng/MekongTunnel/internal/proxy"
 )
 
@@ -126,6 +127,19 @@ func main() {
 	)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Wire token validation when DATABASE_URL is available.
+	// Without a DB the server still works — users just get random subdomains.
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		database, err := db.Connect(dbURL)
+		if err != nil {
+			log.Printf("WARNING: could not connect to database (%v) — token validation disabled", err)
+		} else {
+			srv.SetTokenValidator(database)
+			log.Println("Token validation enabled (database connected)")
+			defer database.Close()
+		}
 	}
 
 	// --- SSH Server ---

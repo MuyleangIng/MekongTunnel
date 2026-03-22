@@ -246,6 +246,7 @@ func reorderArgs(args []string) []string {
 		"--ssh-port": true, "-ssh-port": true,
 		"--port": true, "-port": true,
 		"--expire": true, "-expire": true,
+		"--token": true, "-token": true,
 		"-e": true,
 		"-p": true,
 	}
@@ -295,6 +296,29 @@ func main() {
 		case "update":
 			selfUpdate()
 			return
+		case "login":
+			if err := runLogin(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s  ✖  Login failed: %v%s\n", red, err, reset)
+				os.Exit(1)
+			}
+			return
+		case "logout":
+			runLogout()
+			return
+		case "whoami":
+			runWhoami()
+			return
+		case "test":
+			// Resolve token before flags are parsed (env > saved config).
+			tok := strings.TrimSpace(os.Getenv("MEKONG_TOKEN"))
+			if tok == "" {
+				if cfg, err := loadAuthConfig(); err == nil {
+					tok = cfg.Token
+				}
+			}
+			code := runSelfTest(tok)
+			os.Exit(code)
+			return
 		case "version", "--version", "-v":
 			fmt.Printf("mekong %s\n", version)
 			return
@@ -306,6 +330,7 @@ func main() {
 		sshPortFlag   = flag.Int("ssh-port", 22, "SSH server port")
 		localPortFlag = flag.Int("port", 0, "Local port to expose (alternative to positional arg)")
 		expireFlag    = flag.String("expire", "", "Tunnel lifetime (examples: 30m, 48h, 2d, 1w, or bare hours like 48)")
+		tokenFlag     = flag.String("token", "", "API token for reserved subdomain (env: MEKONG_TOKEN)")
 		detachFlag    = flag.Bool("d", false, "Run tunnel in background (daemon mode)")
 		noQR          = flag.Bool("no-qr", false, "Disable QR code display")
 		noClip        = flag.Bool("no-clipboard", false, "Disable auto clipboard copy")
@@ -328,6 +353,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "    mekong stop 3000                       stop the background tunnel for port 3000")
 		fmt.Fprintln(os.Stderr, "    mekong stop --all                      stop all background tunnels")
 		fmt.Fprintln(os.Stderr, "    mekong update                          self-update binary")
+		fmt.Fprintln(os.Stderr, "    mekong login                           login to angkorsearch.dev")
+		fmt.Fprintln(os.Stderr, "    mekong logout                          clear saved credentials")
+		fmt.Fprintln(os.Stderr, "    mekong whoami                          show logged-in account")
+		fmt.Fprintln(os.Stderr, "    mekong test                            test connectivity, auth, and binary")
+		fmt.Fprintln(os.Stderr, "    mekong --token <tok> 3000               use reserved subdomain")
+		fmt.Fprintln(os.Stderr, "    MEKONG_TOKEN=<tok> mekong 3000          token via env var")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "  Flags:")
 		flag.PrintDefaults()
@@ -338,6 +369,17 @@ func main() {
 	// positional arg. Reorder so flags always come before port numbers.
 	os.Args = append(os.Args[:1], reorderArgs(os.Args[1:])...)
 	flag.Parse()
+
+	// Resolve API token: flag > env var > saved login (~/.mekong/config.json).
+	apiToken := strings.TrimSpace(*tokenFlag)
+	if apiToken == "" {
+		apiToken = strings.TrimSpace(os.Getenv("MEKONG_TOKEN"))
+	}
+	if apiToken == "" {
+		if cfg, err := loadAuthConfig(); err == nil {
+			apiToken = cfg.Token
+		}
+	}
 
 	requestedLifetime := config.DefaultTunnelLifetime
 	if strings.TrimSpace(*expireFlag) != "" {
@@ -385,7 +427,7 @@ func main() {
 	// --- Daemon mode ---
 	// Re-exec self without -d, redirect output to log file, detach from terminal.
 	if *detachFlag {
-		if err := spawnDaemon(ports, *serverFlag, *sshPortFlag, requestedLifetime, *noReconnect); err != nil {
+		if err := spawnDaemon(ports, *serverFlag, *sshPortFlag, requestedLifetime, apiToken, *noReconnect); err != nil {
 			fmt.Fprintf(os.Stderr, "%s  ✖  Failed to start daemon: %v%s\n", red, err, reset)
 			os.Exit(1)
 		}
@@ -434,7 +476,7 @@ func main() {
 					backoff = 2 * time.Second
 				}
 
-				_, err := connect(*serverFlag, *sshPortFlag, localPort, requestedLifetime, !*noQR, !*noClip, func(u string) {
+				_, err := connect(*serverFlag, *sshPortFlag, localPort, requestedLifetime, apiToken, !*noQR, !*noClip, func(u string) {
 					ts := tunnelState{
 						PID:       os.Getpid(),
 						URL:       u,
@@ -475,7 +517,7 @@ func main() {
 
 // spawnDaemon re-execs the current binary without the -d flag, detached from
 // the terminal. Stdout/stderr are redirected to ~/.mekong/mekong.log.
-func spawnDaemon(ports []int, server string, sshPort int, requestedLifetime time.Duration, noReconnect bool) error {
+func spawnDaemon(ports []int, server string, sshPort int, requestedLifetime time.Duration, apiToken string, noReconnect bool) error {
 	_ = os.MkdirAll(mekongDir(), 0755)
 	for _, port := range ports {
 		if err := pruneLogFile(port, false); err != nil {
@@ -500,6 +542,9 @@ func spawnDaemon(ports []int, server string, sshPort int, requestedLifetime time
 	}
 	if noReconnect {
 		baseArgs = append(baseArgs, "--no-reconnect")
+	}
+	if apiToken != "" {
+		baseArgs = append(baseArgs, "--token", apiToken)
 	}
 
 	self, err := os.Executable()
@@ -578,7 +623,7 @@ func printBanner(server string, ports []int, requestedLifetime time.Duration) {
 
 // connect establishes one SSH tunnel session. Returns the tunnel URL and any error.
 // onURL is called as soon as the tunnel URL is received from the server (while still connected).
-func connect(server string, sshPort, localPort int, requestedLifetime time.Duration, showQR, copyClip bool, onURL func(string)) (string, error) {
+func connect(server string, sshPort, localPort int, requestedLifetime time.Duration, apiToken string, showQR, copyClip bool, onURL func(string)) (string, error) {
 	var auths []ssh.AuthMethod
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		if agentConn, err := net.Dial("unix", sock); err == nil {
@@ -659,6 +704,10 @@ func connect(server string, sshPort, localPort int, requestedLifetime time.Durat
 		if err := sess.Setenv(expiry.EnvName, expiry.Format(requestedLifetime)); err != nil {
 			return "", fmt.Errorf("%w: update mekongtunnel server to v1.4.4 or newer (%v)", errExpireUnsupported, err)
 		}
+	}
+	if apiToken != "" {
+		// Best-effort: ignore errors (old servers without token support will silently skip).
+		_ = sess.Setenv("MEKONG_API_TOKEN", apiToken)
 	}
 
 	if err := sess.Shell(); err != nil {

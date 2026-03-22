@@ -1,0 +1,79 @@
+name: Publish VS Code Extension
+
+# Triggers:
+#   1. Push a tag like  vscode-v1.4.8  →  automatic publish
+#   2. GitHub UI → Run workflow  →  manual publish (enter version to confirm)
+on:
+  push:
+    tags:
+      - "vscode-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 1.4.8) — must match package.json"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build & Publish to VS Code Marketplace
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mekong-tunnel-vscode
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mekong-tunnel-vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile TypeScript
+        run: npm run compile
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          # Read version from package.json
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Publishing VS Code extension v${PKG_VERSION}"
+
+      - name: Verify version matches tag (tag trigger only)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#vscode-v}"
+          PKG_VERSION="${{ steps.meta.outputs.version }}"
+          if [[ "${TAG_VERSION}" != "${PKG_VERSION}" ]]; then
+            echo "❌ Tag version (${TAG_VERSION}) does not match package.json version (${PKG_VERSION})"
+            exit 1
+          fi
+
+      - name: Package extension (.vsix)
+        run: npx vsce package --no-dependencies
+
+      - name: Publish to Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish --no-dependencies -p "$VSCE_PAT"
+
+      - name: Upload .vsix as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mekong-tunnel-${{ steps.meta.outputs.version }}.vsix
+          path: mekong-tunnel-vscode/*.vsix
+          retention-days: 30

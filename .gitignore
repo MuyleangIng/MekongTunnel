@@ -1,18 +1,99 @@
+# ── Force-include this file itself ───────────────────────────────────────────
 !.gitignore
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  GO  (compiled binaries — always build via Makefile into bin/)
+# ══════════════════════════════════════════════════════════════════════════════
 bin/
-host_key
-*.exe
 /mekong
+/mekong-api
+/api
+*.exe
+
+# SSH host key (generated at runtime — contains private key)
+host_key
+
+# TLS certificates
 certs/
 
-# Local environment config (contains secrets — never commit)
-.env
+# ══════════════════════════════════════════════════════════════════════════════
+#  JUNK / SCRATCH FILES
+# ══════════════════════════════════════════════════════════════════════════════
+random.txt
+index.html
 
-# Generated data directories
+# ══════════════════════════════════════════════════════════════════════════════
+#  SECRETS / ENVIRONMENT
+# ══════════════════════════════════════════════════════════════════════════════
+.env
+.env.*
+!.env.example
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  RUNTIME DATA
+# ══════════════════════════════════════════════════════════════════════════════
 data/
 data-dev/
 
-.cluade/
+# ══════════════════════════════════════════════════════════════════════════════
+#  VS CODE EXTENSION  (mekong-tunnel-vscode/)
+# ══════════════════════════════════════════════════════════════════════════════
+mekong-tunnel-vscode/node_modules/
+mekong-tunnel-vscode/out/
+mekong-tunnel-vscode/*.vsix
+mekong-tunnel-vscode/.vscode-test/
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  npm PACKAGE  (mekong-cli/)
+# ══════════════════════════════════════════════════════════════════════════════
+mekong-cli/node_modules/
+mekong-cli/.npmrc
+mekong-cli/npm-debug.log*
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PYTHON PACKAGE  (mekong-tunnel/)
+# ══════════════════════════════════════════════════════════════════════════════
+mekong-tunnel/dist/
+mekong-tunnel/build/
+mekong-tunnel/*.egg-info/
+mekong-tunnel/src/*.egg-info/
+mekong-tunnel/__pycache__/
+mekong-tunnel/**/__pycache__/
+mekong-tunnel/**/*.pyc
+mekong-tunnel/.venv/
+mekong-tunnel/venv/
+mekong-tunnel/.pytest_cache/
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  GITHUB ACTIONS  (allow workflows, ignore everything else)
+# ══════════════════════════════════════════════════════════════════════════════
 .github/*
 !.github/workflows/
 !.github/workflows/*.yml
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CHECKSUMS (generated per release — add manually with: git add -f SHA256SUMS-vX.Y.Z.txt)
+# ══════════════════════════════════════════════════════════════════════════════
+SHA256SUMS-*.txt
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  macOS
+# ══════════════════════════════════════════════════════════════════════════════
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  EDITORS / IDEs
+# ══════════════════════════════════════════════════════════════════════════════
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CLAUDE
+# ══════════════════════════════════════════════════════════════════════════════
+.claude/
+.cluade/

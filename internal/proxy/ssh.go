@@ -164,7 +164,9 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 	}
 
 	// Remove tunnel from registry when this function returns (SSH disconnect).
-	defer s.RemoveTunnel(sub)
+	// Use a closure so it always removes the current subdomain, even if renamed
+	// to a reserved subdomain after token validation.
+	defer func() { s.RemoveTunnel(sub) }()
 
 	// The client must have passed -t (allocate TTY) for the session channel to appear.
 	// Without -t the URL message cannot be displayed.
@@ -205,6 +207,22 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 		fmt.Fprintf(channel, "\r\n  ERROR: %s\r\n\r\n", err)
 		channel.Close()
 		return
+	}
+
+	// If the client sent an API token, validate it and try to claim a reserved subdomain.
+	// This runs after setupSession so the token env var has been applied to tun.
+	if s.tokenValidator != nil {
+		if rawToken := tun.GetAPIToken(); rawToken != "" {
+			if userID, err := s.tokenValidator.ValidateToken(ctx, rawToken); err == nil {
+				if reserved, _ := s.tokenValidator.GetFirstReservedSubdomain(ctx, userID); reserved != "" {
+					if s.RenameTunnel(sub, reserved) {
+						sub = reserved
+					}
+				}
+			} else {
+				log.Printf("Token validation failed for tunnel %s: %v", sub, err)
+			}
+		}
 	}
 
 	// Build the public URL and compose the terminal welcome message after
@@ -367,15 +385,21 @@ func (s *Server) setupSession(requests <-chan *ssh.Request, tun *tunnel.Tunnel) 
 	}
 }
 
+// tokenEnvName is the SSH environment variable the CLI sends to pass an API token.
+const tokenEnvName = "MEKONG_API_TOKEN"
+
 func applyEnvRequest(req *ssh.Request, tun *tunnel.Tunnel) error {
 	var payload envRequest
 	if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
 		return fmt.Errorf("invalid env request")
 	}
-	if payload.Name != expiry.EnvName {
-		return nil
+	switch payload.Name {
+	case expiry.EnvName:
+		return applyRequestedExpiry(payload.Value, tun)
+	case tokenEnvName:
+		tun.SetAPIToken(payload.Value)
 	}
-	return applyRequestedExpiry(payload.Value, tun)
+	return nil
 }
 
 func applyExecRequest(req *ssh.Request, tun *tunnel.Tunnel) error {

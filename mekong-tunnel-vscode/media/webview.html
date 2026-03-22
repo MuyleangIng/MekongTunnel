@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src __CSP_SOURCE__;">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --cyan:   #00d4ff;
+  --green:  #3fb950;
+  --amber:  #f0a500;
+  --red:    #f85149;
+  --border: rgba(255,255,255,0.07);
+  --card:   rgba(255,255,255,0.03);
+  --hover:  rgba(255,255,255,0.06);
+}
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background);
+  overflow-x: hidden;
+  user-select: none;
+  line-height: 1.4;
+}
+
+/* ── Header ──────────────────────────────────────────────────────── */
+.header {
+  padding: 12px 14px 11px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(0,212,255,0.04) 0%, rgba(0,0,0,0) 60%);
+}
+.header-logo {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(0,153,204,0.1));
+  border: 1px solid rgba(0,212,255,0.25);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; flex-shrink: 0;
+}
+.header-info { flex: 1; min-width: 0; }
+.header-title { font-size: 12px; font-weight: 700; color: var(--vscode-foreground); letter-spacing: 0.1px; }
+.header-sub   { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 1px; }
+.header-pill  {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 20px; flex-shrink: 0;
+  background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.3); color: var(--green);
+  display: none; align-items: center; gap: 4px;
+}
+.pulse-dot {
+  width: 5px; height: 5px; border-radius: 50%; background: currentColor;
+  animation: pulse 1.6s infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* ── Status row ──────────────────────────────────────────────────── */
+.status-row {
+  margin: 10px 12px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  display: flex; align-items: center; gap: 10px;
+  transition: border-color 0.25s, background 0.25s;
+}
+.status-row.st-running { border-color: rgba(63,185,80,0.3);  background: rgba(63,185,80,0.04); }
+.status-row.st-starting{ border-color: rgba(240,165,0,0.3); background: rgba(240,165,0,0.04); }
+
+.st-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; transition: background 0.25s;
+  background: rgba(255,255,255,0.18);
+}
+.st-dot.d-running  { background: var(--green); box-shadow: 0 0 0 3px rgba(63,185,80,0.2); animation: glow 2s infinite; }
+.st-dot.d-starting { background: var(--amber); animation: blink 0.9s infinite; }
+@keyframes glow  { 0%,100%{ box-shadow:0 0 0 3px rgba(63,185,80,0.2)} 50%{box-shadow:0 0 0 5px rgba(63,185,80,0.08)} }
+@keyframes blink { 0%,100%{ opacity:1 } 50%{ opacity:0.3 } }
+
+.st-text { flex: 1; min-width: 0; }
+.st-label { font-size: 11px; font-weight: 600; color: var(--vscode-foreground); }
+.st-sub   { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 1px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Connecting animation ────────────────────────────────────────── */
+.connecting {
+  margin: 8px 12px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(240,165,0,0.05);
+  border: 1px solid rgba(240,165,0,0.18);
+  display: none; text-align: center;
+}
+.conn-spinner {
+  display: flex; gap: 5px; justify-content: center; margin-bottom: 6px;
+}
+.conn-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--amber);
+  animation: connBounce 1.2s infinite ease-in-out;
+}
+.conn-dot:nth-child(1){ animation-delay: 0s; }
+.conn-dot:nth-child(2){ animation-delay: 0.15s; }
+.conn-dot:nth-child(3){ animation-delay: 0.3s; }
+@keyframes connBounce {
+  0%,80%,100%{ transform: scale(0.6); opacity: 0.4; }
+  40%        { transform: scale(1);   opacity: 1; }
+}
+.conn-label { font-size: 10px; color: var(--amber); font-weight: 600; }
+
+/* ── Form area ───────────────────────────────────────────────────── */
+.form-block { margin: 10px 12px 0; }
+.form-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.7px; color: var(--vscode-descriptionForeground);
+  margin-bottom: 5px;
+}
+.input-row { display: flex; gap: 5px; }
+
+input[type=number], select {
+  flex: 1; height: 27px; padding: 0 8px;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, rgba(255,255,255,0.1));
+  border-radius: 5px;
+  color: var(--vscode-input-foreground);
+  font-size: 11px; outline: none; min-width: 0;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+input[type=number]:focus, select:focus { border-color: var(--cyan); }
+input.error { border-color: var(--red) !important; }
+input[type=number]::-webkit-inner-spin-button { opacity: 0.4; }
+
+.hint { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 4px; min-height: 13px; }
+.hint.ok  { color: var(--green); }
+.hint.err { color: var(--red); font-weight: 600; }
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+button {
+  border: none; border-radius: 5px; cursor: pointer;
+  font-family: inherit; font-size: 11px; font-weight: 600;
+  transition: opacity 0.12s, transform 0.08s;
+  white-space: nowrap;
+}
+button:active { transform: scale(0.96); }
+button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.btn-detect {
+  height: 27px; padding: 0 9px; flex-shrink: 0;
+  background: var(--card);
+  border: 1px solid var(--border) !important;
+  color: var(--vscode-descriptionForeground);
+}
+.btn-detect:hover { background: var(--hover); color: var(--vscode-foreground); }
+
+.btn-primary {
+  width: 100%; height: 33px; border-radius: 7px; font-size: 12px; font-weight: 700;
+  background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+  color: #0a0f14;
+  box-shadow: 0 1px 8px rgba(0,212,255,0.2);
+}
+.btn-primary:hover { opacity: 0.88; }
+
+.btn-danger {
+  width: 100%; height: 33px; border-radius: 7px; font-size: 12px; font-weight: 700;
+  background: linear-gradient(135deg, #f85149 0%, #c0392b 100%);
+  color: #fff;
+  box-shadow: 0 1px 8px rgba(248,81,73,0.2);
+}
+.btn-danger:hover { opacity: 0.88; }
+
+.btn-sm-danger {
+  width: 100%; height: 28px; border-radius: 6px; font-size: 11px; font-weight: 600;
+  background: rgba(248,81,73,0.1);
+  border: 1px solid rgba(248,81,73,0.3) !important;
+  color: var(--red);
+}
+.btn-sm-danger:hover { background: rgba(248,81,73,0.18); }
+
+.btn-amber {
+  width: 100%; height: 33px; border-radius: 7px; font-size: 12px; font-weight: 700;
+  background: linear-gradient(135deg, #f0a500 0%, #c78200 100%);
+  color: #0a0f14;
+  box-shadow: 0 1px 8px rgba(240,165,0,0.2);
+}
+.btn-amber:hover { opacity: 0.88; }
+
+.btn-outline-cyan {
+  width: 100%; height: 28px; border-radius: 6px; font-size: 11px;
+  background: rgba(0,212,255,0.07);
+  border: 1px solid rgba(0,212,255,0.25) !important;
+  color: var(--cyan);
+}
+.btn-outline-cyan:hover { background: rgba(0,212,255,0.13); }
+
+/* ── URL card ────────────────────────────────────────────────────── */
+.url-card {
+  border-radius: 8px; padding: 10px 11px;
+  background: rgba(63,185,80,0.04);
+  border: 1px solid rgba(63,185,80,0.22);
+}
+.url-card.amber {
+  background: rgba(240,165,0,0.04);
+  border-color: rgba(240,165,0,0.22);
+}
+.url-card-label {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase;
+  color: var(--green); margin-bottom: 5px;
+}
+.url-card.amber .url-card-label { color: var(--amber); }
+.url-card-text {
+  font-size: 11px; font-family: monospace; color: var(--cyan);
+  word-break: break-all; line-height: 1.5; margin-bottom: 8px;
+}
+.url-card.amber .url-card-text { color: var(--amber); }
+.url-btn-row { display: flex; gap: 5px; }
+.url-btn-row button { flex: 1; height: 25px; font-size: 10px; }
+
+.btn-copy-url {
+  background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.25) !important; color: var(--cyan);
+}
+.btn-copy-url:hover { background: rgba(0,212,255,0.15); }
+.btn-copy-url.flashed { background: rgba(63,185,80,0.1) !important; border-color: rgba(63,185,80,0.3) !important; color: var(--green) !important; }
+.btn-copy-amber {
+  background: rgba(240,165,0,0.08); border: 1px solid rgba(240,165,0,0.25) !important; color: var(--amber);
+}
+.btn-copy-amber:hover { background: rgba(240,165,0,0.15); }
+.btn-copy-amber.flashed { background: rgba(63,185,80,0.1) !important; border-color: rgba(63,185,80,0.3) !important; color: var(--green) !important; }
+.btn-open-url {
+  background: var(--card); border: 1px solid var(--border) !important; color: var(--vscode-descriptionForeground);
+}
+.btn-open-url:hover { background: var(--hover); color: var(--vscode-foreground); }
+
+/* ── Section divider ─────────────────────────────────────────────── */
+.section-divider {
+  margin: 12px 12px 0;
+  display: flex; align-items: center; gap: 8px;
+}
+.section-divider-line { flex: 1; height: 1px; background: var(--border); }
+.section-divider-text {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--vscode-descriptionForeground); opacity: 0.6;
+  padding: 0 2px;
+}
+
+/* ── View Log button ─────────────────────────────────────────────── */
+.log-link {
+  display: flex; align-items: center; gap: 6px;
+  margin: 10px 12px 0; padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent; cursor: pointer; width: calc(100% - 24px);
+  color: var(--vscode-descriptionForeground); font-size: 10px;
+  transition: border-color 0.15s, color 0.15s;
+  font-family: inherit;
+}
+.log-link:hover { border-color: rgba(255,255,255,0.18); color: var(--vscode-foreground); }
+.log-link-icon { font-size: 12px; }
+
+/* ── Activity log ────────────────────────────────────────────────── */
+.alog {
+  margin: 10px 12px 0;
+  border: 1px solid var(--border);
+  border-radius: 7px; overflow: hidden;
+}
+.alog-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 9px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none;
+}
+.alog-header:hover { background: var(--hover); }
+.alog-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: var(--vscode-descriptionForeground); flex: 1; }
+.alog-arrow { font-size: 9px; color: var(--vscode-descriptionForeground); opacity: 0.6; }
+.alog-body  { max-height: 88px; overflow-y: auto; font-family: monospace; font-size: 10px; }
+.alog-empty { padding: 9px; color: rgba(255,255,255,0.2); font-style: italic; font-size: 10px; }
+.alog-row   {
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 2px 9px; line-height: 1.55;
+}
+.alog-row:hover { background: var(--hover); }
+.alog-ts  { font-size: 9px; color: rgba(255,255,255,0.18); flex-shrink: 0; }
+.alog-msg { color: rgba(255,255,255,0.4); }
+.alog-row.ok   .alog-msg { color: var(--green); }
+.alog-row.warn .alog-msg { color: var(--amber); }
+.alog-row.err  .alog-msg { color: var(--red); }
+
+/* ── Spacer ──────────────────────────────────────────────────────── */
+.gap8  { height: 8px; }
+.gap10 { height: 10px; }
+.gap12 { height: 12px; }
+
+/* ── Account card ────────────────────────────────────────────────── */
+.acct-card {
+  border-radius: 8px; padding: 9px 11px;
+  border: 1px solid var(--border); background: var(--card);
+  display: flex; align-items: center; gap: 9px;
+  transition: border-color 0.2s, background 0.2s;
+}
+.acct-card.signed-in  { border-color: rgba(63,185,80,0.25); background: rgba(63,185,80,0.03); }
+.acct-card.signing-in { border-color: rgba(240,165,0,0.25); background: rgba(240,165,0,0.03); }
+.acct-avatar {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 13px;
+  background: var(--vscode-badge-background, rgba(255,255,255,0.08)); border: 1px solid var(--border);
+}
+.acct-info { flex: 1; min-width: 0; }
+.acct-name { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--vscode-foreground); }
+.acct-name.signed-in { color: var(--green); }
+.acct-sub  { font-size: 9px; color: var(--vscode-descriptionForeground); margin-top: 1px; }
+.plan-chip {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 20px; flex-shrink: 0;
+  background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.25); color: var(--cyan);
+}
+.btn-login  {
+  height: 25px; padding: 0 10px; flex-shrink: 0; border-radius: 5px;
+  background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.3) !important;
+  color: var(--cyan); font-size: 10px; font-weight: 700;
+}
+.btn-login:hover { background: rgba(0,212,255,0.18); }
+.btn-logout {
+  height: 25px; padding: 0 10px; flex-shrink: 0; border-radius: 5px;
+  background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.25) !important;
+  color: var(--red); font-size: 10px; font-weight: 600;
+}
+.btn-logout:hover { background: rgba(248,81,73,0.15); }
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────── -->
+<div class="header">
+  <div class="header-logo">&#x1F4E1;</div>
+  <div class="header-info">
+    <div class="header-title">Mekong Tunnel</div>
+    <div class="header-sub">KhmerStack &middot; mekongtunnel.dev</div>
+  </div>
+  <div class="header-pill" id="live-badge">
+    <span class="pulse-dot"></span>LIVE
+  </div>
+</div>
+
+<!-- ── Account section ──────────────────────────────────────── -->
+<div class="gap8"></div>
+<div class="form-block">
+  <div class="acct-card" id="acct-card">
+    <div class="acct-avatar" id="acct-avatar">&#x1F464;</div>
+    <div class="acct-info">
+      <div class="acct-name" id="acct-name">Not logged in</div>
+      <div class="acct-sub"  id="acct-sub">Login for a reserved subdomain</div>
+    </div>
+    <span class="plan-chip" id="acct-plan" style="display:none"></span>
+    <button class="btn-login"  id="acct-login-btn">Login</button>
+    <button class="btn-logout" id="acct-logout-btn" style="display:none">Logout</button>
+  </div>
+</div>
+
+<!-- ── Mekong not installed banner ──────────────────────────── -->
+<div id="mekong-missing" style="display:none">
+  <div class="gap10"></div>
+  <div class="form-block">
+    <div style="border-radius:8px;border:1px solid var(--vscode-inputValidation-warningBorder,rgba(248,81,73,0.35));background:var(--vscode-inputValidation-warningBackground,rgba(248,81,73,0.06));padding:11px 12px;">
+
+      <!-- title row -->
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:5px;">
+        <span style="font-size:12px;">&#x26A0;</span>
+        <span style="font-size:11px;font-weight:700;color:var(--vscode-inputValidation-warningForeground,#f85149);">mekong not installed</span>
+        <span id="install-platform-badge" style="margin-left:auto;font-size:9px;font-weight:700;letter-spacing:0.5px;color:var(--vscode-descriptionForeground);background:var(--vscode-badge-background,rgba(255,255,255,0.08));border:1px solid var(--vscode-panel-border,rgba(255,255,255,0.1));border-radius:4px;padding:1px 6px;"></span>
+      </div>
+
+      <!-- description -->
+      <div style="font-size:10px;color:var(--vscode-descriptionForeground);line-height:1.55;margin-bottom:8px;">
+        Tunneling requires the <strong style="color:var(--vscode-foreground);">mekong</strong> CLI. Live Server works without it.
+      </div>
+
+      <!-- unix: one-click copy command -->
+      <div id="install-unix" style="display:none;margin-bottom:9px;">
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--vscode-descriptionForeground);opacity:0.7;margin-bottom:5px;">Click to copy install command:</div>
+        <div id="install-cmd-block"
+          title="Click to copy"
+          style="position:relative;cursor:pointer;font-size:10px;font-family:var(--vscode-editor-font-family,monospace);background:var(--vscode-textCodeBlock-background,rgba(0,0,0,0.2));border:1px solid var(--vscode-panel-border,rgba(255,255,255,0.1));border-radius:6px;padding:8px 36px 8px 10px;color:var(--vscode-textPreformat-foreground,#00d4ff);word-break:break-all;line-height:1.6;transition:border-color 0.15s,background 0.15s;">
+          <span id="install-cmd-text"></span>
+          <span id="install-copy-icon" style="position:absolute;top:6px;right:8px;font-size:12px;opacity:0.5;">&#x2398;</span>
+        </div>
+        <div id="install-copied-hint" style="display:none;font-size:10px;color:var(--vscode-terminal-ansiGreen,#3fb950);margin-top:4px;font-weight:600;">&#x2713; Copied to clipboard!</div>
+      </div>
+
+      <!-- windows: download only -->
+      <div id="install-windows" style="display:none;margin-bottom:9px;">
+        <div style="font-size:10px;color:var(--vscode-descriptionForeground);line-height:1.6;">
+          Download <code style="font-family:monospace;background:var(--vscode-textCodeBlock-background,rgba(0,0,0,0.2));padding:1px 5px;border-radius:3px;color:var(--vscode-textPreformat-foreground);">mekong-windows-amd64.exe</code>, rename to <code style="font-family:monospace;background:var(--vscode-textCodeBlock-background,rgba(0,0,0,0.2));padding:1px 5px;border-radius:3px;color:var(--vscode-textPreformat-foreground);">mekong.exe</code> and add to your PATH.
+        </div>
+      </div>
+
+      <!-- buttons -->
+      <div style="display:flex;gap:6px;">
+        <button id="install-btn" style="flex:1;height:27px;border-radius:6px;background:var(--vscode-button-background,rgba(0,212,255,0.12));border:1px solid var(--vscode-button-border,rgba(0,212,255,0.3));color:var(--vscode-button-foreground,#00d4ff);font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;">&#x2B07; Download</button>
+        <button id="recheck-btn" style="flex:1;height:27px;border-radius:6px;background:var(--vscode-button-secondaryBackground,rgba(255,255,255,0.06));border:1px solid var(--vscode-panel-border,rgba(255,255,255,0.1));color:var(--vscode-button-secondaryForeground,var(--vscode-descriptionForeground));font-size:10px;font-weight:600;cursor:pointer;font-family:inherit;">&#x21BA; Re-check</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ── Port warning card ─────────────────────────────────────── -->
+<div id="port-warning" style="display:none">
+  <div class="gap10"></div>
+  <div class="form-block">
+    <div style="border-radius:8px;border:1px solid rgba(240,165,0,0.3);background:rgba(240,165,0,0.05);padding:11px 12px;">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;">
+        <span style="font-size:14px;">&#x1F50C;</span>
+        <span style="font-size:11px;font-weight:700;color:#f0a500;">Dev server not running</span>
+      </div>
+      <div style="font-size:10px;color:var(--vscode-descriptionForeground);line-height:1.55;margin-bottom:8px;">
+        Nothing is listening on port <strong id="warn-port" style="color:var(--vscode-foreground);font-family:monospace;"></strong>.
+        Start your dev server first:
+      </div>
+      <div id="warn-cmd" style="font-size:10px;font-family:monospace;background:rgba(0,0,0,0.25);border-radius:5px;padding:5px 8px;margin-bottom:9px;color:#f0a500;"></div>
+      <div style="display:flex;gap:6px;">
+        <button id="warn-anyway-btn" style="flex:1;height:27px;border-radius:6px;background:rgba(240,165,0,0.1);border:1px solid rgba(240,165,0,0.3);color:#f0a500;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;">Start Anyway</button>
+        <button id="warn-cancel-btn" style="flex:1;height:27px;border-radius:6px;background:var(--card);border:1px solid var(--border);color:var(--vscode-descriptionForeground);font-size:10px;font-weight:600;cursor:pointer;font-family:inherit;">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Tunnel status ────────────────────────────────────────── -->
+<div class="gap10"></div>
+<div class="status-row" id="status-card">
+  <div class="st-dot" id="status-dot"></div>
+  <div class="st-text">
+    <div class="st-label" id="status-label">Ready</div>
+    <div class="st-sub"   id="status-sub">No active tunnel</div>
+  </div>
+</div>
+
+<!-- ── Connecting indicator ─────────────────────────────────── -->
+<div class="connecting" id="connecting-box">
+  <div class="conn-spinner">
+    <div class="conn-dot"></div>
+    <div class="conn-dot"></div>
+    <div class="conn-dot"></div>
+  </div>
+  <div class="conn-label">Establishing tunnel&hellip;</div>
+</div>
+
+<!-- ── Config: port ─────────────────────────────────────────── -->
+<div id="config-section">
+  <div class="gap10"></div>
+  <div class="form-block">
+    <div class="form-label">Local Port</div>
+    <div class="input-row">
+      <input type="number" id="port-input" placeholder="e.g. 3000" min="1" max="65535"/>
+      <button class="btn-detect" id="detect-btn" title="Auto-detect from package.json">&#x26A1; Detect</button>
+    </div>
+    <div class="hint" id="framework-hint"></div>
+  </div>
+</div>
+
+<!-- ── Config: expiry ───────────────────────────────────────── -->
+<div id="expire-section">
+  <div class="gap8"></div>
+  <div class="form-block">
+    <div class="form-label">Expiry</div>
+    <select id="expire-select">
+      <option value="">No expiry (session only)</option>
+      <option value="1h">1 hour</option>
+      <option value="6h">6 hours</option>
+      <option value="24h">24 hours</option>
+      <option value="2d">2 days</option>
+      <option value="1w">1 week</option>
+    </select>
+  </div>
+</div>
+
+<!-- ── Start button ─────────────────────────────────────────── -->
+<div id="start-section">
+  <div class="gap10"></div>
+  <div class="form-block">
+    <button class="btn-primary" id="start-btn">&#x25B6;&ensp;Start Tunnel</button>
+  </div>
+</div>
+
+<!-- ── Public URL card ──────────────────────────────────────── -->
+<div id="url-section" style="display:none">
+  <div class="gap10"></div>
+  <div class="form-block">
+    <div class="url-card">
+      <div class="url-card-label">&#x1F310;&ensp;Public URL</div>
+      <div class="url-card-text" id="url-text"></div>
+      <div class="url-btn-row">
+        <button class="btn-copy-url" id="copy-btn">Copy URL</button>
+        <button class="btn-open-url" id="open-btn">&#x2197;&ensp;Open</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Stop tunnel ──────────────────────────────────────────── -->
+<div id="stop-section" style="display:none">
+  <div class="gap8"></div>
+  <div class="form-block">
+    <button class="btn-sm-danger" id="stop-btn">&#x25A0;&ensp;Stop Tunnel</button>
+  </div>
+</div>
+
+<!-- ── View log ─────────────────────────────────────────────── -->
+<div class="gap10"></div>
+<button class="log-link" id="log-btn">
+  <span class="log-link-icon">&#x1F4C4;</span>
+  View Output Log
+</button>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  Live Server section                                       -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="section-divider">
+  <div class="section-divider-line"></div>
+  <div class="section-divider-text">&#x26A1;&ensp;HTML Live Server</div>
+  <div class="section-divider-line"></div>
+</div>
+
+<!-- Live Server status card -->
+<div class="gap8"></div>
+<div class="status-row" id="ls-status-card" style="opacity:0.5">
+  <div class="st-dot" id="ls-dot"></div>
+  <div class="st-text">
+    <div class="st-label" id="ls-label">Not running</div>
+    <div class="st-sub"   id="ls-sub">Start to serve HTML files with live reload</div>
+  </div>
+  <!-- OFF pill shown when stopped -->
+  <span id="ls-off-label" style="font-size:9px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:1px 6px;">OFF</span>
+</div>
+
+<!-- Start Live Server -->
+<div id="ls-start-section">
+  <div class="gap8"></div>
+  <div class="form-block">
+    <button class="btn-amber" id="ls-start-btn">&#x26A1;&ensp;Start Live Server</button>
+  </div>
+</div>
+
+<!-- Running: URL + actions -->
+<div id="ls-running-section" style="display:none">
+  <div class="gap8"></div>
+  <div class="form-block">
+    <div class="url-card amber">
+      <div class="url-card-label">&#x1F4C1;&ensp;Local URL</div>
+      <div class="url-card-text" id="ls-url-text"></div>
+      <div class="url-btn-row">
+        <button class="btn-copy-amber" id="ls-copy-btn">Copy</button>
+        <button class="btn-open-url"   id="ls-open-btn">&#x2197;&ensp;Open</button>
+      </div>
+    </div>
+  </div>
+  <div class="gap6"></div>
+  <div class="form-block" style="margin-top:6px">
+    <button class="btn-outline-cyan" id="ls-tunnel-btn">&#x1F310;&ensp;Tunnel to Public URL</button>
+  </div>
+  <div class="gap6"></div>
+  <div class="form-block" style="margin-top:6px">
+    <button class="btn-sm-danger" id="ls-stop-btn">&#x25A0;&ensp;Stop Live Server</button>
+  </div>
+</div>
+
+<!-- ── Activity log ─────────────────────────────────────────── -->
+<div class="gap10"></div>
+<div class="alog" id="activity-log">
+  <div class="alog-header" id="log-toggle">
+    <span class="alog-title">Activity Log</span>
+    <span class="alog-arrow" id="log-toggle-icon">&#x25BC;</span>
+  </div>
+  <div class="alog-body" id="log-entries">
+    <div class="alog-empty" id="log-empty">No activity yet</div>
+  </div>
+</div>
+
+<!-- hidden stop button for header close (kept for JS) -->
+<button id="ls-header-close-btn" style="display:none"></button>
+
+<div class="gap12"></div>
+
+<script src="__SCRIPT_URI__"></script>
+</body>
+</html>

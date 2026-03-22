@@ -17,6 +17,56 @@
 services:
 
   # ──────────────────────────────────────────────
+  #  PostgreSQL 16
+  # ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: mekong-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mekong
+      POSTGRES_USER: mekong
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mekong_secret}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mekong -d mekong"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+
+  # ──────────────────────────────────────────────
+  #  REST API  (Go)
+  # ──────────────────────────────────────────────
+  mekong-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: mekong-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Load API-specific env vars from .env.dev (local) or .env.prod (production)
+    # Copy .env.api to .env.dev and fill in values: cp .env.api .env.dev
+    env_file: .env.dev
+    ports:
+      - "8080:8080"
+    environment:
+      # Override DATABASE_URL to use the docker postgres container hostname
+      - DATABASE_URL=postgres://mekong:${POSTGRES_PASSWORD:-mekong_secret}@postgres:5432/mekong?sslmode=disable
+      - API_ADDR=:8080
+      - MIGRATIONS_DIR=/app/migrations
+    labels:
+      - "maintainer=Ing Muyleang <Ing_Muyleang>"
+      - "org.opencontainers.image.title=MekongTunnel API"
+
+
+  # ──────────────────────────────────────────────
   #  PRODUCTION  (default)
   #  All config comes from .env
   # ──────────────────────────────────────────────
@@ -123,3 +173,7 @@ services:
     labels:
       - "maintainer=Ing Muyleang <Ing_Muyleang>"
       - "org.opencontainers.image.title=MekongTunnel (dev)"
+
+
+volumes:
+  postgres_data: {}

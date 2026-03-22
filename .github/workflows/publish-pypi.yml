@@ -1,0 +1,99 @@
+name: Publish Python Package (PyPI)
+
+# Triggers:
+#   1. Push a tag like  pypi-v2.0.2  →  automatic publish
+#   2. GitHub UI → Run workflow  →  manual publish
+on:
+  push:
+    tags:
+      - "pypi-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 2.0.2) — must match pyproject.toml"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build & Publish mekong-tunnel to PyPI
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mekong-tunnel
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          PKG_VERSION=$(python -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              data = tomllib.load(f)
+          print(data['project']['version'])
+          ")
+          echo "version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Publishing mekong-tunnel v${PKG_VERSION}"
+
+      - name: Verify version matches tag (tag trigger only)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#pypi-v}"
+          PKG_VERSION="${{ steps.meta.outputs.version }}"
+          if [[ "${TAG_VERSION}" != "${PKG_VERSION}" ]]; then
+            echo "❌ Tag version (${TAG_VERSION}) does not match pyproject.toml version (${PKG_VERSION})"
+            exit 1
+          fi
+
+      - name: Check version is not already published
+        shell: bash
+        run: |
+          PKG_VERSION="${{ steps.meta.outputs.version }}"
+          STATUS=$(pip index versions mekong-tunnel 2>/dev/null | grep -o "${PKG_VERSION}" || echo "")
+          if [[ -n "${STATUS}" ]]; then
+            echo "❌ mekong-tunnel==${PKG_VERSION} is already published on PyPI"
+            exit 1
+          fi
+          echo "✅ v${PKG_VERSION} is not yet published — proceeding"
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio
+
+      - name: Run tests
+        run: python -m pytest --tb=short -q
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Check distribution
+        run: twine check dist/*
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: twine upload dist/*
+
+      - name: Upload dist as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mekong-tunnel-${{ steps.meta.outputs.version }}-dist
+          path: mekong-tunnel/dist/
+          retention-days: 30

@@ -19,7 +19,7 @@ func scanUser(row interface {
 	err := row.Scan(
 		&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.AvatarURL,
 		&u.Plan, &u.AccountType, &u.EmailVerified,
-		&u.TOTPSecret, &u.TOTPEnabled, &u.IsAdmin, &u.Suspended,
+		&u.TOTPSecret, &u.TOTPEnabled, &u.EmailOTPEnabled, &u.IsAdmin, &u.Suspended,
 		&u.GithubID, &u.GithubLogin, &u.GoogleID,
 		&u.StripeCustomerID, &u.StripeSubscriptionID, &u.SubscriptionPlan,
 		&u.CreatedAt, &u.UpdatedAt, &u.LastSeenAt,
@@ -33,7 +33,7 @@ func scanUser(row interface {
 const userColumns = `
 	id, email, name, password_hash, avatar_url,
 	plan, account_type, email_verified,
-	totp_secret, totp_enabled, is_admin, suspended,
+	totp_secret, totp_enabled, email_otp_enabled, is_admin, suspended,
 	github_id, github_login, google_id,
 	stripe_customer_id, stripe_subscription_id, subscription_plan,
 	created_at, updated_at, last_seen_at`
@@ -398,4 +398,46 @@ func (db *DB) GetAdminStats(ctx context.Context) (*models.AdminStats, error) {
 	}
 
 	return stats, planRows.Err()
+}
+
+// ─── Email OTP (login second factor) ─────────────────────────
+
+func (db *DB) EnableEmailOTP(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET email_otp_enabled = true, updated_at = now() WHERE id = $1`, userID)
+	return err
+}
+
+func (db *DB) DisableEmailOTP(ctx context.Context, userID string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET email_otp_enabled = false, updated_at = now() WHERE id = $1`, userID)
+	return err
+}
+
+// CreateEmailOTPCode stores a hashed OTP code valid for 5 minutes.
+// Deletes any previous unused codes for this user first.
+func (db *DB) CreateEmailOTPCode(ctx context.Context, userID, codeHash string, expiresAt time.Time) error {
+	_, _ = db.Pool.Exec(ctx,
+		`DELETE FROM email_otp_codes WHERE user_id = $1 AND used_at IS NULL`, userID)
+	_, err := db.Pool.Exec(ctx,
+		`INSERT INTO email_otp_codes (user_id, code_hash, expires_at) VALUES ($1, $2, $3)`,
+		userID, codeHash, expiresAt)
+	return err
+}
+
+// VerifyEmailOTPCode checks the most recent valid code for the user.
+// Returns true and marks it used if valid; returns false otherwise.
+func (db *DB) VerifyEmailOTPCode(ctx context.Context, userID, codeHash string) (bool, error) {
+	row := db.Pool.QueryRow(ctx, `
+		SELECT id FROM email_otp_codes
+		WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL AND expires_at > now()
+		ORDER BY created_at DESC LIMIT 1`,
+		userID, codeHash)
+	var id string
+	if err := row.Scan(&id); err != nil {
+		return false, nil // not found or expired
+	}
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE email_otp_codes SET used_at = now() WHERE id = $1`, id)
+	return err == nil, err
 }

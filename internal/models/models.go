@@ -61,8 +61,9 @@ type User struct {
 	Plan          string      `json:"plan"`
 	AccountType   string      `json:"account_type"`
 	EmailVerified bool        `json:"email_verified"`
-	TOTPSecret    *string     `json:"-"`
-	TOTPEnabled   bool        `json:"totp_enabled"`
+	TOTPSecret      *string     `json:"-"`
+	TOTPEnabled     bool        `json:"totp_enabled"`
+	EmailOTPEnabled bool        `json:"email_otp_enabled"`
 	IsAdmin       bool        `json:"is_admin"`
 	Suspended     bool        `json:"suspended"`
 	GithubID             *string    `json:"github_id,omitempty"`

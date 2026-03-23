@@ -360,12 +360,13 @@ go run ./cmd/api
 
 | Table | Purpose |
 |-------|---------|
-| `users` | email, password_hash, plan, account_type, totp_secret, suspended, github_id, google_id |
+| `users` | email, password_hash, plan, account_type, totp_secret, totp_enabled, email_otp_enabled, suspended, github_id, google_id |
 | `api_tokens` | prefix, token_hash, user_id, name, last_used_at, revoked_at |
 | `refresh_tokens` | session tokens for JWT refresh |
 | `password_reset_tokens` | email recovery |
 | `email_verify_tokens` | email verification |
 | `totp_backup_codes` | 2FA backup codes |
+| `email_otp_codes` | id, user_id, code_hash (SHA256), expires_at (5 min), used_at |
 | `tunnels` | subdomain, local_port, remote_ip, status, started_at, total_requests, total_bytes |
 | `teams` | name, type (project/class/company), owner_id, plan |
 | `team_members` | team_id, user_id, role (owner/admin/member) |
@@ -526,7 +527,7 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 | Method | Path | Auth | Body | Description |
 |--------|------|------|------|-------------|
 | POST | `/api/auth/register` | — | `{name, email, password}` | Create account |
-| POST | `/api/auth/login` | — | `{email, password}` | Login → `{access_token, refresh_token, user}` or `{requires_2fa, temp_token}` |
+| POST | `/api/auth/login` | — | `{email, password}` | Login → `{access_token, user}` or `{requires_2fa, temp_token}` or `{requires_email_otp, temp_token}` |
 | POST | `/api/auth/logout` | ✓ | — | Revoke refresh token |
 | POST | `/api/auth/refresh` | — | `{refresh_token}` | Rotate JWT → `{access_token}` |
 | GET | `/api/auth/me` | ✓ JWT only | — | Current user (JWT only — use `/api/auth/token-info` for API tokens) |
@@ -536,10 +537,13 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 | GET | `/api/auth/verify-email` | — | `?token=` | Verify email address |
 | POST | `/api/auth/resend-verify` | — | `{email}` | Resend verification email |
 | POST | `/api/auth/request-admin-verify` | — | `{email, message?}` | User requests admin to manually verify their email |
-| POST | `/api/auth/2fa/verify` | — | `{code, temp_token}` | Complete 2FA login |
+| POST | `/api/auth/2fa/verify` | — | `{code, temp_token}` | Complete TOTP 2FA login → `{access_token, user}` |
 | POST | `/api/auth/2fa/setup` | ✓ | — | Start TOTP setup → `{secret, otpauth_url, qr_base64}` |
 | POST | `/api/auth/2fa/enable` | ✓ | `{code}` | Activate TOTP → `{backup_codes[]}` |
 | POST | `/api/auth/2fa/disable` | ✓ | `{code}` | Disable TOTP |
+| POST | `/api/auth/email-otp/verify` | — | `{code, temp_token}` | Complete email OTP login → `{access_token, user}` |
+| POST | `/api/auth/2fa/email/enable` | ✓ | — | Enable email OTP (sends 6-digit code at each login) |
+| POST | `/api/auth/2fa/email/disable` | ✓ | — | Disable email OTP |
 | GET | `/api/auth/github` | — | — | Start GitHub OAuth |
 | GET | `/api/auth/github/callback` | — | — | GitHub OAuth callback |
 | GET | `/api/auth/google` | — | — | Start Google OAuth |
@@ -1010,6 +1014,7 @@ interface APIUser {
   accountType: AccountType
   emailVerified: boolean
   totpEnabled: boolean
+  emailOtpEnabled: boolean
   createdAt: string
   lastSeenAt?: string
   suspended?: boolean

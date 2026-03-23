@@ -182,6 +182,16 @@ func (m *Mailer) SendPasswordReset(toEmail, name, token, frontendURL string) {
 	}
 }
 
+// SendLoginOTP sends a 6-digit login verification code to the user's email.
+func (m *Mailer) SendLoginOTP(toEmail, name, code string) {
+	html := loginOTPHTML(name, code)
+	if err := m.Send(toEmail, "Your Mekong Tunnel login code: "+code, html); err != nil {
+		log.Printf("[mailer] SendLoginOTP to %s: %v", toEmail, err)
+	} else {
+		log.Printf("[mailer] login OTP sent to %s", toEmail)
+	}
+}
+
 // ── Email templates ───────────────────────────────────────────────────────────
 
 func emailWrapper(title, preheader, bodyHTML string) string {
@@ -270,6 +280,31 @@ func verifyEmailHTML(name, link string) string {
 </p>`, name, bulletButton("Verify Email", link, "#cc0001"), link, link)
 
 	return emailWrapper("Verify your Mekong Tunnel email", "Click the button to verify your email address.", body)
+}
+
+func loginOTPHTML(name, code string) string {
+	if name == "" {
+		name = "there"
+	}
+	body := fmt.Sprintf(`
+<h2 style="margin:0 0 8px;font-size:22px;color:#1a1a2e">Your login code</h2>
+<p style="margin:0 0 20px;font-size:15px;color:#555">Hi <strong>%s</strong>,</p>
+<p style="margin:0 0 24px;font-size:15px;color:#555">
+  Use the code below to complete your Mekong Tunnel login.
+  It expires in <strong>5 minutes</strong>.
+</p>
+<div style="text-align:center;margin:0 0 28px">
+  <div style="display:inline-block;background:#f4f4f4;border:2px dashed #cc0001;border-radius:12px;padding:18px 40px">
+    <span style="font-family:'Courier New',Courier,monospace;font-size:36px;font-weight:bold;color:#cc0001;letter-spacing:10px">%s</span>
+  </div>
+</div>
+<hr style="border:none;border-top:1px solid #eee;margin:0 0 20px">
+<p style="font-size:12px;color:#aaa;margin:0">
+  If you did not attempt to log in, you can safely ignore this email.<br>
+  Someone may have entered your email by mistake.
+</p>`, name, code)
+
+	return emailWrapper("Your Mekong Tunnel login code", "Your one-time login code — expires in 5 minutes.", body)
 }
 
 func resetPasswordHTML(name, link string) string {

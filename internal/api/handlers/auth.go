@@ -4,9 +4,11 @@ package handlers
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -52,8 +54,9 @@ func sanitizeUser(u *models.User) map[string]any {
 		"subscription_plan": u.SubscriptionPlan,
 		"account_type":      u.AccountType,
 		"email_verified":    u.EmailVerified,
-		"totp_enabled":      u.TOTPEnabled,
-		"is_admin":          u.IsAdmin,
+		"totp_enabled":       u.TOTPEnabled,
+		"email_otp_enabled":  u.EmailOTPEnabled,
+		"is_admin":           u.IsAdmin,
 		"suspended":         u.Suspended,
 		"github_login":      u.GithubLogin,
 		"google_id":         u.GoogleID,
@@ -216,7 +219,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	_ = h.DB.UpdateLastSeen(r.Context(), user.ID)
 
-	// If 2FA is enabled, return a temporary token instead.
+	// If TOTP 2FA is enabled, return a temporary token for TOTP verification.
 	if user.TOTPEnabled {
 		tempToken, err := auth.GenerateTemp2FAToken(user.ID, user.Email, h.JWTSecret)
 		if err != nil {
@@ -226,6 +229,36 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		response.Success(w, map[string]any{
 			"requires_2fa": true,
 			"temp_token":   tempToken,
+		})
+		return
+	}
+
+	// If email OTP is enabled, generate and send a 6-digit code.
+	if user.EmailOTPEnabled {
+		tempToken, err := auth.GenerateTemp2FAToken(user.ID, user.Email, h.JWTSecret)
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		n, err := cryptorand.Int(cryptorand.Reader, big.NewInt(1000000))
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		code := fmt.Sprintf("%06d", n.Int64())
+		codeHash := auth.HashToken(code)
+		if err := h.DB.CreateEmailOTPCode(r.Context(), user.ID, codeHash, time.Now().Add(5*time.Minute)); err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		if h.Mailer != nil {
+			go h.Mailer.SendLoginOTP(user.Email, user.Name, code)
+		} else {
+			log.Printf("[auth] email OTP for %s: %s", user.Email, code)
+		}
+		response.Success(w, map[string]any{
+			"requires_email_otp": true,
+			"temp_token":         tempToken,
 		})
 		return
 	}
@@ -611,6 +644,106 @@ func (h *AuthHandler) RequestAdminVerify(w http.ResponseWriter, r *http.Request)
 	}
 
 	response.Success(w, map[string]any{"message": "your request has been sent to the admin team"})
+}
+
+// ─── Email OTP (login second factor) ─────────────────────────
+
+// VerifyEmailOTP handles POST /api/auth/email-otp/verify.
+// Completes login for users who have email OTP enabled.
+func (h *AuthHandler) VerifyEmailOTP(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Code      string `json:"code"`
+		TempToken string `json:"temp_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		response.BadRequest(w, "invalid JSON body")
+		return
+	}
+	if body.Code == "" || body.TempToken == "" {
+		response.BadRequest(w, "code and temp_token are required")
+		return
+	}
+
+	claims, err := auth.ValidateToken(body.TempToken, h.JWTSecret)
+	if err != nil || !claims.Temp2FA {
+		response.Unauthorized(w, "invalid or expired temp token")
+		return
+	}
+
+	user, err := h.DB.GetUserByID(r.Context(), claims.UserID)
+	if err != nil || user == nil {
+		response.Unauthorized(w, "user not found")
+		return
+	}
+
+	codeHash := auth.HashToken(body.Code)
+	ok, err := h.DB.VerifyEmailOTPCode(r.Context(), user.ID, codeHash)
+	if err != nil || !ok {
+		response.Unauthorized(w, "invalid or expired code")
+		return
+	}
+
+	accessToken, err := auth.GenerateAccessToken(user, h.JWTSecret)
+	if err != nil {
+		response.InternalError(w, err)
+		return
+	}
+
+	rawRefresh, err := auth.GenerateSecureToken()
+	if err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	refreshHash := auth.HashToken(rawRefresh)
+	if err := h.DB.CreateRefreshToken(r.Context(), user.ID, refreshHash, time.Now().Add(30*24*time.Hour)); err != nil {
+		response.InternalError(w, err)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "mekong_refresh",
+		Value:    rawRefresh,
+		Path:     "/api/auth/refresh",
+		HttpOnly: true,
+		Secure:   strings.HasPrefix(h.FrontendURL, "https"),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 60 * 60,
+	})
+
+	response.Success(w, map[string]any{
+		"access_token": accessToken,
+		"user":         sanitizeUser(user),
+	})
+}
+
+// EnableEmailOTP handles POST /api/auth/2fa/email/enable.
+// Turns on email OTP for the authenticated user.
+func (h *AuthHandler) EnableEmailOTP(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r)
+	if claims == nil {
+		response.Unauthorized(w, "unauthorized")
+		return
+	}
+	if err := h.DB.EnableEmailOTP(r.Context(), claims.UserID); err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	response.Success(w, map[string]any{"email_otp_enabled": true})
+}
+
+// DisableEmailOTP handles POST /api/auth/2fa/email/disable.
+// Turns off email OTP for the authenticated user.
+func (h *AuthHandler) DisableEmailOTP(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r)
+	if claims == nil {
+		response.Unauthorized(w, "unauthorized")
+		return
+	}
+	if err := h.DB.DisableEmailOTP(r.Context(), claims.UserID); err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	response.Success(w, map[string]any{"email_otp_enabled": false})
 }
 
 // ─── GitHub OAuth ─────────────────────────────────────────────

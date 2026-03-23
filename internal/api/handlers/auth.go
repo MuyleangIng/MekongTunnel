@@ -1019,9 +1019,9 @@ func (h *AuthHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.Success(w, map[string]any{
-		"secret":        secret,
-		"otpauth_url":   otpauthURL,
-		"qr_code_base64": qrBase64,
+		"secret":      secret,
+		"otpauth_url": otpauthURL,
+		"qr_base64":   qrBase64,
 	})
 }
 

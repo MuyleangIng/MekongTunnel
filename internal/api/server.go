@@ -331,12 +331,13 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/donations", donationH.PublicList)
 	s.mux.HandleFunc("GET /api/admin/donations", adminChain(donationH.AdminList))
 	s.mux.HandleFunc("PATCH /api/admin/donations/{id}", adminChain(donationH.AdminUpdate))
+	s.mux.HandleFunc("DELETE /api/admin/donations/{id}", adminChain(donationH.AdminDelete))
 
 	// ── Trial ────────────────────────────────────────────────────
 	s.mux.HandleFunc("POST /api/admin/users/{id}/trial", chain(adminH.SetUserTrial, authRequired, adminRequired))
 
 	// ── File uploads ─────────────────────────────────────────────
-	s.mux.HandleFunc("POST /api/upload", chain(uploadH.Upload, authRequired))
+	s.mux.HandleFunc("POST /api/upload", uploadH.Upload)
 	s.mux.HandleFunc("GET /api/uploads/{filename}", uploadH.ServeFile)
 }
 

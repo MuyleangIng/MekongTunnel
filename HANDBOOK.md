@@ -267,6 +267,11 @@ GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 FRONTEND_URL=https://mekongtunnel.dev
 PORT=8080                              # default 8080
+RESEND_API_KEY=re_...               # Resend HTTP API key (preferred over SMTP on cloud)
+RESEND_FROM=Mekong Tunnel <noreply@angkorsearch.dev>
+# SMTP fallback (only used if RESEND_API_KEY is not set)
+SMTP_USER=you@gmail.com
+SMTP_PASS=app-specific-password
 ```
 
 ### Environment variables (tunnel server)
@@ -437,9 +442,9 @@ All SDKs also try `which`/`where mekong` first via shell PATH before falling bac
 
 ### Auth flow (`mekong login`)
 
-1. CLI calls `POST /api/auth/cli/device/code` → gets `device_code` + `user_code`
+1. CLI calls `POST /api/cli/device` → gets `device_code` + `user_code`
 2. Opens `https://mekongtunnel.dev/cli-auth?code=USER_CODE` in browser
-3. Polls `POST /api/auth/cli/device/token` every 5s until approved
+3. Polls `GET /api/cli/device?device_code=` every 5s until approved
 4. Saves token to `~/.mekong/config.json`
 
 ### Self-test (`mekong test`)
@@ -458,6 +463,50 @@ mekong -d 3000
 # Forks child process with DETACHED_PROCESS (Windows) or Setsid (Unix)
 # Writes PID + tunnel info to ~/.mekong/state.json
 # Streams logs to ~/.mekong/mekong.log
+```
+
+---
+
+## 7.5 Email — Mailer
+
+**Package:** `internal/mailer/mailer.go`
+
+The mailer supports two backends. **Resend is preferred** — DigitalOcean and most cloud providers block outbound SMTP ports (25, 465, 587) at the network level.
+
+### Backend priority
+
+1. **Resend HTTP API** — used when `RESEND_API_KEY` is set
+   - Endpoint: `POST https://api.resend.com/emails`
+   - Auth: `Authorization: Bearer <RESEND_API_KEY>`
+   - From: `RESEND_FROM` env var (default: `Mekong Tunnel <onboarding@resend.dev>`)
+   - No port requirements — works on all cloud VMs
+   - Domain must be verified in Resend dashboard
+
+2. **Gmail SMTP** — fallback when no Resend key
+   - `smtp.gmail.com:587` STARTTLS
+   - Uses `SMTP_USER` + `SMTP_PASS` (app-specific password)
+
+### Emails sent
+
+| Trigger | Subject |
+|---------|---------|
+| Register | Email verification link |
+| Resend verify | Email verification link |
+| Admin resend verify (`/api/admin/users/:id/resend-verify`) | Email verification link |
+| Forgot password | Password reset link (expires 1h) |
+| Request admin verify (`/api/auth/request-admin-verify`) | Admin notification |
+| Verify request approved/rejected | Status notification |
+
+### Config struct
+
+```go
+mailer.Config{
+    ResendKey:  os.Getenv("RESEND_API_KEY"),
+    ResendFrom: os.Getenv("RESEND_FROM"),
+    User:       os.Getenv("SMTP_USER"),
+    Pass:       os.Getenv("SMTP_PASS"),
+    // Host defaults to smtp.gmail.com, Port to 587
+}
 ```
 
 ---
@@ -486,6 +535,7 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 | POST | `/api/auth/reset-password` | — | `{token, password}` | Apply reset |
 | GET | `/api/auth/verify-email` | — | `?token=` | Verify email address |
 | POST | `/api/auth/resend-verify` | — | `{email}` | Resend verification email |
+| POST | `/api/auth/request-admin-verify` | — | `{email, message?}` | User requests admin to manually verify their email |
 | POST | `/api/auth/2fa/verify` | — | `{code, temp_token}` | Complete 2FA login |
 | POST | `/api/auth/2fa/setup` | ✓ | — | Start TOTP setup → `{secret, otpauth_url, qr_base64}` |
 | POST | `/api/auth/2fa/enable` | ✓ | `{code}` | Activate TOTP → `{backup_codes[]}` |
@@ -494,8 +544,9 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 | GET | `/api/auth/github/callback` | — | — | GitHub OAuth callback |
 | GET | `/api/auth/google` | — | — | Start Google OAuth |
 | GET | `/api/auth/google/callback` | — | — | Google OAuth callback |
-| POST | `/api/auth/cli/device/code` | — | — | CLI device flow → `{device_code, user_code, expires_in}` |
-| POST | `/api/auth/cli/device/token` | — | `{device_code}` | Poll for token → `{access_token}` or `{error: "authorization_pending"}` |
+| POST | `/api/cli/device` | — | — | CLI device flow → `{device_code, user_code, expires_in}` |
+| GET | `/api/cli/device` | — | `?device_code=` | Poll for token → `{access_token}` or `{error: "authorization_pending"}` |
+| POST | `/api/cli/device/approve` | ✓ | `{user_code}` | Browser approves CLI login |
 
 ---
 
@@ -528,6 +579,9 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 |--------|------|------|------|-------------|
 | GET | `/api/tunnels` | ✓ | — | List user's tunnel sessions |
 | DELETE | `/api/tunnels/:id` | ✓ | — | Kill active tunnel |
+| GET | `/api/tunnels/stats` | — | — | Aggregate tunnel stats (used by tunnel server) |
+| POST | `/api/tunnels` | internal | `{subdomain, local_port, ...}` | Tunnel server reports new tunnel (no auth) |
+| PATCH | `/api/tunnels/:id` | internal | `{status}` | Update tunnel status (no auth) |
 
 ---
 
@@ -596,6 +650,7 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 
 | Method | Path | Auth | Body | Description |
 |--------|------|------|------|-------------|
+| GET | `/api/health` | — | — | `{ok: true, service: "mekong-api"}` |
 | GET | `/api/plans` | — | — | Public plan limits (used by landing page) |
 | GET | `/api/server-limits` | — | — | Current server rate limits |
 | GET | `/api/partners` | — | — | Partner directory |
@@ -614,25 +669,34 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 | GET | `/api/admin/users/:id` | ✓ admin | — | Single user detail |
 | PATCH | `/api/admin/users/:id` | ✓ admin | `{plan?, suspended?, is_admin?}` | Update user |
 | DELETE | `/api/admin/users/:id` | ✓ admin | — | Delete user |
+| POST | `/api/admin/users/:id/resend-verify` | ✓ admin | — | Send verification email to user |
 | GET | `/api/admin/tunnels` | ✓ admin | `?limit=&offset=` | All active tunnels |
 | DELETE | `/api/admin/tunnels/:id` | ✓ admin | — | Kill any tunnel |
-| GET | `/api/admin/abuse` | ✓ admin | — | Abuse events |
-| GET | `/api/admin/blocked` | ✓ admin | — | Blocked IPs |
-| POST | `/api/admin/blocked` | ✓ admin | `{ip, reason?}` | Block IP |
-| DELETE | `/api/admin/blocked/:id` | ✓ admin | — | Unblock IP |
+| GET | `/api/admin/abuse/events` | ✓ admin | — | Abuse events |
+| GET | `/api/admin/abuse/blocked` | ✓ admin | — | Blocked IPs |
+| POST | `/api/admin/abuse/blocked` | ✓ admin | `{ip, reason?}` | Block IP |
+| DELETE | `/api/admin/abuse/blocked/:id` | ✓ admin | — | Unblock IP |
 | GET | `/api/admin/plans` | ✓ admin | — | All plan configs |
 | PUT | `/api/admin/plans` | ✓ admin | `{plans[]}` | Update plan limits |
 | GET | `/api/admin/server-config` | ✓ admin | — | Live server config |
 | PUT | `/api/admin/server-config` | ✓ admin | `ServerConfig` | Update server config |
-| GET | `/api/admin/orgs` | ✓ admin | `?search=&limit=&offset=` | Organization list |
-| PATCH | `/api/admin/orgs/:id` | ✓ admin | `{plan?, suspended?}` | Update org |
-| GET | `/api/admin/orgs/:id/members` | ✓ admin | — | Org member list |
+| GET | `/api/admin/organizations` | ✓ admin | `?search=&limit=&offset=` | Organization list |
+| POST | `/api/admin/organizations` | ✓ admin | — | Create org |
+| GET | `/api/admin/organizations/:id` | ✓ admin | — | Get single org |
+| PATCH | `/api/admin/organizations/:id` | ✓ admin | `{plan?, suspended?}` | Update org |
+| DELETE | `/api/admin/organizations/:id` | ✓ admin | — | Delete org |
+| GET | `/api/admin/organizations/:id/members` | ✓ admin | — | Org member list |
 | GET | `/api/admin/verify-requests` | ✓ admin | `?status=` | Verification requests |
 | GET | `/api/admin/verify-requests/:id` | ✓ admin | — | Single verify request |
 | PATCH | `/api/admin/verify-requests/:id` | ✓ admin | `{status, reject_reason?, force_override?}` | Approve/reject |
 | DELETE | `/api/admin/verify-requests/:id` | ✓ admin | — | Delete request |
 | POST | `/api/admin/verify-requests/:id/notify` | ✓ admin | `{message}` | Send notification |
 | POST | `/api/admin/verify-requests/:id/reset` | ✓ admin | `{note}` | Reset to pending |
+| GET | `/api/admin/billing/subscribers` | ✓ admin | — | Newsletter subscribers list |
+| POST | `/api/admin/billing/refund` | ✓ admin | `{charge_id}` | Issue Stripe refund |
+| POST | `/api/admin/billing/receipt` | ✓ admin | `{user_id}` | Send receipt email |
+| GET | `/api/admin/system` | ✓ admin | — | System snapshot (CPU, RAM, disk) |
+| GET | `/api/admin/system/stream` | ✓ admin | — | SSE stream of live system metrics |
 | GET | `/api/admin/subscribers` | ✓ admin | — | Newsletter subscribers |
 
 ---

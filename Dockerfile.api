@@ -1,0 +1,46 @@
+# ============================================================
+#  MekongTunnel API — Multi-stage Docker build
+#  Author: Ing Muyleang (អុឹង មួយលៀង) — Ing_Muyleang
+# ============================================================
+
+# ── Stage 1: Build ───────────────────────────────────────────
+FROM golang:1.24-alpine AS builder
+
+# Install git so `go get` can fetch from VCS.
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /build
+
+# Cache module downloads separately from source changes.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the full source tree.
+COPY . .
+
+# Build the API binary. CGO disabled for a fully static binary.
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w -extldflags '-static'" \
+    -o /dist/mekong-api ./cmd/api/
+
+# ── Stage 2: Runtime ─────────────────────────────────────────
+FROM alpine:3.19
+
+# Required for TLS, time zones, and certificate validation.
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy binary from the builder stage.
+COPY --from=builder /dist/mekong-api ./mekong-api
+
+# Copy migrations so the binary can run them at startup.
+COPY --from=builder /build/migrations ./migrations
+
+# Run as non-root for security.
+RUN addgroup -S mekong && adduser -S mekong -G mekong
+USER mekong
+
+EXPOSE 8080
+
+ENTRYPOINT ["./mekong-api"]

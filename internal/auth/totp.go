@@ -26,8 +26,9 @@ func GenerateTOTPSecret(accountName, issuer string) (secret, otpauthURL, qrCodeB
 	otpauthURL = key.URL()
 
 	// Generate QR code as PNG bytes, then base64-encode.
+	// High error correction + 300px = reliable scanning from all authenticator apps.
 	var buf bytes.Buffer
-	png, err := qrcode.Encode(otpauthURL, qrcode.Medium, 256)
+	png, err := qrcode.Encode(otpauthURL, qrcode.High, 300)
 	if err != nil {
 		return "", "", "", fmt.Errorf("generate qr code: %w", err)
 	}

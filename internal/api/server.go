@@ -142,6 +142,21 @@ func (s *Server) registerRoutes() {
 		response.Success(w, map[string]any{"ok": true, "service": "mekong-api"})
 	})
 
+	// ── Public announcement ──────────────────────────────────────
+	s.mux.HandleFunc("GET /api/announcement", func(w http.ResponseWriter, r *http.Request) {
+		cfg, err := s.db.GetServerConfig(r.Context())
+		if err != nil || !cfg.AnnouncementEnabled || cfg.AnnouncementText == "" {
+			response.Success(w, nil)
+			return
+		}
+		response.Success(w, map[string]any{
+			"text":       cfg.AnnouncementText,
+			"color":      cfg.AnnouncementColor,
+			"link":       cfg.AnnouncementLink,
+			"link_label": cfg.AnnouncementLinkLabel,
+		})
+	})
+
 	// ── Auth ────────────────────────────────────────────────────
 	s.mux.HandleFunc("POST /api/auth/register", authH.Register)
 	s.mux.HandleFunc("POST /api/auth/login", authH.Login)
@@ -326,7 +341,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/admin/newsletter/subscribers", chain(newsletterH.AdminSubscribers, authRequired, adminRequired))
 
 	// ── Donations ─────────────────────────────────────────────────
-	donationH := &handlers.DonationHandler{DB: s.db}
+	donationH := &handlers.DonationHandler{DB: s.db, Notify: notifySvc}
 	s.mux.HandleFunc("POST /api/donations/submit", donationH.Submit)
 	s.mux.HandleFunc("GET /api/donations", donationH.PublicList)
 	s.mux.HandleFunc("GET /api/admin/donations", adminChain(donationH.AdminList))

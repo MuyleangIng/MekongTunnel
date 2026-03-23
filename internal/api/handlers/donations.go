@@ -2,16 +2,19 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api/middleware"
 	"github.com/MuyleangIng/MekongTunnel/internal/api/response"
 	"github.com/MuyleangIng/MekongTunnel/internal/db"
 	"github.com/MuyleangIng/MekongTunnel/internal/models"
+	"github.com/MuyleangIng/MekongTunnel/internal/notify"
 )
 
 type DonationHandler struct {
-	DB *db.DB
+	DB     *db.DB
+	Notify *notify.Service
 }
 
 // Submit handles POST /api/donations/submit — public submission.
@@ -52,12 +55,28 @@ func (h *DonationHandler) Submit(w http.ResponseWriter, r *http.Request) {
 		response.InternalError(w, err)
 		return
 	}
+	// Notify all admins of new donation
+	if h.Notify != nil {
+		go h.Notify.SendToAdmins(r.Context(), "donation",
+			fmt.Sprintf("New donation from %s", created.Name),
+			fmt.Sprintf("%s %s via %s", created.Amount, created.Currency, created.PaymentMethod),
+			"/admin/donations",
+		)
+	}
 	response.Success(w, created)
 }
 
-// PublicList handles GET /api/donations — approved donations shown on home.
+// PublicList handles GET /api/donations?limit=12&offset=0 — approved donations shown on home.
 func (h *DonationHandler) PublicList(w http.ResponseWriter, r *http.Request) {
-	list, err := h.DB.ListPublicDonations(r.Context())
+	limit := 12
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		fmt.Sscanf(v, "%d", &limit)
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		fmt.Sscanf(v, "%d", &offset)
+	}
+	list, err := h.DB.ListPublicDonations(r.Context(), limit, offset)
 	if err != nil {
 		response.InternalError(w, err)
 		return
@@ -65,7 +84,12 @@ func (h *DonationHandler) PublicList(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []*models.DonationSubmission{}
 	}
-	response.Success(w, list)
+	total, _ := h.DB.CountPublicDonations(r.Context())
+	response.Success(w, map[string]any{
+		"donors":   list,
+		"total":    total,
+		"has_more": offset+len(list) < total,
+	})
 }
 
 // AdminList handles GET /api/admin/donations.

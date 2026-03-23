@@ -49,10 +49,14 @@ func (d *DB) UpdateDonation(ctx context.Context, id string, status string, showO
 	return scanDonation(row)
 }
 
-func (d *DB) ListPublicDonations(ctx context.Context) ([]*models.DonationSubmission, error) {
+func (d *DB) ListPublicDonations(ctx context.Context, limit, offset int) ([]*models.DonationSubmission, error) {
+	if limit <= 0 {
+		limit = 12
+	}
 	rows, err := d.Pool.Query(ctx, `
 		SELECT id, name, email, amount, currency, payment_method, receipt_url, social_url, message, status, show_on_home, created_at, updated_at
-		FROM donation_submissions WHERE status='approved' AND show_on_home=true ORDER BY created_at DESC`)
+		FROM donation_submissions WHERE status='approved' AND show_on_home=true ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+		limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +70,12 @@ func (d *DB) ListPublicDonations(ctx context.Context) ([]*models.DonationSubmiss
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+func (d *DB) CountPublicDonations(ctx context.Context) (int, error) {
+	var n int
+	err := d.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM donation_submissions WHERE status='approved' AND show_on_home=true`).Scan(&n)
+	return n, err
 }
 
 func (d *DB) DeleteDonation(ctx context.Context, id string) error {

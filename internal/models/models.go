@@ -403,10 +403,16 @@ type ServerConfig struct {
 	SSHHandshakeTimeoutSeconds int     `json:"sshHandshakeTimeoutSeconds"`
 	BlockDurationMinutes       int     `json:"blockDurationMinutes"`
 	// Trial & payments
-	FreeTrialEnabled     bool `json:"freeTrialEnabled"`
-	TrialDurationDays    int  `json:"trialDurationDays"`
-	BakongDiscountPercent int `json:"bakongDiscountPercent"`
-	UpdatedAt            time.Time `json:"updatedAt"`
+	FreeTrialEnabled      bool `json:"freeTrialEnabled"`
+	TrialDurationDays     int  `json:"trialDurationDays"`
+	BakongDiscountPercent int  `json:"bakongDiscountPercent"`
+	// Announcement banner
+	AnnouncementEnabled   bool   `json:"announcementEnabled"`
+	AnnouncementText      string `json:"announcementText"`
+	AnnouncementColor     string `json:"announcementColor"`   // gold | rose | blue | green
+	AnnouncementLink      string `json:"announcementLink"`
+	AnnouncementLinkLabel string `json:"announcementLinkLabel"`
+	UpdatedAt             time.Time `json:"updatedAt"`
 }
 
 // NewsletterCampaign is an admin-sent newsletter broadcast.

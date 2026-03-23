@@ -18,6 +18,8 @@ func (db *DB) GetServerConfig(ctx context.Context) (*models.ServerConfig, error)
 			inactivity_timeout_seconds, max_tunnel_lifetime_hours,
 			ssh_handshake_timeout_seconds, block_duration_minutes,
 			free_trial_enabled, trial_duration_days, bakong_discount_percent,
+			announcement_enabled, announcement_text, announcement_color,
+			announcement_link, announcement_link_label,
 			updated_at
 		FROM server_config WHERE id = 1
 	`)
@@ -41,6 +43,11 @@ func (db *DB) UpdateServerConfig(ctx context.Context, cfg models.ServerConfig) (
 			free_trial_enabled            = $11,
 			trial_duration_days           = $12,
 			bakong_discount_percent       = $13,
+			announcement_enabled          = $14,
+			announcement_text             = $15,
+			announcement_color            = $16,
+			announcement_link             = $17,
+			announcement_link_label       = $18,
 			updated_at                    = NOW()
 		WHERE id = 1
 		RETURNING
@@ -49,6 +56,8 @@ func (db *DB) UpdateServerConfig(ctx context.Context, cfg models.ServerConfig) (
 			inactivity_timeout_seconds, max_tunnel_lifetime_hours,
 			ssh_handshake_timeout_seconds, block_duration_minutes,
 			free_trial_enabled, trial_duration_days, bakong_discount_percent,
+			announcement_enabled, announcement_text, announcement_color,
+			announcement_link, announcement_link_label,
 			updated_at
 	`,
 		cfg.MaxTunnelsPerIP,
@@ -64,6 +73,11 @@ func (db *DB) UpdateServerConfig(ctx context.Context, cfg models.ServerConfig) (
 		cfg.FreeTrialEnabled,
 		cfg.TrialDurationDays,
 		cfg.BakongDiscountPercent,
+		cfg.AnnouncementEnabled,
+		cfg.AnnouncementText,
+		cfg.AnnouncementColor,
+		cfg.AnnouncementLink,
+		cfg.AnnouncementLinkLabel,
 	)
 	return scanServerConfig(row)
 }
@@ -88,6 +102,11 @@ func scanServerConfig(row serverConfigScanner) (*models.ServerConfig, error) {
 		&c.FreeTrialEnabled,
 		&c.TrialDurationDays,
 		&c.BakongDiscountPercent,
+		&c.AnnouncementEnabled,
+		&c.AnnouncementText,
+		&c.AnnouncementColor,
+		&c.AnnouncementLink,
+		&c.AnnouncementLinkLabel,
 		&c.UpdatedAt,
 	)
 	if err != nil {

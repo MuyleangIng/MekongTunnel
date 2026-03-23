@@ -87,6 +87,21 @@ func (h *DonationHandler) AdminList(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, list)
 }
 
+// AdminDelete handles DELETE /api/admin/donations/{id}.
+func (h *DonationHandler) AdminDelete(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r)
+	if claims == nil {
+		response.Unauthorized(w, "authentication required")
+		return
+	}
+	id := r.PathValue("id")
+	if err := h.DB.DeleteDonation(r.Context(), id); err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	response.Success(w, map[string]bool{"deleted": true})
+}
+
 // AdminUpdate handles PATCH /api/admin/donations/{id}.
 func (h *DonationHandler) AdminUpdate(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetClaims(r)

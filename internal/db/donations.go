@@ -68,6 +68,11 @@ func (d *DB) ListPublicDonations(ctx context.Context) ([]*models.DonationSubmiss
 	return out, nil
 }
 
+func (d *DB) DeleteDonation(ctx context.Context, id string) error {
+	_, err := d.Pool.Exec(ctx, `DELETE FROM donation_submissions WHERE id=$1`, id)
+	return err
+}
+
 type donationScanner interface {
 	Scan(dest ...any) error
 }

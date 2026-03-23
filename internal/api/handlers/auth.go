@@ -819,6 +819,30 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 
 	_ = h.DB.UpdateLastSeen(r.Context(), user.ID)
 
+	// ── 2FA check for OAuth ──
+	if user.TOTPEnabled {
+		tempToken, err := auth.GenerateTemp2FAToken(user.ID, user.Email, h.JWTSecret)
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_2fa=totp&temp_token=%s", h.FrontendURL, url.QueryEscape(tempToken)), http.StatusFound)
+		return
+	}
+	if user.EmailOTPEnabled {
+		tempToken, err := auth.GenerateTemp2FAToken(user.ID, user.Email, h.JWTSecret)
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		n, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(1000000))
+		code := fmt.Sprintf("%06d", n.Int64())
+		h.DB.CreateEmailOTPCode(r.Context(), user.ID, auth.HashToken(code), time.Now().Add(5*time.Minute))
+		go h.Mailer.SendLoginOTP(user.Email, user.Name, code)
+		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_email_otp=1&temp_token=%s&email=%s", h.FrontendURL, url.QueryEscape(tempToken), url.QueryEscape(user.Email)), http.StatusFound)
+		return
+	}
+
 	jwtToken, err := auth.GenerateAccessToken(user, h.JWTSecret)
 	if err != nil {
 		response.InternalError(w, err)
@@ -912,6 +936,30 @@ func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = h.DB.UpdateLastSeen(r.Context(), user.ID)
+
+	// ── 2FA check for OAuth ──
+	if user.TOTPEnabled {
+		tempToken, err := auth.GenerateTemp2FAToken(user.ID, user.Email, h.JWTSecret)
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_2fa=totp&temp_token=%s", h.FrontendURL, url.QueryEscape(tempToken)), http.StatusFound)
+		return
+	}
+	if user.EmailOTPEnabled {
+		tempToken, err := auth.GenerateTemp2FAToken(user.ID, user.Email, h.JWTSecret)
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		n, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(1000000))
+		code := fmt.Sprintf("%06d", n.Int64())
+		h.DB.CreateEmailOTPCode(r.Context(), user.ID, auth.HashToken(code), time.Now().Add(5*time.Minute))
+		go h.Mailer.SendLoginOTP(user.Email, user.Name, code)
+		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_email_otp=1&temp_token=%s&email=%s", h.FrontendURL, url.QueryEscape(tempToken), url.QueryEscape(user.Email)), http.StatusFound)
+		return
+	}
 
 	jwtToken, err := auth.GenerateAccessToken(user, h.JWTSecret)
 	if err != nil {

@@ -125,7 +125,7 @@ func (s *Server) registerRoutes() {
 
 	teamH := &handlers.TeamHandler{DB: s.db}
 	adminH := &handlers.AdminHandler{DB: s.db, Notify: notifySvc, Mailer: mailSvc, FrontendURL: s.cfg.FrontendURL}
-	newsletterH := &handlers.NewsletterHandler{DB: s.db}
+	newsletterH := &handlers.NewsletterHandler{DB: s.db, Mailer: mailSvc}
 	partnersH  := &handlers.PartnersHandler{DB: s.db}
 	sponsorsH  := &handlers.SponsorsHandler{DB: s.db}
 	notifH   := &handlers.NotificationsHandler{DB: s.db, Hub: s.hub, JWTSecret: s.cfg.JWTSecret}
@@ -318,6 +318,22 @@ func (s *Server) registerRoutes() {
 
 	// ── Newsletter ──────────────────────────────────────────────
 	s.mux.HandleFunc("POST /api/newsletter/subscribe", newsletterH.Subscribe)
+	s.mux.HandleFunc("GET /api/newsletter/unsubscribe", newsletterH.Unsubscribe)
+	s.mux.HandleFunc("POST /api/newsletter/resubscribe", newsletterH.ResubscribeByToken)
+	s.mux.HandleFunc("POST /api/newsletter/toggle", chain(newsletterH.Toggle, authRequired))
+	s.mux.HandleFunc("POST /api/admin/newsletter/send", chain(newsletterH.AdminSend, authRequired, adminRequired))
+	s.mux.HandleFunc("GET /api/admin/newsletter/campaigns", chain(newsletterH.AdminCampaigns, authRequired, adminRequired))
+	s.mux.HandleFunc("GET /api/admin/newsletter/subscribers", chain(newsletterH.AdminSubscribers, authRequired, adminRequired))
+
+	// ── Donations ─────────────────────────────────────────────────
+	donationH := &handlers.DonationHandler{DB: s.db}
+	s.mux.HandleFunc("POST /api/donations/submit", donationH.Submit)
+	s.mux.HandleFunc("GET /api/donations", donationH.PublicList)
+	s.mux.HandleFunc("GET /api/admin/donations", adminChain(donationH.AdminList))
+	s.mux.HandleFunc("PATCH /api/admin/donations/{id}", adminChain(donationH.AdminUpdate))
+
+	// ── Trial ────────────────────────────────────────────────────
+	s.mux.HandleFunc("POST /api/admin/users/{id}/trial", chain(adminH.SetUserTrial, authRequired, adminRequired))
 
 	// ── File uploads ─────────────────────────────────────────────
 	s.mux.HandleFunc("POST /api/upload", chain(uploadH.Upload, authRequired))

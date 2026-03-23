@@ -119,13 +119,14 @@ tunnl.gg/                              ← Go monorepo root
 │       ├── domains.go                 (custom domain management)
 │       ├── cli_device.go              (CLI device authentication)
 │       ├── notifications.go           (user notifications)
-│       ├── newsletter.go              (email subscription)
+│       ├── newsletter.go              (email subscription + unsubscribe by token)
 │       ├── partners.go                (partner directory)
 │       ├── sponsors.go                (sponsor listings)
-│       ├── upload.go                  (file upload)
+│       ├── donations.go               (donation submit/list/approve)
+│       ├── upload.go                  (file upload — reused for donation receipts)
 │       └── monitor.go                 (system monitoring)
 │
-├── migrations/                        (13 PostgreSQL migration files)
+├── migrations/                        (16 PostgreSQL migration files)
 ├── api/                               (OpenAPI spec — if present)
 ├── mekong-cli/                        ← npm package
 ├── mekong-tunnel/                     ← Python package
@@ -334,6 +335,9 @@ psql $DATABASE_URL -f migrations/001_init.sql
 | `011_server_config.sql` | Admin live server config |
 | `012_sponsors.sql` | Sponsor directory |
 | `013_cli_device_sessions.sql` | CLI device auth sessions |
+| `014_email_otp.sql` | Email OTP 2FA codes |
+| `015_trial_newsletter.sql` | Free trial + newsletter subscriber fields |
+| `016_donations.sql` | Donation submissions table |
 
 ### Seed data
 
@@ -378,9 +382,10 @@ go run ./cmd/api
 | `cli_device_sessions` | device_code, user_code, user_id, expires_at |
 | `verify_requests` | user_id, type, status, org_name, document, reject_reason |
 | `partners` | name, url, logo, description |
-| `sponsors` | name, url, tier |
-| `server_config` | global server settings (JSON) |
-| `newsletter_subscribers` | email, subscribed_at |
+| `sponsors` | type (github/coffee/bakong/paypal/bank/referral), title, description, url, button_text, icon, bank_name, account_name, account_number, currency, note, is_active, sort_order |
+| `server_config` | global server settings (JSON) — includes freeTrialEnabled, trialDurationDays, bakongDiscountPercent |
+| `newsletter_subscribers` | email, subscribed_at, unsubscribed_at, unsubscribe_token |
+| `donation_submissions` | id, name, email, amount, currency, payment_method, receipt_url, social_url, message, status (pending/approved/rejected), show_on_home, created_at |
 
 ---
 
@@ -660,6 +665,9 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 | GET | `/api/partners` | — | — | Partner directory |
 | GET | `/api/sponsors` | — | — | Sponsor listings |
 | POST | `/api/newsletter` | — | `{email}` | Subscribe to newsletter |
+| GET | `/api/newsletter/unsubscribe` | — | `?token=` | Unsubscribe via email token |
+| POST | `/api/donations/submit` | — | `{name, email?, amount, currency, payment_method, receipt_url?, social_url?, message?}` | Submit donation for review |
+| GET | `/api/donations` | — | — | Public list of approved+show_on_home donations |
 
 ---
 
@@ -682,7 +690,7 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 | DELETE | `/api/admin/abuse/blocked/:id` | ✓ admin | — | Unblock IP |
 | GET | `/api/admin/plans` | ✓ admin | — | All plan configs |
 | PUT | `/api/admin/plans` | ✓ admin | `{plans[]}` | Update plan limits |
-| GET | `/api/admin/server-config` | ✓ admin | — | Live server config |
+| GET | `/api/admin/server-config` | ✓ admin | — | Live server config (includes freeTrialEnabled, trialDurationDays, bakongDiscountPercent) |
 | PUT | `/api/admin/server-config` | ✓ admin | `ServerConfig` | Update server config |
 | GET | `/api/admin/organizations` | ✓ admin | `?search=&limit=&offset=` | Organization list |
 | POST | `/api/admin/organizations` | ✓ admin | — | Create org |
@@ -702,6 +710,10 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 | GET | `/api/admin/system` | ✓ admin | — | System snapshot (CPU, RAM, disk) |
 | GET | `/api/admin/system/stream` | ✓ admin | — | SSE stream of live system metrics |
 | GET | `/api/admin/subscribers` | ✓ admin | — | Newsletter subscribers |
+| GET | `/api/admin/newsletter/campaigns` | ✓ admin | — | Sent newsletter campaigns |
+| POST | `/api/admin/newsletter/send` | ✓ admin | `{subject, body}` | Send newsletter to all subscribers |
+| GET | `/api/admin/donations` | ✓ admin | `?status=` | All donation submissions |
+| PATCH | `/api/admin/donations/:id` | ✓ admin | `{status, show_on_home?}` | Approve/reject donation, toggle donor wall visibility |
 
 ---
 
@@ -736,9 +748,13 @@ mekongtunnel.dev/
 │   │   └── billing/           (subscription, invoices)
 │   ├── admin/                 ← Admin panel
 │   │   ├── users/             (user management)
-│   │   ├── plans/             (plan config editor)
+│   │   ├── plans/             (plan config editor + TrialSettingsCard)
+│   │   ├── server-limits/     (rate limits + free trial + Bakong discount %)
 │   │   ├── verify-requests/   (verification approvals)
-│   │   └── page.tsx           (admin dashboard stats)
+│   │   ├── newsletter/        (compose + send newsletter, campaign list)
+│   │   ├── donations/         (donation submissions — approve/reject, donor wall toggle)
+│   │   ├── sponsors/          (sponsor card CRUD: github/coffee/bakong/paypal/bank/referral)
+│   │   └── page.tsx           (admin dashboard stats + quick-access cards)
 │   ├── invite/                ← Team invitation acceptance
 │   └── api/                   ← Next.js API routes
 │       └── domains/[id]/      (domain verification proxy)

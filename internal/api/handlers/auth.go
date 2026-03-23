@@ -45,24 +45,35 @@ type AuthHandler struct {
 // ─── helpers ─────────────────────────────────────────────────
 
 func sanitizeUser(u *models.User) map[string]any {
+	// Effective plan: on active trial, user gets pro access
+	effectivePlan := u.Plan
+	onTrial := u.TrialEndsAt != nil && u.TrialEndsAt.After(time.Now())
+	if onTrial && effectivePlan == "free" {
+		effectivePlan = "pro"
+	}
 	return map[string]any{
-		"id":                u.ID,
-		"email":             u.Email,
-		"name":              u.Name,
-		"avatar_url":        u.AvatarURL,
-		"plan":              u.Plan,
-		"subscription_plan": u.SubscriptionPlan,
-		"account_type":      u.AccountType,
-		"email_verified":    u.EmailVerified,
-		"totp_enabled":       u.TOTPEnabled,
-		"email_otp_enabled":  u.EmailOTPEnabled,
-		"is_admin":           u.IsAdmin,
-		"suspended":         u.Suspended,
-		"github_login":      u.GithubLogin,
-		"google_id":         u.GoogleID,
-		"created_at":        u.CreatedAt,
-		"updated_at":        u.UpdatedAt,
-		"last_seen_at":      u.LastSeenAt,
+		"id":                       u.ID,
+		"email":                    u.Email,
+		"name":                     u.Name,
+		"avatar_url":               u.AvatarURL,
+		"plan":                     effectivePlan,
+		"base_plan":                u.Plan,
+		"subscription_plan":        u.SubscriptionPlan,
+		"account_type":             u.AccountType,
+		"email_verified":           u.EmailVerified,
+		"totp_enabled":             u.TOTPEnabled,
+		"email_otp_enabled":        u.EmailOTPEnabled,
+		"is_admin":                 u.IsAdmin,
+		"suspended":                u.Suspended,
+		"github_login":             u.GithubLogin,
+		"google_id":                u.GoogleID,
+		"trial_ends_at":            u.TrialEndsAt,
+		"on_trial":                 onTrial,
+		"newsletter_subscribed":    u.NewsletterSubscribed,
+		"newsletter_unsubscribe_token": u.NewsletterUnsubscribeToken,
+		"created_at":               u.CreatedAt,
+		"updated_at":               u.UpdatedAt,
+		"last_seen_at":             u.LastSeenAt,
 	}
 }
 

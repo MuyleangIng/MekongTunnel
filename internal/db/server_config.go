@@ -16,7 +16,9 @@ func (db *DB) GetServerConfig(ctx context.Context) (*models.ServerConfig, error)
 			max_tunnels_per_ip, max_total_tunnels, max_connections_per_minute,
 			requests_per_second, max_request_body_bytes, max_websocket_transfer_bytes,
 			inactivity_timeout_seconds, max_tunnel_lifetime_hours,
-			ssh_handshake_timeout_seconds, block_duration_minutes, updated_at
+			ssh_handshake_timeout_seconds, block_duration_minutes,
+			free_trial_enabled, trial_duration_days, bakong_discount_percent,
+			updated_at
 		FROM server_config WHERE id = 1
 	`)
 	return scanServerConfig(row)
@@ -36,13 +38,18 @@ func (db *DB) UpdateServerConfig(ctx context.Context, cfg models.ServerConfig) (
 			max_tunnel_lifetime_hours     = $8,
 			ssh_handshake_timeout_seconds = $9,
 			block_duration_minutes        = $10,
+			free_trial_enabled            = $11,
+			trial_duration_days           = $12,
+			bakong_discount_percent       = $13,
 			updated_at                    = NOW()
 		WHERE id = 1
 		RETURNING
 			max_tunnels_per_ip, max_total_tunnels, max_connections_per_minute,
 			requests_per_second, max_request_body_bytes, max_websocket_transfer_bytes,
 			inactivity_timeout_seconds, max_tunnel_lifetime_hours,
-			ssh_handshake_timeout_seconds, block_duration_minutes, updated_at
+			ssh_handshake_timeout_seconds, block_duration_minutes,
+			free_trial_enabled, trial_duration_days, bakong_discount_percent,
+			updated_at
 	`,
 		cfg.MaxTunnelsPerIP,
 		cfg.MaxTotalTunnels,
@@ -54,6 +61,9 @@ func (db *DB) UpdateServerConfig(ctx context.Context, cfg models.ServerConfig) (
 		cfg.MaxTunnelLifetimeHours,
 		cfg.SSHHandshakeTimeoutSeconds,
 		cfg.BlockDurationMinutes,
+		cfg.FreeTrialEnabled,
+		cfg.TrialDurationDays,
+		cfg.BakongDiscountPercent,
 	)
 	return scanServerConfig(row)
 }
@@ -75,6 +85,9 @@ func scanServerConfig(row serverConfigScanner) (*models.ServerConfig, error) {
 		&c.MaxTunnelLifetimeHours,
 		&c.SSHHandshakeTimeoutSeconds,
 		&c.BlockDurationMinutes,
+		&c.FreeTrialEnabled,
+		&c.TrialDurationDays,
+		&c.BakongDiscountPercent,
 		&c.UpdatedAt,
 	)
 	if err != nil {

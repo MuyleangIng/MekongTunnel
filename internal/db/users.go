@@ -23,6 +23,7 @@ func scanUser(row interface {
 		&u.GithubID, &u.GithubLogin, &u.GoogleID,
 		&u.StripeCustomerID, &u.StripeSubscriptionID, &u.SubscriptionPlan,
 		&u.CreatedAt, &u.UpdatedAt, &u.LastSeenAt,
+		&u.TrialEndsAt, &u.NewsletterSubscribed, &u.NewsletterUnsubscribeToken,
 	)
 	if err != nil {
 		return nil, err
@@ -36,7 +37,8 @@ const userColumns = `
 	totp_secret, totp_enabled, email_otp_enabled, is_admin, suspended,
 	github_id, github_login, google_id,
 	stripe_customer_id, stripe_subscription_id, subscription_plan,
-	created_at, updated_at, last_seen_at`
+	created_at, updated_at, last_seen_at,
+	trial_ends_at, newsletter_subscribed, newsletter_unsubscribe_token`
 
 // ─── CRUD ────────────────────────────────────────────────────
 
@@ -440,4 +442,75 @@ func (db *DB) VerifyEmailOTPCode(ctx context.Context, userID, codeHash string) (
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE email_otp_codes SET used_at = now() WHERE id = $1`, id)
 	return err == nil, err
+}
+
+// ─── Trial ─────────────────────────────────────────────────────
+
+// SetTrial sets the trial_ends_at for a user. Pass nil to clear it.
+func (db *DB) SetTrial(ctx context.Context, userID string, endsAt *time.Time) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET trial_ends_at = $2 WHERE id = $1`, userID, endsAt)
+	return err
+}
+
+// ─── Newsletter (user preference) ─────────────────────────────
+
+// SetNewsletterSubscribed sets newsletter_subscribed for an authenticated user.
+func (db *DB) SetNewsletterSubscribed(ctx context.Context, userID string, subscribed bool) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE users SET newsletter_subscribed = $2 WHERE id = $1`, userID, subscribed)
+	return err
+}
+
+// GetUserByNewsletterToken returns the user for a given unsubscribe token.
+func (db *DB) GetUserByNewsletterToken(ctx context.Context, token string) (*models.User, error) {
+	row := db.Pool.QueryRow(ctx,
+		`SELECT `+userColumns+` FROM users WHERE newsletter_unsubscribe_token = $1`, token)
+	return scanUser(row)
+}
+
+// GetNewsletterRecipients returns emails of subscribed users (for sending campaigns).
+func (db *DB) GetNewsletterRecipients(ctx context.Context) ([]struct{ Email, Name string }, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT email, name FROM users WHERE newsletter_subscribed = TRUE AND email_verified = TRUE`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []struct{ Email, Name string }
+	for rows.Next() {
+		var r struct{ Email, Name string }
+		if err := rows.Scan(&r.Email, &r.Name); err == nil {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+// SaveNewsletterCampaign records a sent campaign.
+func (db *DB) SaveNewsletterCampaign(ctx context.Context, subject, bodyHTML, sentBy string, count int) error {
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO newsletter_campaigns (subject, body_html, sent_by, recipient_count)
+		VALUES ($1, $2, $3, $4)`,
+		subject, bodyHTML, sentBy, count)
+	return err
+}
+
+// GetNewsletterCampaigns returns past campaigns (newest first).
+func (db *DB) GetNewsletterCampaigns(ctx context.Context) ([]models.NewsletterCampaign, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id, subject, body_html, sent_by, sent_at, recipient_count
+		FROM newsletter_campaigns ORDER BY sent_at DESC LIMIT 50`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.NewsletterCampaign
+	for rows.Next() {
+		var c models.NewsletterCampaign
+		if err := rows.Scan(&c.ID, &c.Subject, &c.BodyHTML, &c.SentBy, &c.SentAt, &c.RecipientCount); err == nil {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }

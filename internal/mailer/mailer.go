@@ -192,6 +192,14 @@ func (m *Mailer) SendLoginOTP(toEmail, name, code string) {
 	}
 }
 
+// SendNewsletter sends a newsletter campaign to a single recipient.
+// Called in a goroutine per recipient from the admin send handler.
+func (m *Mailer) SendNewsletter(toEmail, name, subject, bodyHTML string) {
+	if err := m.Send(toEmail, subject, bodyHTML); err != nil {
+		log.Printf("[mailer] newsletter to %s: %v", toEmail, err)
+	}
+}
+
 // ── Email templates ───────────────────────────────────────────────────────────
 
 func emailWrapper(title, preheader, bodyHTML string) string {

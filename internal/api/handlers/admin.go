@@ -785,6 +785,30 @@ func (h *AdminHandler) UpdateServerConfig(w http.ResponseWriter, r *http.Request
 	response.Success(w, cfg)
 }
 
+// ─── Trial management ─────────────────────────────────────────
+
+// SetUserTrial handles POST /api/admin/users/{id}/trial — grants or clears a free trial.
+func (h *AdminHandler) SetUserTrial(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	var body struct {
+		Days int `json:"days"` // 0 = clear trial
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		response.BadRequest(w, "invalid JSON")
+		return
+	}
+	var endsAt *time.Time
+	if body.Days > 0 {
+		t := time.Now().Add(time.Duration(body.Days) * 24 * time.Hour)
+		endsAt = &t
+	}
+	if err := h.DB.SetTrial(r.Context(), userID, endsAt); err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	response.Success(w, map[string]any{"trial_ends_at": endsAt})
+}
+
 // ─── helpers ─────────────────────────────────────────────────
 
 func queryInt(r *http.Request, key string, def int) int {

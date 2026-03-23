@@ -419,6 +419,24 @@ type NewsletterCampaign struct {
 	RecipientCount int       `json:"recipient_count"`
 }
 
+// ─── DonationSubmission ───────────────────────────────────────
+
+type DonationSubmission struct {
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Email         string    `json:"email"`
+	Amount        string    `json:"amount"`
+	Currency      string    `json:"currency"`
+	PaymentMethod string    `json:"payment_method"`
+	ReceiptURL    string    `json:"receipt_url"`
+	SocialURL     string    `json:"social_url"`
+	Message       string    `json:"message"`
+	Status        string    `json:"status"`
+	ShowOnHome    bool      `json:"show_on_home"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 // ─── CLIDeviceSession ─────────────────────────────────────────
 
 // CLIDeviceSession implements the OAuth2-style device flow for `mekong login`.

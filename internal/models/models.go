@@ -75,6 +75,10 @@ type User struct {
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 	LastSeenAt           *time.Time `json:"last_seen_at,omitempty"`
+	// Trial & newsletter
+	TrialEndsAt                *time.Time `json:"trial_ends_at,omitempty"`
+	NewsletterSubscribed       bool       `json:"newsletter_subscribed"`
+	NewsletterUnsubscribeToken string     `json:"-"`
 }
 
 // IsAdmin returns whether the user has admin privileges.
@@ -398,7 +402,21 @@ type ServerConfig struct {
 	MaxTunnelLifetimeHours     int     `json:"maxTunnelLifetimeHours"`
 	SSHHandshakeTimeoutSeconds int     `json:"sshHandshakeTimeoutSeconds"`
 	BlockDurationMinutes       int     `json:"blockDurationMinutes"`
-	UpdatedAt                  time.Time `json:"updatedAt"`
+	// Trial & payments
+	FreeTrialEnabled     bool `json:"freeTrialEnabled"`
+	TrialDurationDays    int  `json:"trialDurationDays"`
+	BakongDiscountPercent int `json:"bakongDiscountPercent"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+}
+
+// NewsletterCampaign is an admin-sent newsletter broadcast.
+type NewsletterCampaign struct {
+	ID             string    `json:"id"`
+	Subject        string    `json:"subject"`
+	BodyHTML       string    `json:"body_html"`
+	SentBy         string    `json:"sent_by"`
+	SentAt         time.Time `json:"sent_at"`
+	RecipientCount int       `json:"recipient_count"`
 }
 
 // ─── CLIDeviceSession ─────────────────────────────────────────

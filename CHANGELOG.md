@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.5.6 - 2026-03-25
+
+Highlights:
+
+- Added reserved subdomain and custom-domain management commands to the Go CLI, including clearer `mekong domain add`, `verify`, `connect`, `delete`, `doctor`, and `subdomains` flows
+- Added apex-aware DNS guidance so root domains such as `example.com` show `A` / `AAAA` records while subdomains such as `app.example.com` show `CNAME`
+- Rejected malformed domains in both the CLI and API, improved custom-domain verification messaging, and made `connect` wait through DNS and HTTPS readiness states
+- Added admin custom-domain management endpoints so admins can list, inspect, verify, retarget, and delete user domain mappings
+- Added donations API improvements, free-trial and newsletter config updates, public receipt upload support, and stronger OTP enforcement on OAuth sign-in
+- Improved QR code reliability and frontend compatibility for auth flows
+- Added API and tunnel deploy tooling plus cloud startup planning docs for the ecosystem deployment workflow
+- Built fresh multi-platform client binaries with `main.version=v1.5.6`
+
 ## v1.5.0 - 2026-03-23
 
 Highlights:
@@ -80,6 +93,7 @@ Highlights:
 
 | Tag | Date |
 | --- | --- |
+| `v1.5.6` | 2026-03-25 |
 | `v1.4.9` | 2026-03-14 |
 | `v1.4.8` | 2026-03-14 |
 | `v1.4.7` | 2026-03-14 |

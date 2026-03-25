@@ -11,7 +11,7 @@
 | API | [api.angkorsearch.dev](https://api.angkorsearch.dev) |
 | Tunnel Edge | `proxy.angkorsearch.dev` |
 | License | MIT |
-| Current Version | v1.5.0 |
+| Current Version | v1.5.6 |
 
 ---
 

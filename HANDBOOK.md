@@ -1,7 +1,7 @@
 # MekongTunnel — Project Handbook
 
 > Author: **Ing Muyleang** (អុឹង មួយលៀង) · KhmerStack · [angkorsearch.dev](https://angkorsearch.dev)
-> Last updated: 2026-03-25 · Go v1.5.0 · npm v2.0.0 · PyPI v2.1.0 · VS Code v1.5.0
+> Last updated: 2026-03-25 · Go v1.5.6 · npm v2.0.0 · PyPI v2.1.0 · VS Code v1.5.0
 
 ---
 
@@ -53,7 +53,7 @@ Developer machine                  Proxy edge                     Public web/API
 
 | Component | Language | Version | Link |
 |-----------|----------|---------|------|
-| Go Server + CLI | Go 1.24 | v1.5.0 | [GitHub](https://github.com/MuyleangIng/MekongTunnel) |
+| Go Server + CLI | Go 1.24 | v1.5.6 | [GitHub](https://github.com/MuyleangIng/MekongTunnel) |
 | npm CLI + SDK | Node.js 18+ | v2.0.0 | [npm](https://www.npmjs.com/package/mekong-cli) |
 | Python CLI + SDK | Python 3.8+ | v2.1.0 | [PyPI](https://pypi.org/project/mekong-tunnel/) |
 | VS Code Extension | TypeScript | v1.5.0 | [Marketplace](https://marketplace.visualstudio.com/items?itemName=KhmerStack.mekong-tunnel) |
@@ -1431,7 +1431,7 @@ Steps:
 
 ### release.yml — Binary Release
 
-Triggers: tag push matching `v*` (e.g. `v1.5.0`)
+Triggers: tag push matching `v*` (e.g. `v1.5.6`)
 
 ```yaml
 Steps:

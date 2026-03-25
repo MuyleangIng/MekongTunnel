@@ -804,7 +804,7 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 			// Create new user.
 			email := strings.ToLower(ghUser.Email)
 			if email == "" {
-				email = fmt.Sprintf("github_%d@noreply.mekongtunnel.dev", ghUser.ID)
+				email = fmt.Sprintf("github_%d@noreply.angkorsearch.dev", ghUser.ID)
 			}
 			name := ghUser.Name
 			if name == "" {

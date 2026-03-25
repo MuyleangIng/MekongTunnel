@@ -49,36 +49,58 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	host := stripPort(r.Host)
 
-	// Root domain (mekongtunnel.dev): serve warning interstitial when it's a
-	// tunnel warning flow (has redirect param or is a POST confirmation),
-	// otherwise redirect to the Vercel landing page.
+	// Root domain (for example proxy.angkorsearch.dev): serve warning
+	// interstitial when it's a tunnel warning flow (has redirect param or is a
+	// POST confirmation), otherwise redirect to the main web app.
 	if host == s.domain {
 		if r.URL.Query().Get("redirect") != "" || r.Method == http.MethodPost {
 			s.serveWarningPage(w, r)
 			return
 		}
-		http.Redirect(w, r, "https://mekongtunnel-dev.vercel.app/", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "https://angkorsearch.dev/", http.StatusTemporaryRedirect)
 		return
 	}
 
-	// Only accept requests for subdomains of our configured domain.
-	if !strings.HasSuffix(host, "."+s.domain) {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
-		return
-	}
+	customDomain := false
+	sub := ""
+	var tun *tunnel.Tunnel
 
-	sub := strings.TrimSuffix(host, "."+s.domain)
-
-	// Only accept auto-generated subdomains (adjective-noun-hex format).
-	if !domain.IsValid(sub) {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
-		return
-	}
-
-	tun := s.GetTunnel(sub)
-	if tun == nil {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		return
+	switch {
+	case strings.HasSuffix(host, "."+s.domain):
+		sub = strings.TrimSuffix(host, "."+s.domain)
+		tun = s.GetTunnel(sub)
+		if tun == nil {
+			// Unknown subdomains still need basic shape validation so arbitrary host
+			// probes do not fall through to a tunnel lookup path.
+			if !domain.IsValid(sub) {
+				http.Error(w, "Bad Request", http.StatusBadRequest)
+				return
+			}
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
+		}
+	default:
+		targetSubdomain, found, err := s.lookupCustomDomainTarget(r.Context(), host)
+		if err != nil {
+			log.Printf("Custom domain lookup failed for %s: %v", host, err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		if !found {
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		if targetSubdomain == "" {
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
+		}
+		customDomain = true
+		sub = targetSubdomain
+		tun = s.GetTunnel(sub)
+		if tun == nil {
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
+		}
 	}
 
 	// Per-tunnel token-bucket rate limiting.
@@ -101,7 +123,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Show a phishing-warning interstitial for first-time browser visits.
 	// The warning sets a cookie so the user only sees it once per day.
 	// API clients and curl are not affected.
-	if isBrowserRequest(r) &&
+	if !customDomain &&
+		isBrowserRequest(r) &&
 		r.Header.Get("mekongtunnel-skip-warning") == "" &&
 		!hasWarningCookie(r, sub) {
 		s.redirectToWarningPage(w, r, sub)
@@ -300,7 +323,7 @@ func (s *Server) serveWarningPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if redirect == "" {
-		http.Redirect(w, r, "https://mekongtunnel-dev.vercel.app/", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "https://angkorsearch.dev/", http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -594,8 +617,16 @@ func (s *Server) HTTPRedirectHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := stripPort(r.Host)
 		if !strings.HasSuffix(host, "."+s.domain) && host != s.domain {
-			http.Error(w, "Bad Request", http.StatusBadRequest)
-			return
+			_, found, err := s.lookupCustomDomainTarget(r.Context(), host)
+			if err != nil {
+				log.Printf("Custom domain redirect lookup failed for %s: %v", host, err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			if !found {
+				http.Error(w, "Bad Request", http.StatusBadRequest)
+				return
+			}
 		}
 		target := "https://" + r.Host + r.URL.RequestURI()
 		http.Redirect(w, r, target, http.StatusMovedPermanently)

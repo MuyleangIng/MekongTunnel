@@ -15,7 +15,7 @@ var timeNow = time.Now
 // CLIDeviceHandler implements the OAuth2-style device flow for `mekong login`.
 type CLIDeviceHandler struct {
 	DB          *db.DB
-	FrontendURL string // e.g. "https://mekongtunnel.dev"
+	FrontendURL string // e.g. "https://angkorsearch.dev"
 }
 
 // CreateSession handles POST /api/cli/device.

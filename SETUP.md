@@ -1,397 +1,414 @@
-# New Server Setup Guide — MekongTunnel
+# MekongTunnel Production Setup
 
-> Open Source by **KhmerStack**
-> Author: Ing Muyleang (អុឹង មួយលៀង) — Ing_Muyleang
+> Current production layout:
+> `angkorsearch.dev` = web UI
+> `api.angkorsearch.dev` = REST API
+> `proxy.angkorsearch.dev` = tunnel SSH + HTTPS entrypoint
+> `*.proxy.angkorsearch.dev` = generated public tunnel URLs
+> `*.mekongtunnel.dev` = optional branded custom-domain wildcard
 
-Complete step-by-step guide to deploy MekongTunnel on a fresh Ubuntu/Debian VPS
-with your own domain (e.g. `muyleanging.com`).
+## Docs Map
 
----
+- [`README.md`](./README.md): quick start and developer-facing overview
+- [`HANDBOOK.md`](./HANDBOOK.md): architecture, API surface, and release notes
+- [`SETUP.md`](./SETUP.md): production DNS, TLS, deploy, and verification
 
-## What You Need Before Starting
+## Recommended Production Model
 
-- A VPS or dedicated server (Ubuntu 22.04 LTS recommended) with a public IP
-- A domain name that you control (e.g. `muyleanging.com`)
-- SSH access to the server as root or a sudo user
-- 15–30 minutes
+Use three separate concerns:
 
----
+1. UI on `angkorsearch.dev`
+2. API on `api.angkorsearch.dev`
+3. Tunnel edge on `proxy.angkorsearch.dev`
 
-## Step 1 — Point DNS to Your Server
+The repo now supports:
 
-In your domain registrar or DNS provider, add two **A records**:
+- reserved subdomains: `mekong reserve myapp`
+- one-step custom domains: `mekong domain connect app.example.com myapp`
+- branded wildcard domains such as `app.mekongtunnel.dev`
 
-| Type | Name | Value | TTL |
-|------|------|-------|-----|
-| A | `@` (or `muyleanging.com`) | `YOUR_SERVER_IP` | 300 |
-| A | `*` (wildcard) | `YOUR_SERVER_IP` | 300 |
-
-The wildcard record (`*.muyleanging.com`) is required so that
-`happy-tiger-a1b2c3d4.muyleanging.com` routes to your server.
-
-> Wait 2–5 minutes for DNS to propagate before the next step.
-> Test with: `dig muyleanging.com` and `dig test.muyleanging.com`
-
----
-
-## Step 2 — Prepare the Server
+The preferred deployment flow is:
 
 ```bash
-# Connect to your server
-ssh root@YOUR_SERVER_IP
+./scripts/deploy-api.sh
+./scripts/deploy-tunnel.sh
+WILDCARD_DOMAIN=mekongtunnel.dev ./scripts/deploy-tunnel.sh   # optional branded wildcard
+```
 
-# Update packages
-apt update && apt upgrade -y
+`update.sh` is still supported, but only for a git checkout that already exists on the proxy host.
 
-# Install required tools
-apt install -y docker.io docker-compose-plugin git curl certbot ufw
+---
 
-# Enable Docker
-systemctl enable --now docker
+## 1. DNS
 
-# Add your user to docker group (optional, so you don't need sudo)
-usermod -aG docker $USER
+Keep your existing UI/API records if they already work:
+
+| Type | Name | Value |
+|------|------|-------|
+| A / CNAME | `angkorsearch.dev` | your frontend host |
+| A / CNAME | `api.angkorsearch.dev` | your API host |
+
+Point the tunnel edge to the proxy server:
+
+| Type | Name | Value |
+|------|------|-------|
+| A | `proxy.angkorsearch.dev` | `YOUR_PROXY_SERVER_IP` |
+| A | `*.proxy.angkorsearch.dev` | `YOUR_PROXY_SERVER_IP` |
+
+Optional branded wildcard:
+
+| Type | Name | Value |
+|------|------|-------|
+| CNAME | `*.mekongtunnel.dev` | `proxy.angkorsearch.dev` |
+
+Quick checks:
+
+```bash
+dig +short proxy.angkorsearch.dev
+dig +short test.proxy.angkorsearch.dev
+dig +short app.mekongtunnel.dev
 ```
 
 ---
 
-## Step 3 — Configure the Firewall
+## 2. Proxy Host Preparation
+
+Run on the tunnel/proxy server:
 
 ```bash
-# Allow SSH on a non-standard port (we'll move sshd off port 22)
-ufw allow 2222/tcp   # your server's own SSH (new port)
-ufw allow 22/tcp     # MekongTunnel SSH port
-ufw allow 80/tcp     # HTTP
-ufw allow 443/tcp    # HTTPS
-ufw enable
+apt update && apt upgrade -y
+apt install -y nginx certbot ufw openssl
+```
 
-# Verify
+Open the required ports:
+
+```bash
+ufw allow 2222/tcp   # server admin SSH
+ufw allow 22/tcp     # Mekong tunnel SSH
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable
 ufw status
 ```
 
----
-
-## Step 4 — Move Your Server SSH to Port 2222
-
-MekongTunnel needs port 22. Move your server's own `sshd` first.
+Move your server's own SSH to `2222` so MekongTunnel can own port `22`:
 
 ```bash
-nano /etc/ssh/sshd_config
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+grep -q '^Port 2222$' /etc/ssh/sshd_config || echo 'Port 2222' >> /etc/ssh/sshd_config
+systemctl disable --now ssh.socket || true
+systemctl enable ssh.service
+systemctl restart ssh.service
 ```
 
-Find the line `#Port 22` and change it to:
-
-```
-Port 2222
-```
-
-Then restart and verify — **open a new terminal on port 2222 BEFORE closing this session**:
+From a second terminal, verify before closing your original session:
 
 ```bash
-systemctl restart sshd
-
-# In a NEW terminal window:
-ssh -p 2222 root@YOUR_SERVER_IP
-# If this works, it's safe to close the old terminal
+ssh -p 2222 root@proxy.angkorsearch.dev
 ```
 
 ---
 
-## Step 5 — Get a Wildcard TLS Certificate
+## 3. TLS Certificates
+
+### Tunnel wildcard
+
+Issue the certificate that covers the proxy entrypoint and generated tunnel URLs:
 
 ```bash
-# Run certbot in manual DNS challenge mode
 certbot certonly --manual --preferred-challenges dns \
-  -d muyleanging.com \
-  -d '*.muyleanging.com'
+  -d proxy.angkorsearch.dev \
+  -d '*.proxy.angkorsearch.dev'
 ```
 
-Certbot will pause and ask you to add a TXT DNS record like:
+### Optional branded wildcard
 
-```
-_acme-challenge.muyleanging.com   TXT   "some-long-string-here"
+If you want browser-secure branded custom domains like `app.mekongtunnel.dev`, issue a second wildcard cert:
+
+```bash
+certbot certonly --manual --preferred-challenges dns \
+  -d mekongtunnel.dev \
+  -d '*.mekongtunnel.dev'
 ```
 
-Add that TXT record in your DNS provider, wait ~60 seconds, then press Enter in certbot.
+Expected certificate paths:
 
-When done, certbot saves certs to:
+```bash
+/etc/letsencrypt/live/proxy.angkorsearch.dev/fullchain.pem
+/etc/letsencrypt/live/proxy.angkorsearch.dev/privkey.pem
+/etc/letsencrypt/live/mekongtunnel.dev/fullchain.pem
+/etc/letsencrypt/live/mekongtunnel.dev/privkey.pem
 ```
-/etc/letsencrypt/live/muyleanging.com/fullchain.pem
-/etc/letsencrypt/live/muyleanging.com/privkey.pem
-```
+
+Important:
+
+- manual DNS challenge certs do not auto-renew cleanly by themselves
+- if you need unattended renewal, move to a DNS plugin or an ACME edge such as Caddy
 
 ---
 
-## Step 6 — Clone and Configure MekongTunnel
+## 4. Local `.env.prod`
 
-```bash
-cd /opt
-git clone https://github.com/Ing-Muyleang/MekongTunnel.git
-cd MekongTunnel
+`./scripts/deploy-tunnel.sh` uploads your local [`.env.prod`](./.env.prod) to the proxy host as `/opt/mekongtunnel/.env.prod`.
 
-# Create your .env from the template
-cp .env.example .env
-nano .env
-```
-
-Fill in your `.env`:
+Minimum tunnel-side values:
 
 ```env
-DOMAIN=muyleanging.com
-
+DOMAIN=proxy.angkorsearch.dev
 SSH_ADDR=:22
-HTTP_ADDR=:80
-HTTPS_ADDR=:443
+HTTP_ADDR=127.0.0.1:8081
+HTTPS_ADDR=127.0.0.1:8443
 STATS_ADDR=127.0.0.1:9090
-MAX_TUNNELS_PER_IP=10
-MAX_TOTAL_TUNNELS=5000
-MAX_CONNECTIONS_PER_MINUTE=600
-
-HOST_KEY_PATH=/host_key
-
-TLS_CERT=/certs/fullchain.pem
-TLS_KEY=/certs/privkey.pem
+HOST_KEY_PATH=/opt/mekongtunnel/host_key
+TLS_CERT=/etc/letsencrypt/live/proxy.angkorsearch.dev/fullchain.pem
+TLS_KEY=/etc/letsencrypt/live/proxy.angkorsearch.dev/privkey.pem
+DATABASE_URL=postgres://USER:PASS@HOST:5432/DB?sslmode=disable
 ```
 
-Save and exit (`Ctrl+X`, then `Y`, then `Enter`).
+Notes:
+
+- `HTTP_ADDR` and `HTTPS_ADDR` stay on loopback because nginx terminates public `80/443`
+- `DATABASE_URL` must be valid if you want reserved subdomains and custom domains
+- `./scripts/deploy-api.sh` does not manage API secrets; it only updates the API binary and restarts the service
 
 ---
 
-## Step 7 — Copy TLS Certificates
+## 5. Deploy Commands
+
+Run from your local repo:
 
 ```bash
-mkdir -p /opt/MekongTunnel/data/certs
-
-cp /etc/letsencrypt/live/muyleanging.com/fullchain.pem /opt/MekongTunnel/data/certs/
-cp /etc/letsencrypt/live/muyleanging.com/privkey.pem   /opt/MekongTunnel/data/certs/
-
-chown -R $USER:$USER /opt/MekongTunnel/data/certs
-chmod 600 /opt/MekongTunnel/data/certs/privkey.pem
+./scripts/deploy-api.sh
+./scripts/deploy-tunnel.sh
 ```
+
+If you also issued the branded wildcard certificate:
+
+```bash
+WILDCARD_DOMAIN=mekongtunnel.dev ./scripts/deploy-tunnel.sh
+```
+
+What the scripts do:
+
+- `deploy-api.sh`: build `cmd/api`, upload to the API host over SSH `:2222`, restart `mekong-api`, verify `/api/health`, `/api/cli/subdomains`, and `/api/cli/domains`
+- `deploy-tunnel.sh`: build `cmd/mekongtunnel`, upload `.env.prod`, install `/etc/systemd/system/mekongtunnel.service`, restart it, verify ports, and optionally install the branded wildcard nginx vhost
+
+Optional server-side git workflow:
+
+```bash
+cd /opt/mekongtunnel
+./update.sh
+```
+
+Use `update.sh` only when `/opt/mekongtunnel` is already a git checkout.
 
 ---
 
-## Step 8 — Start MekongTunnel
+## 6. Verify the Proxy Host
+
+On the proxy host:
 
 ```bash
-cd /opt/MekongTunnel
-
-# Build and start in background
-docker compose up -d
-
-# Check it started correctly
-docker compose ps
-docker compose logs -f
+ss -tlnp | egrep ':22|:2222|:8081|:8443|:9090'
+systemctl status mekongtunnel.service --no-pager
+journalctl -u mekongtunnel.service -n 50 --no-pager
 ```
 
-Expected output:
-```
-mekongtunnel  |  SSH server listening on :22
-mekongtunnel  |  HTTP server listening on :80 (redirects to HTTPS)
-mekongtunnel  |  HTTPS server listening on :443
-mekongtunnel  |  Stats server listening on 127.0.0.1:9090
-```
+Expected:
+
+- `sshd` on `:2222`
+- `mekongtunnel` on `:22`
+- `mekongtunnel` on `127.0.0.1:8081`
+- `mekongtunnel` on `127.0.0.1:8443`
+- `mekongtunnel` on `127.0.0.1:9090`
 
 ---
 
-## Step 9 — Test the Tunnel
+## 7. Verify the CLI
 
-From your **local machine** (not the server):
+On your local machine:
 
 ```bash
-# Start a test local server
-python3 -m http.server 9000
-
-# Open a tunnel (in a new terminal)
-ssh -t -R 80:localhost:9000 muyleanging.com
-
-# You'll see:
-# Connected to muyleanging.com.
-# Tunnel is live!
-# Public URL: https://happy-tiger-a1b2c3d4.muyleanging.com
+mekong version
+mekong doctor
+mekong subdomains
 ```
 
-Open `https://happy-tiger-a1b2c3d4.muyleanging.com` in a browser — you should see the Python HTTP server listing.
+Expected `mekong doctor` checks:
+
+- DNS resolves `proxy.angkorsearch.dev`
+- SSH port `22` reachable
+- API health on `https://api.angkorsearch.dev/api/health`
+- saved credentials and token validation if logged in
 
 ---
 
-## Step 10 — Auto-Renew TLS Certificates
-
-Create a renewal script:
+## 8. Reserved Subdomain Flow
 
 ```bash
-nano /opt/MekongTunnel/renew-certs.sh
+mekong login
+mekong reserve myapp
+mekong 3000 --subdomain myapp
 ```
+
+Useful commands:
 
 ```bash
-#!/bin/bash
-# Renew Let's Encrypt wildcard certificate and update MekongTunnel
-
-set -e
-
-DOMAIN="muyleanging.com"
-CERT_DIR="/opt/MekongTunnel/data/certs"
-
-# Renew (will prompt for DNS challenge again with --manual)
-# For fully automated renewal, use a DNS plugin instead:
-#   apt install python3-certbot-dns-cloudflare  (if using Cloudflare)
-certbot renew --quiet
-
-# Copy renewed certs
-cp /etc/letsencrypt/live/$DOMAIN/fullchain.pem $CERT_DIR/
-cp /etc/letsencrypt/live/$DOMAIN/privkey.pem   $CERT_DIR/
-chmod 600 $CERT_DIR/privkey.pem
-
-# Restart MekongTunnel to pick up new certs
-cd /opt/MekongTunnel
-docker compose restart
-
-echo "Certificate renewed and MekongTunnel restarted."
-```
-
-```bash
-chmod +x /opt/MekongTunnel/renew-certs.sh
-```
-
-Add to crontab (runs on the 1st of every month at 3am):
-
-```bash
-crontab -e
-```
-
-```
-0 3 1 * * /opt/MekongTunnel/renew-certs.sh >> /var/log/mekongtunnel-cert-renew.log 2>&1
+mekong subdomains
+mekong status
+mekong delete myapp
 ```
 
 ---
 
-## Monitoring & Management
+## 9. Custom Domain Flow
 
-### Check server status
+### Recommended one-step command
 
 ```bash
-docker compose ps
-docker compose logs --tail=50
+mekong domain connect app.example.com myapp
 ```
 
-### View live metrics
+This command:
+
+1. creates the custom-domain record if needed
+2. points the domain at the reserved subdomain
+3. keeps checking until DNS verifies
+4. waits until HTTPS is ready
+5. prints the active error or waiting stage if DNS / HTTPS is still pending
+
+### Manual flow
 
 ```bash
-curl http://127.0.0.1:9090/
-curl "http://127.0.0.1:9090/?subdomains=true"
+mekong domain add app.example.com
+mekong domain verify app.example.com
+mekong domain target app.example.com myapp
+mekong domain wait app.example.com
+mekong doctor app.example.com
 ```
 
-### Restart after config change
+If DNS is not ready, the CLI prints the required records:
+
+- apex/root domains such as `example.com`: `A/AAAA @ -> same IPs as proxy.angkorsearch.dev`
+- subdomains such as `app.example.com`: `CNAME app -> proxy.angkorsearch.dev`
+- TXT fallback: `_mekongtunnel-verify.app.example.com -> mekong-verify=...`
+
+Rule of thumb:
+
+- if the user enters the main domain, show `A` / `AAAA`
+- if the user enters a subdomain, show `CNAME`
+- if the DNS provider does not accept short names such as `@` or `app`, enter the full host instead
+- invalid names such as `ttt..example.com` are rejected before the record is created
+
+Delete behavior:
+
+- `mekong domain delete app.example.com` removes the MekongTunnel mapping only
+- DNS records at the provider are not changed automatically
+- if the hostname is covered by a shared wildcard or another existing certificate, TLS may still validate, but the hostname will no longer route to the deleted MekongTunnel app
+- to fully disconnect the hostname, remove or change the DNS record at the provider
+- the user API and admin API now return the same cleanup guidance on delete so dashboards can explain this clearly
+
+---
+
+## 10. Branded `mekongtunnel.dev` Domains
+
+After the wildcard DNS and wildcard certificate exist, branded domains such as `app.mekongtunnel.dev` work like this:
 
 ```bash
-cd /opt/MekongTunnel
-docker compose restart
+mekong reserve myapp
+mekong domain connect app.mekongtunnel.dev myapp
+mekong 3000 --subdomain myapp
 ```
 
-### Update to new version
+Validation:
 
 ```bash
-cd /opt/MekongTunnel
-git pull
-docker compose down
-docker compose up -d --build
+mekong doctor app.mekongtunnel.dev
+curl -I https://app.mekongtunnel.dev
 ```
 
-### Stop the service
+If HTTPS fails with `ERR_CERT_COMMON_NAME_INVALID`, nginx is still serving the wrong certificate on `443`.
+
+---
+
+## 11. Maintenance
+
+API redeploy:
 
 ```bash
-docker compose down
+./scripts/deploy-api.sh
+```
+
+Tunnel redeploy:
+
+```bash
+./scripts/deploy-tunnel.sh
+```
+
+Branded wildcard redeploy:
+
+```bash
+WILDCARD_DOMAIN=mekongtunnel.dev ./scripts/deploy-tunnel.sh
+```
+
+Server-side update for git checkouts:
+
+```bash
+cd /opt/mekongtunnel
+./update.sh
 ```
 
 ---
 
-## Troubleshooting
+## 12. Troubleshooting
 
-### "Connection refused" on port 22
+### `ssh: unable to authenticate`
 
-```bash
-# Check MekongTunnel is running
-docker compose ps
+Your proxy host still has normal `sshd` listening on port `22`. Fix the split:
 
-# Check port 22 is open
-ss -tlnp | grep :22
+- server admin SSH on `2222`
+- MekongTunnel on `22`
 
-# Check firewall
-ufw status
-```
+### `nothing is listening on localhost:PORT`
 
-### "Host key verification failed"
-
-First connection always prompts to accept the host key:
-
-```
-Are you sure you want to continue connecting (yes/no)? yes
-```
-
-### "No tunnel URL shown"
-
-The `-t` flag is required:
+Start your local app first, then run:
 
 ```bash
-# Wrong
-ssh -R 80:localhost:8080 muyleanging.com
-
-# Correct
-ssh -t -R 80:localhost:8080 muyleanging.com
+mekong 3000
 ```
 
-### TLS certificate errors
+### `reserved subdomain "myapp" is already active`
+
+Another tunnel is still using it:
 
 ```bash
-# Check certs are in place
-ls -la /opt/MekongTunnel/data/certs/
-
-# Check cert validity
-openssl x509 -in /opt/MekongTunnel/data/certs/fullchain.pem -noout -dates
+mekong status
+mekong stop 3000
 ```
 
-### View logs for specific errors
+### Custom domain stays `pending_dns`
+
+Recheck DNS:
 
 ```bash
-docker compose logs mekongtunnel | grep -i "error\|fail\|warn"
+dig +short app.example.com
+dig +short _mekongtunnel-verify.app.example.com TXT
+mekong doctor app.example.com
 ```
 
----
-
-## Backup
-
-The only persistent data is:
-
-| Path | What it is | How to backup |
-|------|-----------|---------------|
-| `/opt/MekongTunnel/data/host_key` | SSH host key | Copy this file. If lost, clients will see a host key mismatch warning on next connect. |
-| `/opt/MekongTunnel/data/certs/` | TLS certificates | Back up or just re-run certbot. |
-| `/opt/MekongTunnel/.env` | Your config | Back up securely. |
+For root domains, also compare the proxy IPs directly:
 
 ```bash
-# Simple backup
-tar -czf mekongtunnel-backup-$(date +%Y%m%d).tar.gz \
-  /opt/MekongTunnel/data/host_key \
-  /opt/MekongTunnel/data/certs/ \
-  /opt/MekongTunnel/.env
+dig +short proxy.angkorsearch.dev
+dig +short app.example.com
 ```
 
----
+### Custom domain stays `pending_https`
 
-## Quick Reference Card
+DNS is correct but the certificate or nginx vhost is wrong. Check:
 
+```bash
+openssl s_client -connect app.example.com:443 -servername app.example.com </dev/null 2>/dev/null | openssl x509 -noout -subject -ext subjectAltName
 ```
-Domain:    muyleanging.com
-Server:    YOUR_SERVER_IP
-SSH port:  22  (MekongTunnel)  /  2222  (your server access)
-HTTP:      80
-HTTPS:     443
-Stats:     127.0.0.1:9090  (localhost only)
 
-Deploy:    cd /opt/MekongTunnel && docker compose up -d
-Logs:      docker compose logs -f
-Stats:     curl http://127.0.0.1:9090/
-Renew:     /opt/MekongTunnel/renew-certs.sh
-
-Connect:   ssh -t -R 80:localhost:PORT muyleanging.com
-```
+The certificate must cover the hostname you are testing.

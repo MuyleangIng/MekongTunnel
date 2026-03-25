@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api/middleware"
@@ -162,7 +163,7 @@ func (h *AdminHandler) ResendVerification(w http.ResponseWriter, r *http.Request
 
 	frontendURL := h.FrontendURL
 	if frontendURL == "" {
-		frontendURL = "https://mekongtunnel.dev"
+		frontendURL = "https://angkorsearch.dev"
 	}
 
 	if h.Mailer != nil {
@@ -253,6 +254,138 @@ func (h *AdminHandler) KillTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.Success(w, map[string]any{"message": "tunnel killed"})
+}
+
+// ─── Custom Domains ───────────────────────────────────────────
+
+// ListDomains handles GET /api/admin/domains.
+func (h *AdminHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
+	userID := r.URL.Query().Get("user_id")
+	status := r.URL.Query().Get("status")
+	search := r.URL.Query().Get("search")
+	limit := queryInt(r, "limit", 50)
+	offset := queryInt(r, "offset", 0)
+
+	list, err := h.DB.ListAllCustomDomains(r.Context(), userID, status, search, limit, offset)
+	if err != nil {
+		response.InternalError(w, err)
+		return
+	}
+
+	out := make([]enrichedCustomDomain, 0, len(list))
+	for _, d := range list {
+		out = append(out, enrichCustomDomain(d))
+	}
+	response.Success(w, map[string]any{
+		"domains": out,
+		"limit":   limit,
+		"offset":  offset,
+	})
+}
+
+// GetDomain handles GET /api/admin/domains/{id}.
+func (h *AdminHandler) GetDomain(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		response.BadRequest(w, "domain id required")
+		return
+	}
+
+	d, err := h.DB.GetCustomDomainByID(r.Context(), id)
+	if err != nil {
+		response.NotFound(w, "domain not found")
+		return
+	}
+
+	response.Success(w, enrichCustomDomain(d))
+}
+
+// VerifyDomain handles POST /api/admin/domains/{id}/verify.
+func (h *AdminHandler) VerifyDomain(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		response.BadRequest(w, "domain id required")
+		return
+	}
+
+	d, err := h.DB.GetCustomDomainByID(r.Context(), id)
+	if err != nil {
+		response.NotFound(w, "domain not found")
+		return
+	}
+
+	dh := &DomainsHandler{DB: h.DB}
+	dh.respondVerification(w, r, d)
+}
+
+// SetDomainTarget handles PATCH /api/admin/domains/{id}/target.
+func (h *AdminHandler) SetDomainTarget(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		response.BadRequest(w, "domain id required")
+		return
+	}
+
+	d, err := h.DB.GetCustomDomainByID(r.Context(), id)
+	if err != nil {
+		response.NotFound(w, "domain not found")
+		return
+	}
+
+	var body struct {
+		TargetSubdomain string `json:"target_subdomain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		response.BadRequest(w, "invalid JSON body")
+		return
+	}
+	targetSubdomain := body.TargetSubdomain
+	targetSubdomain = strings.ToLower(strings.TrimSpace(targetSubdomain))
+	if targetSubdomain == "" {
+		response.BadRequest(w, "target_subdomain is required")
+		return
+	}
+
+	reserved, err := h.DB.GetReservedSubdomainForUser(r.Context(), d.UserID, targetSubdomain)
+	if err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	if reserved == "" {
+		response.BadRequest(w, "target_subdomain must belong to the domain owner")
+		return
+	}
+
+	if err := h.DB.SetCustomDomainTargetByID(r.Context(), id, targetSubdomain); err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	response.Success(w, map[string]any{"ok": true})
+}
+
+// DeleteDomain handles DELETE /api/admin/domains/{id}.
+func (h *AdminHandler) DeleteDomain(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		response.BadRequest(w, "domain id required")
+		return
+	}
+
+	d, err := h.DB.GetCustomDomainByID(r.Context(), id)
+	if err != nil {
+		response.NotFound(w, "domain not found")
+		return
+	}
+	if err := h.DB.DeleteCustomDomainByID(r.Context(), id); err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	result := deleteResultForDomain(d)
+	response.Success(w, map[string]any{
+		"message": "domain deleted",
+		"domain":  result,
+		"user_id": d.UserID,
+	})
 }
 
 // ─── Plans ────────────────────────────────────────────────────

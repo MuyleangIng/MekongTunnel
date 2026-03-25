@@ -2,12 +2,31 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/models"
 )
 
 // ── Custom Domains ─────────────────────────────────────────────
+
+type customDomainScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanCustomDomain(row customDomainScanner) (*models.CustomDomain, error) {
+	d := &models.CustomDomain{}
+	err := row.Scan(
+		&d.ID, &d.UserID, &d.Domain, &d.Status, &d.VerificationToken,
+		&d.TargetSubdomain, &d.CreatedAt, &d.VerifiedAt, &d.LastCheckedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
+}
 
 func (db *DB) ListCustomDomains(ctx context.Context, userID string) ([]*models.CustomDomain, error) {
 	rows, err := db.Pool.Query(ctx, `
@@ -23,11 +42,8 @@ func (db *DB) ListCustomDomains(ctx context.Context, userID string) ([]*models.C
 
 	var out []*models.CustomDomain
 	for rows.Next() {
-		d := &models.CustomDomain{}
-		if err := rows.Scan(
-			&d.ID, &d.UserID, &d.Domain, &d.Status, &d.VerificationToken,
-			&d.TargetSubdomain, &d.CreatedAt, &d.VerifiedAt, &d.LastCheckedAt,
-		); err != nil {
+		d, err := scanCustomDomain(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -42,12 +58,7 @@ func (db *DB) CreateCustomDomain(ctx context.Context, userID, domain string) (*m
 		RETURNING id, user_id, domain, status, verification_token,
 		          target_subdomain, created_at, verified_at, last_checked_at`,
 		userID, domain)
-	d := &models.CustomDomain{}
-	err := row.Scan(
-		&d.ID, &d.UserID, &d.Domain, &d.Status, &d.VerificationToken,
-		&d.TargetSubdomain, &d.CreatedAt, &d.VerifiedAt, &d.LastCheckedAt,
-	)
-	return d, err
+	return scanCustomDomain(row)
 }
 
 func (db *DB) GetCustomDomain(ctx context.Context, id, userID string) (*models.CustomDomain, error) {
@@ -55,17 +66,76 @@ func (db *DB) GetCustomDomain(ctx context.Context, id, userID string) (*models.C
 		SELECT id, user_id, domain, status, verification_token,
 		       target_subdomain, created_at, verified_at, last_checked_at
 		FROM custom_domains WHERE id = $1 AND user_id = $2`, id, userID)
-	d := &models.CustomDomain{}
-	err := row.Scan(
-		&d.ID, &d.UserID, &d.Domain, &d.Status, &d.VerificationToken,
-		&d.TargetSubdomain, &d.CreatedAt, &d.VerifiedAt, &d.LastCheckedAt,
-	)
-	return d, err
+	return scanCustomDomain(row)
+}
+
+func (db *DB) GetCustomDomainByID(ctx context.Context, id string) (*models.CustomDomain, error) {
+	row := db.Pool.QueryRow(ctx, `
+		SELECT id, user_id, domain, status, verification_token,
+		       target_subdomain, created_at, verified_at, last_checked_at
+		FROM custom_domains WHERE id = $1`, id)
+	return scanCustomDomain(row)
+}
+
+func (db *DB) ListAllCustomDomains(ctx context.Context, userID, status, search string, limit, offset int) ([]*models.CustomDomain, error) {
+	query := `
+		SELECT id, user_id, domain, status, verification_token,
+		       target_subdomain, created_at, verified_at, last_checked_at
+		FROM custom_domains`
+	args := make([]any, 0, 4)
+	conditions := make([]string, 0, 3)
+	i := 1
+
+	if userID != "" {
+		conditions = append(conditions, fmt.Sprintf("user_id = $%d", i))
+		args = append(args, userID)
+		i++
+	}
+	if status != "" {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", i))
+		args = append(args, status)
+		i++
+	}
+	if search != "" {
+		conditions = append(conditions, fmt.Sprintf("domain ILIKE $%d", i))
+		args = append(args, "%"+search+"%")
+		i++
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + conditions[0]
+		for _, cond := range conditions[1:] {
+			query += " AND " + cond
+		}
+	}
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", i, i+1)
+	args = append(args, limit, offset)
+
+	rows, err := db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*models.CustomDomain
+	for rows.Next() {
+		d, err := scanCustomDomain(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
 }
 
 func (db *DB) DeleteCustomDomain(ctx context.Context, id, userID string) error {
 	_, err := db.Pool.Exec(ctx,
 		`DELETE FROM custom_domains WHERE id = $1 AND user_id = $2`, id, userID)
+	return err
+}
+
+func (db *DB) DeleteCustomDomainByID(ctx context.Context, id string) error {
+	_, err := db.Pool.Exec(ctx,
+		`DELETE FROM custom_domains WHERE id = $1`, id)
 	return err
 }
 
@@ -91,6 +161,30 @@ func (db *DB) SetCustomDomainTarget(ctx context.Context, id, userID, targetSubdo
 	return err
 }
 
+func (db *DB) SetCustomDomainTargetByID(ctx context.Context, id, targetSubdomain string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE custom_domains SET target_subdomain=$1 WHERE id=$2`,
+		targetSubdomain, id)
+	return err
+}
+
+// LookupVerifiedCustomDomainTarget returns the routed reserved subdomain for a
+// verified custom domain, or found=false when the host is unknown.
+func (db *DB) LookupVerifiedCustomDomainTarget(ctx context.Context, host string) (targetSubdomain string, found bool, err error) {
+	err = db.Pool.QueryRow(ctx, `
+		SELECT COALESCE(target_subdomain, '')
+		FROM custom_domains
+		WHERE status = 'verified' AND lower(domain) = lower($1)
+		LIMIT 1`, host).Scan(&targetSubdomain)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return targetSubdomain, true, nil
+}
+
 // ListVerifiedCustomDomains returns all verified domains — used by the proxy to route traffic.
 func (db *DB) ListVerifiedCustomDomains(ctx context.Context) ([]*models.CustomDomain, error) {
 	rows, err := db.Pool.Query(ctx, `
@@ -104,11 +198,8 @@ func (db *DB) ListVerifiedCustomDomains(ctx context.Context) ([]*models.CustomDo
 
 	var out []*models.CustomDomain
 	for rows.Next() {
-		d := &models.CustomDomain{}
-		if err := rows.Scan(
-			&d.ID, &d.UserID, &d.Domain, &d.Status, &d.VerificationToken,
-			&d.TargetSubdomain, &d.CreatedAt, &d.VerifiedAt, &d.LastCheckedAt,
-		); err != nil {
+		d, err := scanCustomDomain(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, d)

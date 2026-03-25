@@ -291,7 +291,7 @@ func (h *TeamHandler) Invite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[team] invitation link for %s: https://mekongtunnel.dev/invite/%s", body.Email, token)
+	log.Printf("[team] invitation link for %s: https://angkorsearch.dev/invite/%s", body.Email, token)
 
 	response.Created(w, inv)
 }

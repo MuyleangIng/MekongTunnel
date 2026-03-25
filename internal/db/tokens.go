@@ -111,3 +111,16 @@ func (db *DB) GetFirstReservedSubdomain(ctx context.Context, userID string) (str
 	}
 	return sub, nil
 }
+
+// GetReservedSubdomainForUser returns subdomain if it belongs to userID, or "" otherwise.
+func (db *DB) GetReservedSubdomainForUser(ctx context.Context, userID, subdomain string) (string, error) {
+	var reserved string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT subdomain FROM reserved_subdomains WHERE user_id = $1 AND subdomain = $2 LIMIT 1`,
+		userID, subdomain,
+	).Scan(&reserved)
+	if err != nil {
+		return "", nil
+	}
+	return reserved, nil
+}

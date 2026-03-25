@@ -31,23 +31,24 @@ type SSHCloser interface {
 
 // Tunnel represents an active SSH tunnel
 type Tunnel struct {
-	Subdomain     string
-	Listener      net.Listener
-	CreatedAt     time.Time
-	LastActive    time.Time
-	BindAddr      string
-	BindPort      uint32
-	ClientIP      string // SSH client IP that created this tunnel
-	mu            sync.Mutex
-	rateLimiter   *RateLimiter
-	sshConn       SSHCloser       // Reference to SSH connection for forced closure
-	rateLimitHits int             // Count of rate limit violations
-	requestCount  uint64          // Total HTTP requests proxied through this tunnel
-	transport     *http.Transport // Reusable HTTP transport for proxying
-	logger        *RequestLogger  // Async request logger for SSH terminal output
-	maxLifetime   time.Duration
-	inactivityTTL time.Duration
-	apiToken      string // raw API token sent by the client via MEKONG_API_TOKEN env var
+	Subdomain          string
+	Listener           net.Listener
+	CreatedAt          time.Time
+	LastActive         time.Time
+	BindAddr           string
+	BindPort           uint32
+	ClientIP           string // SSH client IP that created this tunnel
+	mu                 sync.Mutex
+	rateLimiter        *RateLimiter
+	sshConn            SSHCloser       // Reference to SSH connection for forced closure
+	rateLimitHits      int             // Count of rate limit violations
+	requestCount       uint64          // Total HTTP requests proxied through this tunnel
+	transport          *http.Transport // Reusable HTTP transport for proxying
+	logger             *RequestLogger  // Async request logger for SSH terminal output
+	maxLifetime        time.Duration
+	inactivityTTL      time.Duration
+	apiToken           string // raw API token sent by the client via MEKONG_API_TOKEN env var
+	requestedSubdomain string // requested reserved subdomain sent via MEKONG_SUBDOMAIN
 }
 
 // New creates a new tunnel with the given parameters
@@ -225,6 +226,20 @@ func (t *Tunnel) GetAPIToken() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.apiToken
+}
+
+// SetRequestedSubdomain stores the requested reserved subdomain sent by the client.
+func (t *Tunnel) SetRequestedSubdomain(subdomain string) {
+	t.mu.Lock()
+	t.requestedSubdomain = subdomain
+	t.mu.Unlock()
+}
+
+// GetRequestedSubdomain returns the requested reserved subdomain, or "" if none was provided.
+func (t *Tunnel) GetRequestedSubdomain() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.requestedSubdomain
 }
 
 // Transport returns the reusable HTTP transport for this tunnel

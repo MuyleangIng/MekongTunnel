@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	testSSHHost    = "mekongtunnel.dev"
 	defaultSSHPort = "22"
 )
+
+var testSSHHost = tunnelDomain
 
 type testResult struct {
 	name    string
@@ -116,7 +117,7 @@ func testSSHPort() testResult {
 // testAPIHealth calls /api/health on the backend.
 func testAPIHealth() testResult {
 	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Get(apiBase + "/api/health")
+	resp, err := client.Get(authAPIBase + "/api/health")
 	if err != nil {
 		return testResult{name: "API health check", detail: err.Error()}
 	}
@@ -124,13 +125,13 @@ func testAPIHealth() testResult {
 	if resp.StatusCode != 200 {
 		return testResult{name: "API health check", detail: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
-	return testResult{name: "API health check", ok: true, detail: apiBase + "/api/health → 200 OK"}
+	return testResult{name: "API health check", ok: true, detail: authAPIBase + "/api/health → 200 OK"}
 }
 
 // testAPIVersion fetches the server version from /api/health response.
 func testAPIVersion() testResult {
 	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Get(apiBase + "/api/health")
+	resp, err := client.Get(authAPIBase + "/api/health")
 	if err != nil {
 		return testResult{name: "Server version", detail: err.Error()}
 	}
@@ -158,7 +159,7 @@ func testAuthToken(token string) testResult {
 		}
 	}
 	client := &http.Client{Timeout: 8 * time.Second}
-	req, _ := http.NewRequest("GET", apiBase+"/api/auth/token-info", nil)
+	req, _ := http.NewRequest("GET", authAPIBase+"/api/auth/token-info", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -185,7 +186,7 @@ func testWhoami(token string) testResult {
 	}
 	// Try to fetch display info from API
 	client := &http.Client{Timeout: 8 * time.Second}
-	req, _ := http.NewRequest("GET", apiBase+"/api/auth/token-info", nil)
+	req, _ := http.NewRequest("GET", authAPIBase+"/api/auth/token-info", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != 200 {

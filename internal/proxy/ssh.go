@@ -210,19 +210,12 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 	}
 
 	// If the client sent an API token, validate it and try to claim a reserved subdomain.
-	// This runs after setupSession so the token env var has been applied to tun.
-	if s.tokenValidator != nil {
-		if rawToken := tun.GetAPIToken(); rawToken != "" {
-			if userID, err := s.tokenValidator.ValidateToken(ctx, rawToken); err == nil {
-				if reserved, _ := s.tokenValidator.GetFirstReservedSubdomain(ctx, userID); reserved != "" {
-					if s.RenameTunnel(sub, reserved) {
-						sub = reserved
-					}
-				}
-			} else {
-				log.Printf("Token validation failed for tunnel %s: %v", sub, err)
-			}
-		}
+	// This runs after setupSession so the env requests have been applied to tun.
+	sub, err = s.claimReservedSubdomain(ctx, tun, sub)
+	if err != nil {
+		fmt.Fprintf(channel, "\r\n  ERROR: %s\r\n\r\n", err)
+		channel.Close()
+		return
 	}
 
 	// Build the public URL and compose the terminal welcome message after
@@ -386,7 +379,60 @@ func (s *Server) setupSession(requests <-chan *ssh.Request, tun *tunnel.Tunnel) 
 }
 
 // tokenEnvName is the SSH environment variable the CLI sends to pass an API token.
-const tokenEnvName = "MEKONG_API_TOKEN"
+const (
+	tokenEnvName              = "MEKONG_API_TOKEN"
+	requestedSubdomainEnvName = "MEKONG_SUBDOMAIN"
+)
+
+func (s *Server) claimReservedSubdomain(ctx context.Context, tun *tunnel.Tunnel, currentSub string) (string, error) {
+	requested := tun.GetRequestedSubdomain()
+	if requested != "" && s.tokenValidator == nil {
+		return currentSub, fmt.Errorf("reserved subdomains are not available on this server")
+	}
+
+	rawToken := tun.GetAPIToken()
+	if requested != "" && rawToken == "" {
+		return currentSub, fmt.Errorf("reserved subdomain %q requires login or --token", requested)
+	}
+	if s.tokenValidator == nil || rawToken == "" {
+		return currentSub, nil
+	}
+
+	userID, err := s.tokenValidator.ValidateToken(ctx, rawToken)
+	if err != nil {
+		if requested != "" {
+			return currentSub, fmt.Errorf("invalid API token for reserved subdomain %q", requested)
+		}
+		log.Printf("Token validation failed for tunnel %s: %v", currentSub, err)
+		return currentSub, nil
+	}
+
+	target := ""
+	if requested != "" {
+		reserved, err := s.tokenValidator.GetReservedSubdomainForUser(ctx, userID, requested)
+		if err != nil {
+			return currentSub, fmt.Errorf("could not verify reserved subdomain %q", requested)
+		}
+		if reserved == "" {
+			return currentSub, fmt.Errorf("reserved subdomain %q was not found in your account", requested)
+		}
+		target = reserved
+	} else {
+		reserved, _ := s.tokenValidator.GetFirstReservedSubdomain(ctx, userID)
+		target = reserved
+	}
+
+	if target == "" || target == currentSub {
+		return currentSub, nil
+	}
+	if !s.RenameTunnel(currentSub, target) {
+		if requested != "" {
+			return currentSub, fmt.Errorf("reserved subdomain %q is already active", target)
+		}
+		return currentSub, nil
+	}
+	return target, nil
+}
 
 func applyEnvRequest(req *ssh.Request, tun *tunnel.Tunnel) error {
 	var payload envRequest
@@ -398,6 +444,17 @@ func applyEnvRequest(req *ssh.Request, tun *tunnel.Tunnel) error {
 		return applyRequestedExpiry(payload.Value, tun)
 	case tokenEnvName:
 		tun.SetAPIToken(payload.Value)
+	case requestedSubdomainEnvName:
+		subdomain := strings.ToLower(strings.TrimSpace(payload.Value))
+		if subdomain == "" {
+			return nil
+		}
+		for _, c := range subdomain {
+			if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+				return fmt.Errorf("invalid reserved subdomain %q", payload.Value)
+			}
+		}
+		tun.SetRequestedSubdomain(subdomain)
 	}
 	return nil
 }

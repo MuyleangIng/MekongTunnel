@@ -16,9 +16,20 @@ import (
 	"time"
 )
 
+func envOrDefault(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+var (
+	authAPIBase  = envOrDefault("MEKONG_AUTH_API_BASE", "https://api.angkorsearch.dev")
+	authWebBase  = envOrDefault("MEKONG_AUTH_WEB_BASE", "https://angkorsearch.dev")
+	tunnelDomain = envOrDefault("MEKONG_TUNNEL_DOMAIN", "proxy.angkorsearch.dev")
+)
+
 const (
-	apiBase   = "https://api.angkorsearch.dev" // Go API backend
-	webBase   = "https://angkorsearch.dev"     // Next.js frontend
 	pollEvery = 3 * time.Second
 	pollMax   = 5 * time.Minute
 )
@@ -75,7 +86,7 @@ func apiPost(path string, body any) ([]byte, int, error) {
 			return nil, 0, err
 		}
 	}
-	resp, err := http.Post(apiBase+path, "application/json", &buf)
+	resp, err := http.Post(authAPIBase+path, "application/json", &buf)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -85,7 +96,7 @@ func apiPost(path string, body any) ([]byte, int, error) {
 }
 
 func apiGet(path string) ([]byte, int, error) {
-	resp, err := http.Get(apiBase + path)
+	resp, err := http.Get(authAPIBase + path)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -108,6 +119,27 @@ func unwrapData(b []byte, dst any) error {
 	return json.Unmarshal(env.Data, dst)
 }
 
+func resolveAPIToken(explicit string) string {
+	apiToken := strings.TrimSpace(explicit)
+	if apiToken == "" {
+		apiToken = strings.TrimSpace(os.Getenv("MEKONG_TOKEN"))
+	}
+	if apiToken == "" {
+		if cfg, err := loadAuthConfig(); err == nil {
+			apiToken = strings.TrimSpace(cfg.Token)
+		}
+	}
+	return apiToken
+}
+
+func requireAPIToken(explicit string) (string, error) {
+	apiToken := resolveAPIToken(explicit)
+	if apiToken == "" {
+		return "", fmt.Errorf("no API token found; run 'mekong login' first")
+	}
+	return apiToken, nil
+}
+
 // ── openBrowser ───────────────────────────────────────────────────────────────
 
 func openBrowser(url string) {
@@ -127,7 +159,7 @@ func openBrowser(url string) {
 // ── mekong login ─────────────────────────────────────────────────────────────
 
 func runLogin() error {
-	fmt.Printf("\n%s  Connecting to angkorsearch.dev...%s\n", gray, reset)
+	fmt.Printf("\n%s  Connecting to %s...%s\n", gray, authWebBase, reset)
 
 	// 1. Create a device session
 	b, status, err := apiPost("/api/cli/device", nil)
@@ -145,12 +177,12 @@ func runLogin() error {
 
 	// 2. Print login URL and try to open the browser
 	fmt.Printf("\n")
-	fmt.Printf(cyan+"  ┌──────────────────────────────────────────────────┐\n"+reset)
-	fmt.Printf(cyan+"  │  "+reset+yellow+"Open this URL to log in:"+reset+"                      "+cyan+"│\n"+reset)
+	fmt.Printf(cyan + "  ┌──────────────────────────────────────────────────┐\n" + reset)
+	fmt.Printf(cyan + "  │  " + reset + yellow + "Open this URL to log in:" + reset + "                      " + cyan + "│\n" + reset)
 	fmt.Printf(cyan+"  │  "+reset+purple+"%-50s"+cyan+"│\n"+reset, sess.LoginURL)
-	fmt.Printf(cyan+"  └──────────────────────────────────────────────────┘\n"+reset)
+	fmt.Printf(cyan + "  └──────────────────────────────────────────────────┘\n" + reset)
 	fmt.Printf("\n")
-	fmt.Printf(gray+"  Tip: "+reset+"Press "+yellow+"Enter"+reset+" to open in your browser, or visit the URL manually.\n\n")
+	fmt.Printf(gray + "  Tip: " + reset + "Press " + yellow + "Enter" + reset + " to open in your browser, or visit the URL manually.\n\n")
 
 	// Non-blocking read: if user presses Enter, open browser
 	doneCh := make(chan struct{})
@@ -166,7 +198,7 @@ func runLogin() error {
 		openBrowser(sess.LoginURL)
 	}()
 
-	fmt.Printf(gray+"  Waiting for authorization..."+reset)
+	fmt.Printf(gray + "  Waiting for authorization..." + reset)
 
 	// 3. Poll until approved or expired
 	deadline := time.Now().Add(pollMax)
@@ -215,7 +247,7 @@ func runLogin() error {
 // It saves the token and fetches the user's email for display.
 func finishLogin(token string) error {
 	// Fetch user info using the API token (/token-info accepts mkt_xxx, not JWT)
-	req, _ := http.NewRequest("GET", apiBase+"/api/auth/token-info", nil)
+	req, _ := http.NewRequest("GET", authAPIBase+"/api/auth/token-info", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	var email, userID string
@@ -242,13 +274,13 @@ func finishLogin(token string) error {
 	}
 
 	fmt.Printf("\n")
-	fmt.Printf(green+"  ✔  Logged in"+reset)
+	fmt.Printf(green + "  ✔  Logged in" + reset)
 	if email != "" {
 		fmt.Printf(gray+" as "+reset+yellow+"%s"+reset, email)
 	}
 	fmt.Printf("\n\n")
-	fmt.Printf(gray+"  Your tunnels will now use your reserved subdomain.\n"+reset)
-	fmt.Printf(gray+"  Run: "+reset+cyan+"mekong 3000"+reset+"\n\n")
+	fmt.Printf(gray + "  Your tunnels will now use your reserved subdomain.\n" + reset)
+	fmt.Printf(gray + "  Run: " + reset + cyan + "mekong subdomains" + reset + gray + "  or  " + reset + cyan + "mekong 3000 --subdomain myapp" + reset + "\n\n")
 	return nil
 }
 
@@ -266,7 +298,7 @@ func runLogout() {
 	if email != "" {
 		fmt.Printf(yellow+"  ✔  Logged out "+gray+"(was: %s)"+reset+"\n\n", email)
 	} else {
-		fmt.Printf(yellow+"  ✔  Logged out"+reset+"\n\n")
+		fmt.Printf(yellow + "  ✔  Logged out" + reset + "\n\n")
 	}
 }
 
@@ -280,7 +312,7 @@ func runWhoami() {
 	}
 
 	// Try to fetch fresh user info
-	req, _ := http.NewRequest("GET", apiBase+"/api/auth/token-info", nil)
+	req, _ := http.NewRequest("GET", authAPIBase+"/api/auth/token-info", nil)
 	req.Header.Set("Authorization", "Bearer "+cfg.Token)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -290,11 +322,11 @@ func runWhoami() {
 	fmt.Printf("\n")
 	if err != nil || resp.StatusCode != 200 {
 		// Fallback to cached info
-		fmt.Printf(gray+"  Token   "+reset+purple+strings.Repeat("*", 8)+reset+"\n")
+		fmt.Print(gray + "  Token   " + reset + purple + strings.Repeat("*", 8) + reset + "\n")
 		if cfg.Email != "" {
 			fmt.Printf(gray+"  Email   "+reset+purple+"%s"+reset+"\n", cfg.Email)
 		}
-		fmt.Printf(gray+"  (could not reach server to verify)"+reset+"\n\n")
+		fmt.Printf(gray + "  (could not reach server to verify)" + reset + "\n\n")
 		return
 	}
 	defer resp.Body.Close()
@@ -325,13 +357,13 @@ func runWhoami() {
 		prefix = prefix[:12] + strings.Repeat("*", len(cfg.Token)-12)
 	}
 
-	fmt.Printf(gray+"  ─────────────────────────────────────────\n"+reset)
+	fmt.Printf(gray + "  ─────────────────────────────────────────\n" + reset)
 	if user.Name != "" {
 		fmt.Printf(gray+"  Name    "+reset+yellow+"%s"+reset+"\n", user.Name)
 	}
 	fmt.Printf(gray+"  Email   "+reset+yellow+"%s"+reset+"\n", user.Email)
 	fmt.Printf(gray+"  Plan    "+reset+yellow+"%s"+reset+"\n", user.Plan)
 	fmt.Printf(gray+"  Token   "+reset+purple+"%s"+reset+"\n", prefix)
-	fmt.Printf(gray+"  ─────────────────────────────────────────\n"+reset)
+	fmt.Printf(gray + "  ─────────────────────────────────────────\n" + reset)
 	fmt.Printf("\n")
 }

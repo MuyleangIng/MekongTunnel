@@ -32,6 +32,11 @@ type TokenValidator interface {
 	ValidateToken(ctx context.Context, rawToken string) (string, error)
 	// GetFirstReservedSubdomain returns the first reserved subdomain for the user, or "" if none.
 	GetFirstReservedSubdomain(ctx context.Context, userID string) (string, error)
+	// GetReservedSubdomainForUser returns the requested reserved subdomain when it belongs to the user, or "" otherwise.
+	GetReservedSubdomainForUser(ctx context.Context, userID, subdomain string) (string, error)
+	// LookupVerifiedCustomDomainTarget returns the reserved subdomain routed by a
+	// verified custom domain, or found=false when the host is unknown.
+	LookupVerifiedCustomDomainTarget(ctx context.Context, host string) (targetSubdomain string, found bool, err error)
 }
 
 // Server manages SSH tunnels and HTTP proxying.
@@ -80,6 +85,7 @@ func (s *Server) RenameTunnel(oldSub, newSub string) bool {
 		return false // reserved subdomain already in use
 	}
 	delete(s.tunnels, oldSub)
+	tun.Subdomain = newSub
 	s.tunnels[newSub] = tun
 	return true
 }
@@ -133,7 +139,7 @@ func New(hostKeyPath string, domain string, maxTunnelsPerIP int, maxTotalTunnels
 	return s, nil
 }
 
-// Domain returns the configured domain name (e.g. "muyleanging.com").
+// Domain returns the configured domain name (e.g. "proxy.angkorsearch.dev").
 func (s *Server) Domain() string {
 	return s.domain
 }
@@ -273,6 +279,13 @@ func (s *Server) GetTunnel(sub string) *tunnel.Tunnel {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.tunnels[sub]
+}
+
+func (s *Server) lookupCustomDomainTarget(ctx context.Context, host string) (targetSubdomain string, found bool, err error) {
+	if s.tokenValidator == nil {
+		return "", false, nil
+	}
+	return s.tokenValidator.LookupVerifiedCustomDomainTarget(ctx, host)
 }
 
 // RegisterSSHConn tracks an SSH connection for clientIP so it can be force-closed when the IP is blocked.

@@ -17,7 +17,7 @@ const (
 	AuthorKhName = "អុឹង មួយលៀង"
 	AuthorHandle = "Ing_Muyleang"
 
-	DefaultDomain     = "muyleanging.com"
+	DefaultDomain     = "proxy.angkorsearch.dev"
 	InactivityTimeout = 2 * time.Hour
 
 	// SSH handshake timeout

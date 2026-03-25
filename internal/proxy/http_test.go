@@ -4,6 +4,7 @@
 package proxy
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -14,7 +15,29 @@ import (
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
+	"github.com/MuyleangIng/MekongTunnel/internal/tunnel"
 )
+
+type stubTokenValidator struct {
+	customTargets map[string]string
+}
+
+func (s stubTokenValidator) ValidateToken(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (s stubTokenValidator) GetFirstReservedSubdomain(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (s stubTokenValidator) GetReservedSubdomainForUser(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+func (s stubTokenValidator) LookupVerifiedCustomDomainTarget(_ context.Context, host string) (string, bool, error) {
+	target, ok := s.customTargets[host]
+	return target, ok, nil
+}
 
 func TestStripPort(t *testing.T) {
 	tests := []struct {
@@ -412,7 +435,7 @@ func TestRedirectToWarningPage(t *testing.T) {
 	}
 
 	loc := w.Header().Get("Location")
-	wantPrefix := "https://" + config.DefaultDomain + "/#/warning?"
+	wantPrefix := "https://" + config.DefaultDomain + "/?"
 	if !strings.HasPrefix(loc, wantPrefix) {
 		t.Errorf("Location = %q, want prefix %q", loc, wantPrefix)
 	}
@@ -421,5 +444,104 @@ func TestRedirectToWarningPage(t *testing.T) {
 	}
 	if !strings.Contains(loc, "subdomain="+url.QueryEscape(host)) {
 		t.Errorf("Location missing subdomain param: %q", loc)
+	}
+}
+
+func TestServeHTTPAllowsActiveReservedSubdomain(t *testing.T) {
+	s := newTestServer(t)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	backend := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "reserved ok")
+	})}
+	go func() { _ = backend.Serve(listener) }()
+	t.Cleanup(func() { _ = backend.Close() })
+
+	tun := tunnel.New("myapp", listener, "localhost", 8080, "127.0.0.1", time.Hour)
+	s.mu.Lock()
+	s.tunnels["myapp"] = tun
+	s.mu.Unlock()
+
+	r := httptest.NewRequest("GET", "https://myapp."+config.DefaultDomain+"/", nil)
+	r.Host = "myapp." + config.DefaultDomain
+	r.Header.Set("User-Agent", "curl/8.0.0")
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if body := w.Body.String(); body != "reserved ok" {
+		t.Fatalf("body = %q, want %q", body, "reserved ok")
+	}
+}
+
+func TestServeHTTPRoutesVerifiedCustomDomain(t *testing.T) {
+	s := newTestServer(t)
+	s.tokenValidator = stubTokenValidator{
+		customTargets: map[string]string{
+			"app.example.com": "myapp",
+		},
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	backend := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "custom ok")
+	})}
+	go func() { _ = backend.Serve(listener) }()
+	t.Cleanup(func() { _ = backend.Close() })
+
+	tun := tunnel.New("myapp", listener, "localhost", 8080, "127.0.0.1", time.Hour)
+	s.mu.Lock()
+	s.tunnels["myapp"] = tun
+	s.mu.Unlock()
+
+	r := httptest.NewRequest("GET", "https://app.example.com/", nil)
+	r.Host = "app.example.com"
+	r.Header.Set("User-Agent", "Mozilla/5.0")
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if body := w.Body.String(); body != "custom ok" {
+		t.Fatalf("body = %q, want %q", body, "custom ok")
+	}
+}
+
+func TestHTTPRedirectHandlerAllowsVerifiedCustomDomain(t *testing.T) {
+	s := newTestServer(t)
+	s.tokenValidator = stubTokenValidator{
+		customTargets: map[string]string{
+			"app.example.com": "myapp",
+		},
+	}
+
+	r := httptest.NewRequest("GET", "http://app.example.com/docs", nil)
+	r.Host = "app.example.com"
+	w := httptest.NewRecorder()
+
+	s.HTTPRedirectHandler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusMovedPermanently)
+	}
+	if got := w.Header().Get("Location"); got != "https://app.example.com/docs" {
+		t.Fatalf("Location = %q, want %q", got, "https://app.example.com/docs")
 	}
 }

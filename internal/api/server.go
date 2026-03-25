@@ -126,13 +126,13 @@ func (s *Server) registerRoutes() {
 	teamH := &handlers.TeamHandler{DB: s.db}
 	adminH := &handlers.AdminHandler{DB: s.db, Notify: notifySvc, Mailer: mailSvc, FrontendURL: s.cfg.FrontendURL}
 	newsletterH := &handlers.NewsletterHandler{DB: s.db, Mailer: mailSvc}
-	partnersH  := &handlers.PartnersHandler{DB: s.db}
-	sponsorsH  := &handlers.SponsorsHandler{DB: s.db}
-	notifH   := &handlers.NotificationsHandler{DB: s.db, Hub: s.hub, JWTSecret: s.cfg.JWTSecret}
-	monitorH    := &handlers.MonitorHandler{}
-	subdomainH  := &handlers.SubdomainHandler{DB: s.db}
-	domainsH    := &handlers.DomainsHandler{DB: s.db}
-	uploadH     := &handlers.UploadHandler{
+	partnersH := &handlers.PartnersHandler{DB: s.db}
+	sponsorsH := &handlers.SponsorsHandler{DB: s.db}
+	notifH := &handlers.NotificationsHandler{DB: s.db, Hub: s.hub, JWTSecret: s.cfg.JWTSecret}
+	monitorH := &handlers.MonitorHandler{}
+	subdomainH := &handlers.SubdomainHandler{DB: s.db}
+	domainsH := &handlers.DomainsHandler{DB: s.db}
+	uploadH := &handlers.UploadHandler{
 		UploadDir: s.cfg.UploadDir,
 		BaseURL:   s.cfg.PublicURL,
 	}
@@ -190,6 +190,14 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/cli/device", cliDeviceH.CreateSession)
 	s.mux.HandleFunc("GET /api/cli/device", cliDeviceH.PollSession)
 	s.mux.HandleFunc("POST /api/cli/device/approve", chain(cliDeviceH.ApproveSession, authRequired))
+	s.mux.HandleFunc("GET /api/cli/subdomains", subdomainH.ListCLI)
+	s.mux.HandleFunc("POST /api/cli/subdomains", subdomainH.CreateCLI)
+	s.mux.HandleFunc("DELETE /api/cli/subdomains/{id}", subdomainH.DeleteCLI)
+	s.mux.HandleFunc("GET /api/cli/domains", domainsH.ListCLI)
+	s.mux.HandleFunc("POST /api/cli/domains", domainsH.CreateCLI)
+	s.mux.HandleFunc("DELETE /api/cli/domains/{id}", domainsH.DeleteCLI)
+	s.mux.HandleFunc("POST /api/cli/domains/{id}/verify", domainsH.VerifyCLI)
+	s.mux.HandleFunc("PATCH /api/cli/domains/{id}/target", domainsH.SetTargetCLI)
 
 	// ── Tunnels ─────────────────────────────────────────────────
 	s.mux.HandleFunc("GET /api/tunnels", chain(tunnelsH.ListTunnels, authRequired))
@@ -237,6 +245,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/admin/users/{id}", adminChain(adminH.DeleteUser))
 	s.mux.HandleFunc("GET /api/admin/tunnels", adminChain(adminH.ListTunnels))
 	s.mux.HandleFunc("DELETE /api/admin/tunnels/{id}", adminChain(adminH.KillTunnel))
+	s.mux.HandleFunc("GET /api/admin/domains", adminChain(adminH.ListDomains))
+	s.mux.HandleFunc("GET /api/admin/domains/{id}", adminChain(adminH.GetDomain))
+	s.mux.HandleFunc("POST /api/admin/domains/{id}/verify", adminChain(adminH.VerifyDomain))
+	s.mux.HandleFunc("PATCH /api/admin/domains/{id}/target", adminChain(adminH.SetDomainTarget))
+	s.mux.HandleFunc("DELETE /api/admin/domains/{id}", adminChain(adminH.DeleteDomain))
 	s.mux.HandleFunc("GET /api/admin/plans", adminChain(adminH.GetPlans))
 	s.mux.HandleFunc("PUT /api/admin/plans", adminChain(adminH.UpdatePlans))
 	s.mux.HandleFunc("GET /api/admin/organizations", adminChain(adminH.ListOrgs))
@@ -367,4 +380,3 @@ func chain(h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) h
 	}
 	return handler.ServeHTTP
 }
-

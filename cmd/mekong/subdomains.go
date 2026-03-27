@@ -108,6 +108,34 @@ func findReservedSubdomain(list []reservedSubdomain, subdomain string) (reserved
 	return reservedSubdomain{}, false
 }
 
+func subdomainCommandUsage() string {
+	return "mekong subdomain [list|add|delete] [name]"
+}
+
+func runSubdomainCommand(args []string) error {
+	if len(args) == 0 {
+		return runSubdomainsCommand(nil)
+	}
+
+	switch args[0] {
+	case "list", "ls":
+		return runSubdomainsCommand(args[1:])
+	case "add", "create", "reserve":
+		return runReserveCommand(args[1:])
+	case "delete", "remove", "rm", "unreserve":
+		return runDeleteCommand(args[1:])
+	case "help", "--help", "-h":
+		printSubdomainHelp()
+		return nil
+	}
+
+	if len(args) == 1 {
+		return runReserveCommand(args)
+	}
+
+	return fmt.Errorf("usage: %s", subdomainCommandUsage())
+}
+
 func runSubdomainsCommand(args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("usage: mekong subdomains")
@@ -133,7 +161,7 @@ func runSubdomainsCommand(args []string) error {
 	}
 
 	if len(data.Subdomains) == 0 {
-		fmt.Printf(gray + "  None yet. Create one with " + reset + cyan + "mekong reserve myapp" + reset + "\n\n")
+		fmt.Printf(gray + "  None yet. Create one with " + reset + cyan + "mekong subdomain myapp" + reset + "\n\n")
 		return nil
 	}
 
@@ -141,7 +169,7 @@ func runSubdomainsCommand(args []string) error {
 		fmt.Printf(gray+"  Name    "+reset+yellow+"%s"+reset+"\n", sub.Subdomain)
 		fmt.Printf(gray+"  URL     "+reset+purple+"https://%s.%s"+reset+"\n", sub.Subdomain, tunnelDomain)
 		fmt.Printf(gray+"  Use     "+reset+cyan+"mekong 3000 --subdomain %s"+reset+"\n", sub.Subdomain)
-		fmt.Printf(gray+"  Delete  "+reset+cyan+"mekong delete %s"+reset+"\n", sub.Subdomain)
+		fmt.Printf(gray+"  Delete  "+reset+cyan+"mekong subdomain delete %s"+reset+"\n", sub.Subdomain)
 		fmt.Printf(gray+"  Added   "+reset+purple+"%s"+reset+"\n", sub.CreatedAt.Format("2006-01-02 15:04"))
 		fmt.Printf(gray + "  ─────────────────────────────────────────\n" + reset)
 	}
@@ -151,7 +179,7 @@ func runSubdomainsCommand(args []string) error {
 
 func runReserveCommand(args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: mekong reserve <subdomain>")
+		return fmt.Errorf("usage: mekong subdomain <name>")
 	}
 
 	subdomain, err := normalizeRequestedSubdomain(args[0])
@@ -192,7 +220,7 @@ func runReserveCommand(args []string) error {
 
 func runDeleteCommand(args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: mekong delete <subdomain>")
+		return fmt.Errorf("usage: mekong subdomain delete <name>")
 	}
 
 	subdomain, err := normalizeRequestedSubdomain(args[0])
@@ -229,6 +257,6 @@ func runDeleteCommand(args []string) error {
 	fmt.Printf("\n")
 	fmt.Printf(green + "  ✔  Reserved subdomain deleted" + reset + "\n")
 	fmt.Printf(gray+"     Name   "+reset+yellow+"%s"+reset+"\n", target.Subdomain)
-	fmt.Printf(gray+"     Next   "+reset+cyan+"mekong reserve %s"+reset+gray+"  to claim it again"+reset+"\n\n", target.Subdomain)
+	fmt.Printf(gray+"     Next   "+reset+cyan+"mekong subdomain %s"+reset+gray+"  to claim it again"+reset+"\n\n", target.Subdomain)
 	return nil
 }

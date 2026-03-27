@@ -37,6 +37,7 @@ type Tunnel struct {
 	LastActive         time.Time
 	BindAddr           string
 	BindPort           uint32
+	localPort          uint32
 	ClientIP           string // SSH client IP that created this tunnel
 	mu                 sync.Mutex
 	rateLimiter        *RateLimiter
@@ -49,6 +50,7 @@ type Tunnel struct {
 	inactivityTTL      time.Duration
 	apiToken           string // raw API token sent by the client via MEKONG_API_TOKEN env var
 	requestedSubdomain string // requested reserved subdomain sent via MEKONG_SUBDOMAIN
+	upstreamHost       string // local Host header override sent via MEKONG_UPSTREAM_HOST
 }
 
 // New creates a new tunnel with the given parameters
@@ -240,6 +242,34 @@ func (t *Tunnel) GetRequestedSubdomain() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.requestedSubdomain
+}
+
+// SetUpstreamHost stores the Host header override sent by the client.
+func (t *Tunnel) SetUpstreamHost(host string) {
+	t.mu.Lock()
+	t.upstreamHost = host
+	t.mu.Unlock()
+}
+
+// SetLocalPort stores the developer's actual local app port sent by the client.
+func (t *Tunnel) SetLocalPort(port uint32) {
+	t.mu.Lock()
+	t.localPort = port
+	t.mu.Unlock()
+}
+
+// LocalPort returns the developer's actual local app port, or 0 if unknown.
+func (t *Tunnel) LocalPort() uint32 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.localPort
+}
+
+// UpstreamHost returns the local Host header override, or "" if none was provided.
+func (t *Tunnel) UpstreamHost() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.upstreamHost
 }
 
 // Transport returns the reusable HTTP transport for this tunnel

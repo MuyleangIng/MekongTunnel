@@ -6,10 +6,20 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/models"
 )
 
-// GetServerConfig returns the single server_config row, seeding it if missing.
+// EnsureServerConfig inserts the singleton config row when it is missing.
+func (db *DB) EnsureServerConfig(ctx context.Context) error {
+	_, err := db.Pool.Exec(ctx, `INSERT INTO server_config (id) VALUES (1) ON CONFLICT DO NOTHING`)
+	return err
+}
+
+// GetServerConfig returns the single server_config row.
 func (db *DB) GetServerConfig(ctx context.Context) (*models.ServerConfig, error) {
-	// Ensure the seed row exists (migration does this too, but belt-and-suspenders).
-	_, _ = db.Pool.Exec(ctx, `INSERT INTO server_config (id) VALUES (1) ON CONFLICT DO NOTHING`)
+	if db.redis != nil {
+		cfg, ok, err := db.redis.GetServerConfig(ctx)
+		if err == nil && ok {
+			return cfg, nil
+		}
+	}
 
 	row := db.Pool.QueryRow(ctx, `
 		SELECT
@@ -23,11 +33,21 @@ func (db *DB) GetServerConfig(ctx context.Context) (*models.ServerConfig, error)
 			updated_at
 		FROM server_config WHERE id = 1
 	`)
-	return scanServerConfig(row)
+	cfg, err := scanServerConfig(row)
+	if err != nil {
+		return nil, err
+	}
+	if db.redis != nil {
+		_ = db.redis.SetServerConfig(ctx, cfg)
+	}
+	return cfg, nil
 }
 
 // UpdateServerConfig overwrites the single server_config row.
 func (db *DB) UpdateServerConfig(ctx context.Context, cfg models.ServerConfig) (*models.ServerConfig, error) {
+	if err := db.EnsureServerConfig(ctx); err != nil {
+		return nil, err
+	}
 	row := db.Pool.QueryRow(ctx, `
 		UPDATE server_config SET
 			max_tunnels_per_ip            = $1,
@@ -79,7 +99,14 @@ func (db *DB) UpdateServerConfig(ctx context.Context, cfg models.ServerConfig) (
 		cfg.AnnouncementLink,
 		cfg.AnnouncementLinkLabel,
 	)
-	return scanServerConfig(row)
+	updated, err := scanServerConfig(row)
+	if err != nil {
+		return nil, err
+	}
+	if db.redis != nil {
+		_ = db.redis.SetServerConfig(ctx, updated)
+	}
+	return updated, nil
 }
 
 type serverConfigScanner interface {

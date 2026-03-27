@@ -156,6 +156,44 @@ func openBrowser(url string) {
 	_ = exec.CommandContext(context.Background(), cmd, args...).Start()
 }
 
+func printLoginInstructions(url string) {
+	fmt.Printf("\n")
+	fmt.Printf(yellow + "  Login URL" + reset + "\n")
+	fmt.Printf(gray + "  ─────────────────────────────────────────\n" + reset)
+	fmt.Printf(gray+"  Open    "+reset+purple+"%s"+reset+"\n", url)
+	fmt.Printf(gray + "  Browser " + reset + cyan + "Press Enter to open it again" + reset + "\n\n")
+}
+
+func startSpinner(label string) chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		frames := []string{"|", "/", "-", `\`}
+		ticker := time.NewTicker(150 * time.Millisecond)
+		defer ticker.Stop()
+		i := 0
+		for {
+			select {
+			case <-done:
+				fmt.Printf("\r\033[K")
+				return
+			case <-ticker.C:
+				fmt.Printf("\r%s  %s %s%s", gray, label, frames[i%len(frames)], reset)
+				i++
+			}
+		}
+	}()
+	return done
+}
+
+func stopSpinner(done chan struct{}) {
+	if done == nil {
+		return
+	}
+	close(done)
+	// Give the goroutine a brief moment to clear the line before more output.
+	time.Sleep(25 * time.Millisecond)
+}
+
 // ── mekong login ─────────────────────────────────────────────────────────────
 
 func runLogin() error {
@@ -176,13 +214,7 @@ func runLogin() error {
 	}
 
 	// 2. Print login URL and try to open the browser
-	fmt.Printf("\n")
-	fmt.Printf(cyan + "  ┌──────────────────────────────────────────────────┐\n" + reset)
-	fmt.Printf(cyan + "  │  " + reset + yellow + "Open this URL to log in:" + reset + "                      " + cyan + "│\n" + reset)
-	fmt.Printf(cyan+"  │  "+reset+purple+"%-50s"+cyan+"│\n"+reset, sess.LoginURL)
-	fmt.Printf(cyan + "  └──────────────────────────────────────────────────┘\n" + reset)
-	fmt.Printf("\n")
-	fmt.Printf(gray + "  Tip: " + reset + "Press " + yellow + "Enter" + reset + " to open in your browser, or visit the URL manually.\n\n")
+	printLoginInstructions(sess.LoginURL)
 
 	// Non-blocking read: if user presses Enter, open browser
 	doneCh := make(chan struct{})
@@ -198,7 +230,7 @@ func runLogin() error {
 		openBrowser(sess.LoginURL)
 	}()
 
-	fmt.Printf(gray + "  Waiting for authorization..." + reset)
+	spinDone := startSpinner("Waiting for authorization")
 
 	// 3. Poll until approved or expired
 	deadline := time.Now().Add(pollMax)
@@ -225,21 +257,22 @@ func runLogin() error {
 			case "approved":
 				if poll.Token == "" {
 					// race — token already consumed? shouldn't happen
+					stopSpinner(spinDone)
 					return fmt.Errorf("session approved but token was already consumed")
 				}
-				fmt.Printf("\r\033[K") // clear "Waiting…" line
+				stopSpinner(spinDone)
 				return finishLogin(poll.Token)
 			case "expired":
-				fmt.Println()
+				stopSpinner(spinDone)
 				return fmt.Errorf("session expired — run 'mekong login' again")
 			}
-			// still pending — print a dot
-			fmt.Printf(".")
 		case <-doneCh:
-			// Enter pressed — just continue polling, browser was already opened
+			openBrowser(sess.LoginURL)
+			// Enter pressed — just continue polling and allow another browser open.
 			doneCh = make(chan struct{}) // reset so we don't re-trigger
 		}
 	}
+	stopSpinner(spinDone)
 	return fmt.Errorf("login timed out — run 'mekong login' again")
 }
 
@@ -279,8 +312,9 @@ func finishLogin(token string) error {
 		fmt.Printf(gray+" as "+reset+yellow+"%s"+reset, email)
 	}
 	fmt.Printf("\n\n")
-	fmt.Printf(gray + "  Your tunnels will now use your reserved subdomain.\n" + reset)
-	fmt.Printf(gray + "  Run: " + reset + cyan + "mekong subdomains" + reset + gray + "  or  " + reset + cyan + "mekong 3000 --subdomain myapp" + reset + "\n\n")
+	fmt.Printf(gray + "  Saved login is now the default auth for this machine.\n" + reset)
+	fmt.Printf(gray + "  Run: " + reset + cyan + "mekong 3000" + reset + gray + "  for a random URL, or  " + reset + cyan + "mekong 3000 --subdomain myapp" + reset + gray + "  for a reserved one" + reset + "\n")
+	fmt.Printf(gray + "  See: " + reset + cyan + "mekong subdomains" + reset + gray + "  for your reserved names.\n\n" + reset)
 	return nil
 }
 

@@ -8,14 +8,17 @@
 package proxy
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,7 +79,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Bad Request", http.StatusBadRequest)
 				return
 			}
-			http.Error(w, "Not Found", http.StatusNotFound)
+			s.serveTunnelOfflinePage(w, r, host, sub, false)
 			return
 		}
 	default:
@@ -87,18 +90,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !found {
+			if wantsHTMLResponse(r) {
+				s.serveCustomDomainPendingPage(w, r, host)
+				return
+			}
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
 		if targetSubdomain == "" {
-			http.Error(w, "Not Found", http.StatusNotFound)
+			s.serveCustomDomainPendingPage(w, r, host)
 			return
 		}
 		customDomain = true
 		sub = targetSubdomain
 		tun = s.GetTunnel(sub)
 		if tun == nil {
-			http.Error(w, "Not Found", http.StatusNotFound)
+			s.serveTunnelOfflinePage(w, r, host, sub, true)
 			return
 		}
 	}
@@ -142,10 +149,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
+			originalHost := r.Host
 			// Rewrite the request to target the tunnel's internal TCP listener.
 			req.URL.Scheme = "http"
 			req.URL.Host = tun.Listener.Addr().String()
-			req.Host = r.Host
+			req.Host = effectiveUpstreamHost(tun, originalHost)
+			req.Header.Set("X-Forwarded-Host", originalHost)
+			req.Header.Set("X-Forwarded-Proto", "https")
+			req.Header.Set("X-Original-Host", originalHost)
 		},
 		Transport: tun.Transport(),
 		ModifyResponse: func(resp *http.Response) error {
@@ -165,7 +176,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			log.Printf("Proxy error for %s: %v", sub, err)
 			if strings.Contains(err.Error(), "response too large") {
+				if wantsHTMLResponse(r) {
+					s.serveUpstreamUnavailablePage(w, r, host, sub, tun, "The local app responded with more data than this tunnel allows.", "ERR_MEKONG_RESPONSE_TOO_LARGE")
+					return
+				}
 				http.Error(w, "Response Too Large", http.StatusBadGateway)
+				return
+			}
+			if wantsHTMLResponse(r) {
+				s.serveUpstreamUnavailablePage(w, r, host, sub, tun, "Traffic reached MekongTunnel, but the local app behind this tunnel did not answer.", "ERR_MEKONG_UPSTREAM_UNREACHABLE")
 				return
 			}
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -206,8 +225,15 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request, tun *tu
 	}
 	defer clientConn.Close()
 
+	backendReq := r.Clone(r.Context())
+	backendReq.Header = r.Header.Clone()
+	backendReq.Host = effectiveUpstreamHost(tun, r.Host)
+	backendReq.Header.Set("X-Forwarded-Host", r.Host)
+	backendReq.Header.Set("X-Forwarded-Proto", "https")
+	backendReq.Header.Set("X-Original-Host", r.Host)
+
 	// Forward the original HTTP upgrade request to the backend.
-	if err := r.Write(backendConn); err != nil {
+	if err := backendReq.Write(backendConn); err != nil {
 		log.Printf("WebSocket request write error for %s: %v", sub, err)
 		return
 	}
@@ -266,6 +292,16 @@ func copyWithLimits(dst, src net.Conn, maxBytes int64, idleTimeout time.Duration
 	}
 }
 
+func effectiveUpstreamHost(tun *tunnel.Tunnel, originalHost string) string {
+	if tun == nil {
+		return originalHost
+	}
+	if upstream := tun.UpstreamHost(); upstream != "" {
+		return upstream
+	}
+	return originalHost
+}
+
 // setSecurityHeaders adds standard security headers to every response.
 func setSecurityHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -297,27 +333,26 @@ func hasWarningCookie(r *http.Request, sub string) bool {
 	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte("1")) == 1
 }
 
+func wantsHTMLResponse(r *http.Request) bool {
+	if isBrowserRequest(r) {
+		return true
+	}
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	return strings.Contains(accept, "text/html") || strings.Contains(accept, "application/xhtml+xml")
+}
+
 // serveWarningPage serves the phishing-warning interstitial HTML page on the root domain.
 // It reads the redirect and subdomain from query parameters and sets a cookie on confirm.
 func (s *Server) serveWarningPage(w http.ResponseWriter, r *http.Request) {
 	redirect := r.URL.Query().Get("redirect")
 	sub := r.URL.Query().Get("subdomain")
 
-	if r.Method == http.MethodPost {
+	if r.Method == http.MethodPost || r.URL.Query().Get("continue") == "1" {
 		if redirect == "" {
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
-		subName := strings.TrimSuffix(sub, "."+s.domain)
-		// Set cookie on the parent domain (with leading dot) so it is sent
-		// to the subdomain tunnel on the next request.
-		http.SetCookie(w, &http.Cookie{
-			Name:   config.WarningCookieName + "_" + subName,
-			Value:  "1",
-			Path:   "/",
-			Domain: "." + s.domain,
-			MaxAge: config.WarningCookieMaxAge,
-		})
+		s.confirmWarningPage(w, sub)
 		http.Redirect(w, r, redirect, http.StatusSeeOther)
 		return
 	}
@@ -327,202 +362,122 @@ func (s *Server) serveWarningPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.renderHTMLPage(w, http.StatusOK, warningPageTemplate, tunnelWarningPageData{
+		Redirect:        redirect,
+		Subdomain:       sub,
+		ContinueHref:    warningContinueHref(redirect, sub),
+		DestinationHost: warningDestinationHost(redirect),
+		DestinationPath: warningDestinationPath(redirect),
+	}, "warning page unavailable")
+}
+
+func (s *Server) confirmWarningPage(w http.ResponseWriter, sub string) {
+	subName := strings.TrimSuffix(sub, "."+s.domain)
+	// Set cookie on the parent domain (with leading dot) so it is sent
+	// to the subdomain tunnel on the next request.
+	http.SetCookie(w, &http.Cookie{
+		Name:   config.WarningCookieName + "_" + subName,
+		Value:  "1",
+		Path:   "/",
+		Domain: "." + s.domain,
+		MaxAge: config.WarningCookieMaxAge,
+	})
+}
+
+func (s *Server) serveTunnelOfflinePage(w http.ResponseWriter, r *http.Request, publicHost, targetSub string, customDomain bool) {
+	command := ""
+	developerTip := "Restart Mekong from the machine sharing this app and keep the tunnel process running."
+	summary := "The link reached MekongTunnel, but there is no live tunnel behind it right now."
+	if customDomain {
+		summary = "This custom domain is reaching MekongTunnel, but it is not attached to a live tunnel right now."
+		if targetSub != "" {
+			developerTip = fmt.Sprintf("Reconnect the reserved subdomain %q from the sharing machine, then refresh this page.", targetSub)
+		} else {
+			developerTip = fmt.Sprintf("Attach %s to a reserved subdomain with `mekong domain connect %s <reserved-subdomain>`, then start the tunnel again.", publicHost, publicHost)
+			command = fmt.Sprintf("mekong domain connect %s <reserved-subdomain>", publicHost)
+		}
+	}
+	if targetSub != "" {
+		command = fmt.Sprintf("mekong <port> --subdomain %s", targetSub)
+	}
+
+	s.renderHTMLPage(w, http.StatusNotFound, issuePageTemplate, tunnelIssuePageData{
+		Accent:         "#dd6b20",
+		AccentSoft:     "rgba(221,107,32,0.16)",
+		StatusLine:     "404 · Tunnel offline",
+		Code:           "ERR_MEKONG_TUNNEL_OFFLINE",
+		Title:          "This tunnel is not live right now",
+		Summary:        summary,
+		PublicHost:     publicHost,
+		ReservedSub:    targetSub,
+		VisitorTip:     "If someone shared this link with you, ask them to reopen the app or reconnect Mekong, then refresh this page.",
+		DeveloperTip:   developerTip,
+		Command:        command,
+		PrimaryLabel:   "Try again",
+		PrimaryHref:    currentRequestURL(r),
+		SecondaryLabel: "Back to MekongTunnel",
+		SecondaryHref:  "https://angkorsearch.dev/",
+	}, "tunnel offline")
+}
+
+func (s *Server) serveCustomDomainPendingPage(w http.ResponseWriter, r *http.Request, publicHost string) {
+	s.renderHTMLPage(w, http.StatusNotFound, issuePageTemplate, tunnelIssuePageData{
+		Accent:         "#2b6cb0",
+		AccentSoft:     "rgba(43,108,176,0.14)",
+		StatusLine:     "404 · Custom domain not ready",
+		Code:           "ERR_MEKONG_DOMAIN_PENDING",
+		Title:          "This custom domain is not connected yet",
+		Summary:        "The request reached MekongTunnel, but this domain does not have a live tunnel target yet.",
+		PublicHost:     publicHost,
+		VisitorTip:     "If a developer shared this domain with you, they may still be setting it up. Give it a moment, then refresh the page.",
+		DeveloperTip:   fmt.Sprintf("Point %s at a reserved subdomain with `mekong domain connect %s <reserved-subdomain>`, verify DNS, then keep the tunnel running.", publicHost, publicHost),
+		Command:        fmt.Sprintf("mekong domain connect %s <reserved-subdomain>", publicHost),
+		PrimaryLabel:   "Try again",
+		PrimaryHref:    currentRequestURL(r),
+		SecondaryLabel: "Open MekongTunnel",
+		SecondaryHref:  "https://angkorsearch.dev/",
+	}, "custom domain pending")
+}
+
+func (s *Server) serveUpstreamUnavailablePage(w http.ResponseWriter, r *http.Request, publicHost, targetSub string, tun *tunnel.Tunnel, summary, code string) {
+	showConnectionFlow := code == "ERR_MEKONG_UPSTREAM_UNREACHABLE"
+	s.renderHTMLPage(w, http.StatusBadGateway, issuePageTemplate, tunnelIssuePageData{
+		Accent:             "#c53030",
+		AccentSoft:         "rgba(197,48,48,0.14)",
+		StatusLine:         "502 · Upstream unreachable",
+		Code:               code,
+		Title:              "The tunnel is live, but the local app is not reachable",
+		Summary:            summary,
+		ShowConnectionFlow: showConnectionFlow,
+		DashboardTitle:     "Tunnel Status",
+		DashboardMessage:   "Tunnel is active, but the local service is not reachable",
+		DashboardSubtext:   "Traffic reached MekongTunnel, but your local server did not respond.",
+		PublicHost:         publicHost,
+		ReservedSub:        targetSub,
+		LocalTarget:        localTarget(tun),
+		HostHeader:         upstreamHostLabel(tun),
+		VisitorTip:         "Refresh the page in a few moments. If the app is still offline, contact the person who shared this link.",
+		DeveloperTip:       upstreamUnavailableDeveloperTip(tun),
+		Command:            suggestedMekongCommand(tun),
+		PrimaryLabel:       "Reload page",
+		PrimaryHref:        currentRequestURL(r),
+		SecondaryLabel:     "Open MekongTunnel",
+		SecondaryHref:      "https://angkorsearch.dev/",
+	}, "upstream unavailable")
+}
+
+func (s *Server) renderHTMLPage(w http.ResponseWriter, status int, tmpl *template.Template, data any, fallback string) {
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		log.Printf("render html page: %v", err)
+		http.Error(w, fallback, status)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="km">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MekongTunnel — ការព្រមាន</title>
-<link href="https://fonts.googleapis.com/css2?family=Hanuman:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: 'Inter', sans-serif;
-    background: #0d0d1a;
-    background-image: radial-gradient(ellipse at top, #1a1035 0%%, #0d0d1a 70%%);
-    color: #e0e0e0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    padding: 20px;
-  }
-  .card {
-    background: linear-gradient(145deg, #16162a, #1e1e38);
-    border: 1px solid #FFD70033;
-    border-radius: 16px;
-    max-width: 540px;
-    width: 100%%;
-    padding: 44px 40px;
-    text-align: center;
-    box-shadow: 0 0 60px #FFD70015, 0 20px 40px #00000060;
-  }
-  .top-border {
-    height: 3px;
-    background: linear-gradient(90deg, #cc0001, #FFD700, #cc0001);
-    border-radius: 3px 3px 0 0;
-    margin: -44px -40px 36px;
-    border-top-left-radius: 16px;
-    border-top-right-radius: 16px;
-  }
-  .logo {
-    font-family: 'Inter', sans-serif;
-    color: #FFD700;
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    margin-bottom: 4px;
-  }
-  .author {
-    color: #888;
-    font-size: 12px;
-    margin-bottom: 32px;
-    letter-spacing: 0.5px;
-  }
-  .author span { color: #FFD70099; }
-  .shield {
-    width: 64px;
-    height: 64px;
-    background: linear-gradient(135deg, #cc000122, #FFD70022);
-    border: 2px solid #cc000155;
-    border-radius: 50%%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 28px;
-    margin: 0 auto 20px;
-  }
-  .km-title {
-    font-family: 'Hanuman', serif;
-    font-size: 22px;
-    color: #FFD700;
-    margin-bottom: 8px;
-    line-height: 1.5;
-  }
-  .en-subtitle {
-    font-size: 13px;
-    color: #cc4444;
-    font-weight: 600;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    margin-bottom: 20px;
-  }
-  .km-desc {
-    font-family: 'Hanuman', serif;
-    color: #aaa;
-    font-size: 15px;
-    line-height: 1.8;
-    margin-bottom: 8px;
-  }
-  .en-desc {
-    color: #666;
-    font-size: 12px;
-    line-height: 1.6;
-    margin-bottom: 20px;
-  }
-  .url-box {
-    background: #0a0a16;
-    border: 1px solid #FFD70033;
-    border-radius: 8px;
-    padding: 12px 16px;
-    font-family: monospace;
-    font-size: 13px;
-    color: #7c9fd4;
-    word-break: break-all;
-    margin: 20px 0;
-    text-align: left;
-  }
-  .url-label {
-    font-size: 10px;
-    color: #FFD70077;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 4px;
-  }
-  .divider {
-    border: none;
-    border-top: 1px solid #ffffff11;
-    margin: 20px 0;
-  }
-  .btn {
-    display: block;
-    width: 100%%;
-    background: linear-gradient(135deg, #cc0001, #8b0000);
-    color: #fff;
-    font-family: 'Hanuman', serif;
-    font-weight: 700;
-    font-size: 17px;
-    padding: 14px 32px;
-    border-radius: 10px;
-    border: none;
-    cursor: pointer;
-    margin-top: 8px;
-    letter-spacing: 0.5px;
-    transition: opacity 0.2s;
-    line-height: 1.6;
-  }
-  .btn:hover { opacity: 0.88; }
-  .btn-sub {
-    font-family: 'Inter', sans-serif;
-    font-size: 11px;
-    font-weight: 400;
-    opacity: 0.7;
-    display: block;
-    margin-top: 2px;
-  }
-  .dismiss {
-    font-family: 'Hanuman', serif;
-    color: #444;
-    font-size: 13px;
-    margin-top: 20px;
-    line-height: 1.6;
-  }
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="top-border"></div>
-  <div class="logo">MekongTunnel</div>
-  <div class="author">បង្កើតដោយ <span>អុឹង មួយលៀង (Ing Muyleang)</span> · KhmerStack</div>
-
-  <div class="shield">🛡️</div>
-
-  <div class="km-title">ការព្រមានសុវត្ថិភាព</div>
-  <div class="en-subtitle">Security Notice</div>
-
-  <div class="km-desc">
-    អ្នកកំពុងចូលទៅកាន់ផ្លូវទំនាក់ទំនងរបស់ភាគីទីបី។<br>
-    MekongTunnel មិនទទួលខុសត្រូវចំពោះមាតិការបស់ខ្លឹមសារនោះទេ។
-  </div>
-  <div class="en-desc">
-    You are about to visit a third-party tunnel.<br>
-    MekongTunnel is not responsible for its content.
-  </div>
-
-  <div class="url-box">
-    <div class="url-label">គោលដៅ · Destination</div>
-    %s
-  </div>
-
-  <div class="km-desc" style="font-size:14px;color:#888">
-    សូមបន្តតែប្រសិនបើអ្នកទុកចិត្តអ្នកដែលបានចែករំលែកតំណភ្ជាប់នេះ។
-  </div>
-
-  <hr class="divider">
-
-  <form method="POST" action="/?redirect=%s&subdomain=%s">
-    <button class="btn" type="submit">
-      ខ្ញុំយល់ព្រម បន្តទៅមុខ
-      <span class="btn-sub">I understand, take me there</span>
-    </button>
-  </form>
-
-  <p class="dismiss">ការព្រមាននេះនឹងមិនបង្ហាញម្តងទៀតក្នុងរយៈពេល ២៤ ម៉ោង។</p>
-</div>
-</body>
-</html>`, redirect, url.QueryEscape(redirect), url.QueryEscape(sub))
+	w.WriteHeader(status)
+	_, _ = w.Write(buf.Bytes())
 }
 
 // redirectToWarningPage redirects the browser to the phishing-warning interstitial page
@@ -609,6 +564,982 @@ func (w *statusCaptureWriter) Write(b []byte) (int, error) {
 func (w *statusCaptureWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
+
+type tunnelWarningPageData struct {
+	Redirect        string
+	Subdomain       string
+	ContinueHref    string
+	DestinationHost string
+	DestinationPath string
+}
+
+type tunnelIssuePageData struct {
+	Accent             string
+	AccentSoft         string
+	StatusLine         string
+	Code               string
+	Title              string
+	Summary            string
+	ShowConnectionFlow bool
+	DashboardTitle     string
+	DashboardMessage   string
+	DashboardSubtext   string
+	PublicHost         string
+	ReservedSub        string
+	LocalTarget        string
+	HostHeader         string
+	VisitorTip         string
+	DeveloperTip       string
+	Command            string
+	PrimaryLabel       string
+	PrimaryHref        string
+	SecondaryLabel     string
+	SecondaryHref      string
+}
+
+func currentRequestURL(r *http.Request) string {
+	if r == nil {
+		return "/"
+	}
+	if uri := r.URL.RequestURI(); uri != "" {
+		return uri
+	}
+	return "/"
+}
+
+func warningDestinationHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || strings.TrimSpace(u.Host) == "" {
+		return raw
+	}
+	return u.Host
+}
+
+func warningDestinationPath(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimSpace(u.EscapedPath())
+	if path == "" {
+		path = "/"
+	}
+	if q := strings.TrimSpace(u.RawQuery); q != "" {
+		path += "?" + q
+	}
+	return path
+}
+
+func warningContinueHref(redirect, sub string) string {
+	return fmt.Sprintf("/?continue=1&redirect=%s&subdomain=%s", url.QueryEscape(redirect), url.QueryEscape(sub))
+}
+
+func reportedLocalPort(tun *tunnel.Tunnel) (uint32, bool) {
+	if tun == nil {
+		return 0, false
+	}
+	port := tun.LocalPort()
+	if port == 0 {
+		return 0, false
+	}
+	return port, true
+}
+
+func localTarget(tun *tunnel.Tunnel) string {
+	port, ok := reportedLocalPort(tun)
+	if !ok {
+		return ""
+	}
+	host := strings.TrimSpace(tun.BindAddr)
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "localhost"
+	}
+	return fmt.Sprintf("%s:%d", host, port)
+}
+
+func upstreamHostLabel(tun *tunnel.Tunnel) string {
+	if tun == nil {
+		return ""
+	}
+	return tun.UpstreamHost()
+}
+
+func upstreamUnavailableDeveloperTip(tun *tunnel.Tunnel) string {
+	if _, ok := reportedLocalPort(tun); ok {
+		return "Make sure the local app is running and listening before sharing the tunnel. If you restarted the app, keep Mekong open and reload this page."
+	}
+	return "The tunnel is live, but this session did not report its local app port. Reconnect with the current mekong CLI, then reload this page. Raw ssh -R sessions cannot show the actual localhost port here."
+}
+
+func suggestedMekongCommand(tun *tunnel.Tunnel) string {
+	if tun == nil {
+		return ""
+	}
+	port := "<local-port>"
+	if reported, ok := reportedLocalPort(tun); ok {
+		port = strconv.FormatUint(uint64(reported), 10)
+	}
+	command := fmt.Sprintf("mekong %s", port)
+	if sub := tun.GetRequestedSubdomain(); sub != "" {
+		command += " --subdomain " + sub
+	}
+	if host := tun.UpstreamHost(); host != "" {
+		command += " --upstream-host " + host
+	}
+	return command
+}
+
+var warningPageTemplate = template.Must(template.New("warning-page").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MekongTunnel | Shared tunnel notice</title>
+  <style>
+    :root {
+      --bg: #f6f2eb;
+      --panel: #ffffff;
+      --ink: #171615;
+      --muted: #6d655c;
+      --line: rgba(23, 22, 21, 0.12);
+      --accent: #0f766e;
+      --accent-soft: rgba(15, 118, 110, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, var(--accent-soft), transparent 32%),
+        linear-gradient(180deg, #faf8f4 0%, var(--bg) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .shell {
+      width: min(680px, 100%);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--panel);
+      box-shadow: 0 18px 40px rgba(28, 24, 19, 0.08);
+    }
+    .content {
+      padding: 28px;
+    }
+    .brand {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .kicker {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    h1 {
+      margin: 18px 0 14px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(32px, 6vw, 52px);
+      line-height: 1.02;
+      letter-spacing: -0.05em;
+    }
+    .copy,
+    .cancel-note,
+    .footnote {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .copy {
+      font-size: 16px;
+      max-width: 38rem;
+    }
+    .destination {
+      margin-top: 20px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px;
+      background: #fcfcfb;
+    }
+    .label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+    code {
+      display: block;
+      font-family: "SFMono-Regular", "JetBrains Mono", monospace;
+      font-size: clamp(13px, 3.8vw, 15px);
+      line-height: 1.7;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      color: #0f172a;
+    }
+    .cta-wrap {
+      margin-top: 22px;
+    }
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      text-decoration: none;
+      border-radius: 16px;
+      padding: 17px 22px;
+      background: linear-gradient(135deg, var(--accent) 0%, #155e75 100%);
+      color: white;
+      box-shadow: 0 12px 24px rgba(15,118,110,0.18);
+      transition: transform 120ms ease, opacity 120ms ease, box-shadow 120ms ease;
+    }
+    .cta:hover {
+      transform: translateY(-1px);
+      opacity: 0.94;
+    }
+    .cta.is-loading {
+      pointer-events: none;
+      opacity: 0.96;
+      box-shadow: 0 18px 36px rgba(15,118,110,0.22);
+    }
+    .cta-inner {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .cta-spinner {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 2px solid rgba(255,255,255,0.34);
+      border-top-color: #ffffff;
+      display: none;
+      animation: mekong-spin 0.8s linear infinite;
+    }
+    .cta.is-loading .cta-spinner {
+      display: inline-flex;
+    }
+    .cta-label {
+      font-size: clamp(18px, 4vw, 22px);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+    .cancel-note {
+      margin-top: 16px;
+      font-size: 14px;
+    }
+    .notice {
+      margin: 18px 0 0;
+      padding-left: 18px;
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+    .notice-title {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #3f3a34;
+      margin: 18px 0 8px;
+    }
+    .notice li + li {
+      margin-top: 8px;
+    }
+    .footnote {
+      margin-top: 14px;
+      font-size: 13px;
+    }
+    @keyframes mekong-spin {
+      to { transform: rotate(360deg); }
+    }
+    @media (max-width: 640px) {
+      body {
+        padding: 10px;
+        align-items: stretch;
+      }
+      .shell {
+        width: 100%;
+        border-radius: 20px;
+      }
+      .content {
+        padding: 20px 16px 18px;
+      }
+      h1 {
+        font-size: clamp(28px, 12vw, 44px);
+      }
+      .copy {
+        font-size: 15px;
+      }
+      .destination {
+        margin-top: 18px;
+        padding: 14px;
+        border-radius: 16px;
+      }
+      .cta {
+        padding: 16px 18px;
+        border-radius: 16px;
+      }
+      .cta-label {
+        font-size: clamp(16px, 6.8vw, 21px);
+      }
+      .notice {
+        margin-top: 16px;
+      }
+    }
+    @media (max-width: 380px) {
+      .brand {
+        font-size: 20px;
+      }
+      h1 {
+        font-size: 26px;
+      }
+      .cta-label {
+        font-size: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="content">
+      <p class="brand">MekongTunnel</p>
+      <p class="kicker">Shared tunnel notice</p>
+      <h1>You are about to open a shared tunnel.</h1>
+      <p class="copy">This URL points to an app being exposed from a developer machine through MekongTunnel. Continue only if you trust the person who shared it with you.</p>
+      <div class="destination">
+        <div class="label">Destination</div>
+        <code>{{.Redirect}}</code>
+      </div>
+      <div class="cta-wrap">
+        <a class="cta" href="{{.ContinueHref}}" data-destination="{{.Redirect}}" data-loading-label="Opening site...">
+          <span class="cta-inner">
+            <span class="cta-spinner" aria-hidden="true"></span>
+            <span class="cta-label">Continue to site</span>
+          </span>
+        </a>
+      </div>
+      <p class="cancel-note">If you do not trust this link, close this tab instead of continuing.</p>
+      <div class="notice-title">Before you continue</div>
+      <ul class="notice">
+        <li>This app is controlled by the person who shared the tunnel link.</li>
+        <li>The page behind this URL may change, restart, or go offline at any time.</li>
+        <li>Do not enter passwords, payment details, or private data unless you trust the sender.</li>
+      </ul>
+      <p class="footnote">You will not see this warning again for this tunnel for the next 24 hours.</p>
+    </div>
+  </div>
+  <script>
+    document.addEventListener("click", function (event) {
+      var link = event.target.closest("[data-loading-label]");
+      if (!link) return;
+      if (link.classList.contains("is-loading")) {
+        event.preventDefault();
+        return;
+      }
+      link.classList.add("is-loading");
+      var label = link.querySelector(".cta-label");
+      if (label) {
+        label.textContent = link.getAttribute("data-loading-label") || "Opening site...";
+      }
+    });
+  </script>
+</body>
+</html>`))
+
+var issuePageTemplate = template.Must(template.New("issue-page").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MekongTunnel | {{.Title}}</title>
+  <style>
+    :root {
+      --bg: #f6f2eb;
+      --panel: #ffffff;
+      --ink: #161514;
+      --muted: #6a6258;
+      --line: rgba(22, 21, 20, 0.12);
+      --accent: {{.Accent}};
+      --accent-soft: {{.AccentSoft}};
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, var(--accent-soft), transparent 32%),
+        linear-gradient(180deg, #faf8f4 0%, var(--bg) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .shell {
+      width: min(760px, 100%);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--panel);
+      box-shadow: 0 18px 40px rgba(28, 24, 19, 0.08);
+    }
+    .brand {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .status {
+      margin: 8px 0 0;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .content {
+      padding: 28px;
+    }
+    .code {
+      display: inline-flex;
+      align-items: center;
+      margin-top: 20px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(22,21,20,0.05);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    h1 {
+      margin: 18px 0 14px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(32px, 6vw, 50px);
+      line-height: 1.02;
+      letter-spacing: -0.05em;
+    }
+    .summary {
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.75;
+      max-width: 42rem;
+      overflow-wrap: anywhere;
+    }
+    .summary strong {
+      display: block;
+      color: var(--ink);
+      font-weight: 800;
+      margin-bottom: 4px;
+      overflow-wrap: anywhere;
+    }
+    .flow {
+      margin-top: 22px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #fcfcfb;
+      padding: 18px 16px 16px;
+      overflow: hidden;
+    }
+    .flow-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .flow-line {
+      position: absolute;
+      top: 63px;
+      left: 12.5%;
+      right: 12.5%;
+      height: 4px;
+      border-radius: 999px;
+      background: #d1d5db;
+      overflow: hidden;
+    }
+    .flow-line-active {
+      display: block;
+      width: 66.666%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #22c55e 0%, #86efac 50%, #22c55e 100%);
+      background-size: 200% 100%;
+      transition: width 220ms ease;
+      animation: mekong-flow-shift 2.8s linear infinite;
+    }
+    .flow-node {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+      min-width: 0;
+      text-align: center;
+    }
+    .flow-icon {
+      width: 46px;
+      height: 46px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      display: grid;
+      place-items: center;
+      color: #9ca3af;
+    }
+    .flow-icon svg {
+      width: 22px;
+      height: 22px;
+      display: block;
+    }
+    .flow-node.active .flow-icon {
+      color: #22c55e;
+      border-color: rgba(34, 197, 94, 0.24);
+      box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.06);
+    }
+    .flow-node.failed .flow-icon {
+      color: #9ca3af;
+    }
+    .flow-indicator {
+      width: 100%;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .flow-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      border: 3px solid #fcfcfb;
+      background: #9ca3af;
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.28);
+    }
+    .flow-node.active .flow-dot {
+      background: #22c55e;
+      animation: mekong-pulse 1.8s ease-out infinite;
+    }
+    .flow-node.active .flow-cross {
+      display: none;
+    }
+    .flow-node.failed .flow-dot {
+      width: 22px;
+      height: 22px;
+      border: 2px solid #ef4444;
+      background: #ffffff;
+      color: #ef4444;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 0 0 4px #fcfcfb;
+      animation: mekong-error-pulse 1.8s ease-in-out infinite;
+    }
+    .flow-cross {
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 800;
+      transform: translateY(-1px);
+    }
+    .flow-label {
+      color: #3f3a34;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .flow-node.failed .flow-label {
+      color: #6b7280;
+    }
+    .retry-note {
+      margin: 14px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+      overflow-wrap: anywhere;
+    }
+    .retry-note.is-ready {
+      color: #166534;
+    }
+    .retry-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #22c55e;
+      flex: 0 0 auto;
+      animation: mekong-retry-blink 1.6s ease-in-out infinite;
+    }
+    .retry-note.is-ready .retry-dot {
+      animation: none;
+      box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.12);
+    }
+    .facts {
+      margin-top: 22px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #fcfcfb;
+      padding: 16px;
+    }
+    .label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+    .facts dl {
+      margin: 0;
+      display: grid;
+      gap: 12px;
+    }
+    .facts div {
+      display: grid;
+      gap: 4px;
+    }
+    dt {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    dd {
+      margin: 0;
+      color: var(--ink);
+      font-family: "SFMono-Regular", "JetBrains Mono", monospace;
+      font-size: 14px;
+      line-height: 1.55;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 24px;
+    }
+    .actions a {
+      text-decoration: none;
+      border-radius: 14px;
+      padding: 14px 18px;
+      font-weight: 700;
+      text-align: center;
+      overflow-wrap: anywhere;
+      transition: transform 120ms ease, opacity 120ms ease;
+    }
+    .actions a:hover { transform: translateY(-1px); opacity: 0.92; }
+    .primary {
+      background: linear-gradient(135deg, var(--accent) 0%, #1f2937 100%);
+      color: white;
+      box-shadow: 0 14px 32px rgba(16, 24, 40, 0.18);
+    }
+    .secondary {
+      border: 1px solid var(--line);
+      color: var(--ink);
+      background: #ffffff;
+    }
+    .help {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      display: grid;
+      gap: 20px;
+    }
+    .help-block h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      letter-spacing: -0.02em;
+    }
+    .help-block p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.7;
+      overflow-wrap: anywhere;
+    }
+    pre {
+      margin: 14px 0 0;
+      border-radius: 12px;
+      background: #151515;
+      color: #f8fafc;
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-family: "SFMono-Regular", "JetBrains Mono", monospace;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    @keyframes mekong-flow-shift {
+      0% { background-position: 200% 0; }
+      100% { background-position: 0 0; }
+    }
+    @keyframes mekong-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.34); }
+      70% { box-shadow: 0 0 0 12px rgba(34, 197, 94, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+    @keyframes mekong-error-pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 4px #fcfcfb, 0 0 0 0 rgba(239, 68, 68, 0.24); }
+      50% { transform: scale(1.06); box-shadow: 0 0 0 4px #fcfcfb, 0 0 0 10px rgba(239, 68, 68, 0); }
+    }
+    @keyframes mekong-retry-blink {
+      0%, 100% { opacity: 0.45; transform: scale(0.92); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+    @media (max-width: 720px) {
+      body {
+        padding: 10px;
+        align-items: stretch;
+      }
+      .shell {
+        width: 100%;
+        border-radius: 20px;
+      }
+      .content {
+        padding: 20px 16px 18px;
+      }
+      h1 {
+        font-size: clamp(28px, 11vw, 42px);
+      }
+      .summary {
+        font-size: 15px;
+      }
+      .flow {
+        padding: 16px 10px 14px;
+      }
+      .flow-grid {
+        gap: 6px;
+      }
+      .flow-line {
+        top: 57px;
+      }
+      .flow-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+      }
+      .flow-icon svg {
+        width: 19px;
+        height: 19px;
+      }
+      .flow-label {
+        font-size: 11px;
+      }
+      .flow-node.failed .flow-dot {
+        width: 20px;
+        height: 20px;
+      }
+      .facts {
+        padding: 14px;
+        border-radius: 16px;
+      }
+      .actions a {
+        width: 100%;
+        text-align: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="content">
+      <p class="brand">MekongTunnel</p>
+      <p class="status">{{.StatusLine}}</p>
+      <div class="code">{{.Code}}</div>
+      {{if .ShowConnectionFlow}}
+      <h1>{{.DashboardTitle}}</h1>
+      <div class="summary"><strong data-retry-title>{{.DashboardMessage}}</strong><span data-retry-text>{{.DashboardSubtext}}</span></div>
+      <div class="flow" aria-label="Tunnel connection status">
+        <div class="flow-grid">
+          <div class="flow-line" aria-hidden="true">
+            <span class="flow-line-active" data-flow-active></span>
+          </div>
+          <div class="flow-node active">
+            <div class="flow-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M3 12h18"></path>
+                <path d="M12 3a14 14 0 0 1 0 18"></path>
+                <path d="M12 3a14 14 0 0 0 0 18"></path>
+              </svg>
+            </div>
+            <div class="flow-indicator"><span class="flow-dot"></span></div>
+            <div class="flow-label">Internet</div>
+          </div>
+          <div class="flow-node active">
+            <div class="flow-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6.5 18h10a4 4 0 0 0 .7-7.94A5.5 5.5 0 0 0 6.2 9.7 3.8 3.8 0 0 0 6.5 18Z"></path>
+                <path d="M9 12h.01"></path>
+                <path d="M12 12h.01"></path>
+                <path d="M15 12h.01"></path>
+              </svg>
+            </div>
+            <div class="flow-indicator"><span class="flow-dot"></span></div>
+            <div class="flow-label">Mekong Edge</div>
+          </div>
+          <div class="flow-node active">
+            <div class="flow-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                <path d="m8 10 3 2.5L8 15"></path>
+                <path d="M13 15h4"></path>
+              </svg>
+            </div>
+            <div class="flow-indicator"><span class="flow-dot"></span></div>
+            <div class="flow-label">Mekong Agent</div>
+          </div>
+          <div class="flow-node failed" data-local-node>
+            <div class="flow-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="16" height="6" rx="1.5"></rect>
+                <rect x="4" y="14" width="16" height="6" rx="1.5"></rect>
+                <path d="M8 7h.01"></path>
+                <path d="M8 17h.01"></path>
+              </svg>
+            </div>
+            <div class="flow-indicator"><span class="flow-dot"><span class="flow-cross">×</span></span></div>
+            <div class="flow-label">Local Service</div>
+          </div>
+        </div>
+      </div>
+      <p class="retry-note" data-retry-note><span class="retry-dot" aria-hidden="true"></span><span data-retry-status>Checking again every 2 seconds. This page will open your app automatically when localhost responds.</span></p>
+      {{else}}
+      <h1>{{.Title}}</h1>
+      <div class="summary">{{.Summary}}</div>
+      {{end}}
+      <div class="facts">
+        <div class="label">Connection details</div>
+        <dl>
+          <div>
+            <dt>Public host</dt>
+            <dd>{{.PublicHost}}</dd>
+          </div>
+          {{if .ReservedSub}}
+          <div>
+            <dt>Reserved subdomain target</dt>
+            <dd>{{.ReservedSub}}</dd>
+          </div>
+          {{end}}
+          {{if .LocalTarget}}
+          <div>
+            <dt>Expected local app</dt>
+            <dd>{{.LocalTarget}}</dd>
+          </div>
+          {{end}}
+          {{if .HostHeader}}
+          <div>
+            <dt>Host header override</dt>
+            <dd>{{.HostHeader}}</dd>
+          </div>
+          {{end}}
+        </dl>
+      </div>
+      <div class="actions">
+        <a class="primary" href="{{.PrimaryHref}}">{{.PrimaryLabel}}</a>
+        <a class="secondary" href="{{.SecondaryHref}}">{{.SecondaryLabel}}</a>
+      </div>
+      <div class="help">
+        <div class="help-block">
+          <h2>If you are visiting this page</h2>
+          <p>{{.VisitorTip}}</p>
+        </div>
+        <div class="help-block">
+          <h2>If you are sharing this page</h2>
+          <p>{{.DeveloperTip}}</p>
+          {{if .Command}}<pre>{{.Command}}</pre>{{end}}
+        </div>
+      </div>
+    </div>
+  </div>
+  {{if .ShowConnectionFlow}}
+  <script>
+    (function () {
+      if (!window.fetch) return;
+      var localNode = document.querySelector("[data-local-node]");
+      var activeLine = document.querySelector("[data-flow-active]");
+      var retryNote = document.querySelector("[data-retry-note]");
+      var retryStatus = document.querySelector("[data-retry-status]");
+      var retryTitle = document.querySelector("[data-retry-title]");
+      var retryText = document.querySelector("[data-retry-text]");
+      var currentURL = window.location.href;
+      var polling = false;
+      var recovered = false;
+
+      var setStatus = function (text) {
+        if (retryStatus) retryStatus.textContent = text;
+      };
+
+      var markRecovered = function () {
+        if (recovered) return;
+        recovered = true;
+        if (localNode) {
+          localNode.classList.remove("failed");
+          localNode.classList.add("active");
+        }
+        if (activeLine) {
+          activeLine.style.width = "100%";
+        }
+        if (retryNote) {
+          retryNote.classList.add("is-ready");
+        }
+        if (retryTitle) {
+          retryTitle.textContent = "Tunnel is active and the local service responded";
+        }
+        if (retryText) {
+          retryText.textContent = "Opening the shared site now.";
+        }
+        setStatus("Local service responded. Opening site...");
+      };
+
+      var probe = function () {
+        if (polling || recovered) return;
+        polling = true;
+        var url = new URL(currentURL);
+        url.searchParams.set("_mekong_probe", String(Date.now()));
+        fetch(url.toString(), {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: {
+            "Accept": "text/html",
+            "X-Mekong-Probe": "1"
+          }
+        }).then(function (response) {
+          if (response.status !== 502 && response.status !== 503 && response.status !== 504) {
+            markRecovered();
+            window.setTimeout(function () {
+              window.location.reload();
+            }, 260);
+            return;
+          }
+          setStatus("Still waiting for localhost to respond. Checking again...");
+        }).catch(function () {
+          setStatus("Still waiting for localhost to respond. Checking again...");
+        }).finally(function () {
+          polling = false;
+        });
+      };
+
+      window.setTimeout(probe, 1200);
+      window.setInterval(probe, 2000);
+    })();
+  </script>
+  {{end}}
+</body>
+</html>`))
 
 // HTTPRedirectHandler returns an http.Handler that permanently redirects
 // all HTTP requests to their HTTPS equivalent (301 Moved Permanently).

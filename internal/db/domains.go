@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -58,7 +59,12 @@ func (db *DB) CreateCustomDomain(ctx context.Context, userID, domain string) (*m
 		RETURNING id, user_id, domain, status, verification_token,
 		          target_subdomain, created_at, verified_at, last_checked_at`,
 		userID, domain)
-	return scanCustomDomain(row)
+	d, err := scanCustomDomain(row)
+	if err != nil {
+		return nil, err
+	}
+	db.invalidateCustomDomainLookup(ctx, d.Domain)
+	return d, nil
 }
 
 func (db *DB) GetCustomDomain(ctx context.Context, id, userID string) (*models.CustomDomain, error) {
@@ -128,49 +134,158 @@ func (db *DB) ListAllCustomDomains(ctx context.Context, userID, status, search s
 }
 
 func (db *DB) DeleteCustomDomain(ctx context.Context, id, userID string) error {
-	_, err := db.Pool.Exec(ctx,
-		`DELETE FROM custom_domains WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+	if db.redis == nil {
+		_, err := db.Pool.Exec(ctx,
+			`DELETE FROM custom_domains WHERE id = $1 AND user_id = $2`, id, userID)
+		return err
+	}
+
+	var domain string
+	err := db.Pool.QueryRow(ctx,
+		`DELETE FROM custom_domains WHERE id = $1 AND user_id = $2 RETURNING lower(domain)`,
+		id, userID).Scan(&domain)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	db.invalidateCustomDomainLookup(ctx, domain)
+	return nil
 }
 
 func (db *DB) DeleteCustomDomainByID(ctx context.Context, id string) error {
-	_, err := db.Pool.Exec(ctx,
-		`DELETE FROM custom_domains WHERE id = $1`, id)
-	return err
+	if db.redis == nil {
+		_, err := db.Pool.Exec(ctx,
+			`DELETE FROM custom_domains WHERE id = $1`, id)
+		return err
+	}
+
+	var domain string
+	err := db.Pool.QueryRow(ctx,
+		`DELETE FROM custom_domains WHERE id = $1 RETURNING lower(domain)`, id).Scan(&domain)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	db.invalidateCustomDomainLookup(ctx, domain)
+	return nil
 }
 
 func (db *DB) SetCustomDomainVerified(ctx context.Context, id string) error {
 	now := time.Now()
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE custom_domains SET status='verified', verified_at=$1, last_checked_at=$1 WHERE id=$2`,
-		now, id)
-	return err
+	if db.redis == nil {
+		_, err := db.Pool.Exec(ctx,
+			`UPDATE custom_domains SET status='verified', verified_at=$1, last_checked_at=$1 WHERE id=$2`,
+			now, id)
+		return err
+	}
+
+	var domain string
+	err := db.Pool.QueryRow(ctx,
+		`UPDATE custom_domains
+		 SET status='verified', verified_at=$1, last_checked_at=$1
+		 WHERE id=$2
+		 RETURNING lower(domain)`,
+		now, id).Scan(&domain)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	db.invalidateCustomDomainLookup(ctx, domain)
+	return nil
 }
 
 func (db *DB) SetCustomDomainFailed(ctx context.Context, id string) error {
 	now := time.Now()
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE custom_domains SET status='failed', last_checked_at=$1 WHERE id=$2`, now, id)
-	return err
+	if db.redis == nil {
+		_, err := db.Pool.Exec(ctx,
+			`UPDATE custom_domains SET status='failed', last_checked_at=$1 WHERE id=$2`, now, id)
+		return err
+	}
+
+	var domain string
+	err := db.Pool.QueryRow(ctx,
+		`UPDATE custom_domains
+		 SET status='failed', last_checked_at=$1
+		 WHERE id=$2
+		 RETURNING lower(domain)`,
+		now, id).Scan(&domain)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	db.invalidateCustomDomainLookup(ctx, domain)
+	return nil
 }
 
 func (db *DB) SetCustomDomainTarget(ctx context.Context, id, userID, targetSubdomain string) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE custom_domains SET target_subdomain=$1 WHERE id=$2 AND user_id=$3`,
-		targetSubdomain, id, userID)
-	return err
+	if db.redis == nil {
+		_, err := db.Pool.Exec(ctx,
+			`UPDATE custom_domains SET target_subdomain=$1 WHERE id=$2 AND user_id=$3`,
+			targetSubdomain, id, userID)
+		return err
+	}
+
+	var domain string
+	err := db.Pool.QueryRow(ctx,
+		`UPDATE custom_domains
+		 SET target_subdomain=$1
+		 WHERE id=$2 AND user_id=$3
+		 RETURNING lower(domain)`,
+		targetSubdomain, id, userID).Scan(&domain)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	db.invalidateCustomDomainLookup(ctx, domain)
+	return nil
 }
 
 func (db *DB) SetCustomDomainTargetByID(ctx context.Context, id, targetSubdomain string) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE custom_domains SET target_subdomain=$1 WHERE id=$2`,
-		targetSubdomain, id)
-	return err
+	if db.redis == nil {
+		_, err := db.Pool.Exec(ctx,
+			`UPDATE custom_domains SET target_subdomain=$1 WHERE id=$2`,
+			targetSubdomain, id)
+		return err
+	}
+
+	var domain string
+	err := db.Pool.QueryRow(ctx,
+		`UPDATE custom_domains
+		 SET target_subdomain=$1
+		 WHERE id=$2
+		 RETURNING lower(domain)`,
+		targetSubdomain, id).Scan(&domain)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	db.invalidateCustomDomainLookup(ctx, domain)
+	return nil
 }
 
 // LookupVerifiedCustomDomainTarget returns the routed reserved subdomain for a
 // verified custom domain, or found=false when the host is unknown.
 func (db *DB) LookupVerifiedCustomDomainTarget(ctx context.Context, host string) (targetSubdomain string, found bool, err error) {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if db.redis != nil {
+		target, cachedFound, cached, cacheErr := db.redis.GetCustomDomainTarget(ctx, host)
+		if cacheErr == nil && cached {
+			return target, cachedFound, nil
+		}
+	}
+
 	err = db.Pool.QueryRow(ctx, `
 		SELECT COALESCE(target_subdomain, '')
 		FROM custom_domains
@@ -178,9 +293,15 @@ func (db *DB) LookupVerifiedCustomDomainTarget(ctx context.Context, host string)
 		LIMIT 1`, host).Scan(&targetSubdomain)
 	if err != nil {
 		if err == pgx.ErrNoRows {
+			if db.redis != nil {
+				_ = db.redis.SetCustomDomainTarget(ctx, host, "", false)
+			}
 			return "", false, nil
 		}
 		return "", false, err
+	}
+	if db.redis != nil {
+		_ = db.redis.SetCustomDomainTarget(ctx, host, targetSubdomain, true)
 	}
 	return targetSubdomain, true, nil
 }
@@ -205,4 +326,11 @@ func (db *DB) ListVerifiedCustomDomains(ctx context.Context) ([]*models.CustomDo
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+func (db *DB) invalidateCustomDomainLookup(ctx context.Context, domain string) {
+	if db.redis == nil {
+		return
+	}
+	_ = db.redis.DeleteCustomDomainTarget(ctx, domain)
 }

@@ -1,0 +1,25 @@
+# GitHub Environment: development
+#
+# Paste these into:
+#   GitHub -> Settings -> Environments -> development -> Variables
+#
+# Important:
+# - Replace these with your real staging/dev host values if you have a staging server.
+# - Do not point development at the same live production host unless you want every
+#   push to main to deploy to production.
+
+API_REMOTE_HOST=root@STAGING_API_HOST
+API_SSH_PORT=2222
+API_REMOTE_DIR=/opt/mekong/api
+API_SERVICE_NAME=mekong-api
+PUBLIC_API_BASE=https://staging-api.example.com
+
+TUNNEL_REMOTE_HOST=root@STAGING_PROXY_HOST
+TUNNEL_SSH_PORT=2222
+TUNNEL_REMOTE_APP_DIR=/opt/mekongtunnel
+TUNNEL_SERVICE_NAME=mekongtunnel.service
+TUNNEL_SERVER_BIN=/usr/local/bin/mekongtunnel
+
+# Optional branded wildcard support
+TUNNEL_WILDCARD_DOMAIN=
+TUNNEL_WILDCARD_UPSTREAM=https://127.0.0.1:8443

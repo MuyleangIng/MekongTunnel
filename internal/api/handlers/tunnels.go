@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api/middleware"
@@ -17,6 +18,7 @@ import (
 type TunnelsHandler struct {
 	DB              *db.DB
 	TunnelServerURL string
+	StatsClient     *http.Client
 }
 
 // ListTunnels handles GET /api/tunnels.
@@ -28,6 +30,31 @@ func (h *TunnelsHandler) ListTunnels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := r.URL.Query().Get("status")
+	query := r.URL.Query()
+	if query.Has("limit") || query.Has("offset") {
+		limit := queryInt(r, "limit", 50)
+		if limit < 1 {
+			limit = 50
+		}
+		if limit > 200 {
+			limit = 200
+		}
+		offset := queryInt(r, "offset", 0)
+		tunnels, total, err := h.DB.ListTunnelsByUserPage(r.Context(), claims.UserID, status, limit, offset)
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		if tunnels == nil {
+			tunnels = []*models.Tunnel{}
+		}
+		w.Header().Set("X-Total-Count", strconv.Itoa(total))
+		w.Header().Set("X-Limit", strconv.Itoa(limit))
+		w.Header().Set("X-Offset", strconv.Itoa(offset))
+		response.Success(w, tunnels)
+		return
+	}
+
 	tunnels, err := h.DB.ListTunnelsByUser(r.Context(), claims.UserID, status)
 	if err != nil {
 		response.InternalError(w, err)
@@ -43,22 +70,31 @@ func (h *TunnelsHandler) ListTunnels(w http.ResponseWriter, r *http.Request) {
 // GetStats handles GET /api/tunnels/stats — proxies to Go tunnel server.
 func (h *TunnelsHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	statsURL := h.TunnelServerURL + "/api/stats"
-	resp, err := http.Get(statsURL)
+	client := h.StatsClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, statsURL, nil)
+	if err != nil {
+		response.InternalError(w, err)
+		return
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		response.InternalError(w, fmt.Errorf("tunnel server unreachable: %w", err))
 		return
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		response.InternalError(w, err)
-		return
+	if contentType := resp.Header.Get("Content-Type"); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
 	}
-
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 // ReportTunnel handles POST /api/tunnels — upsert from the Go tunnel server.

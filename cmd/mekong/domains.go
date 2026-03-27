@@ -211,6 +211,37 @@ func printCustomDomainDNS(domain customDomainRecord) {
 	}
 }
 
+func domainCommandUsage() string {
+	return "mekong domain <add|connect|verify|wait|target|delete> ..."
+}
+
+func compactDomainWaitMessage(message string) string {
+	if message == "" {
+		return ""
+	}
+	lower := strings.ToLower(message)
+	switch {
+	case strings.Contains(lower, "dns verification failed"):
+		return "DNS not ready yet. Keep the required CNAME, A/AAAA, or TXT records in place."
+	case strings.Contains(lower, "https") && strings.Contains(lower, "ready"):
+		return "DNS is verified. Waiting for HTTPS to finish provisioning."
+	default:
+		return message
+	}
+}
+
+func boolLabel(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
+}
+
+func domainWaitStatusLine(attempt, maxAttempts int, result customDomainVerifyResult) string {
+	return fmt.Sprintf("  Checking [%02d/%02d] stage=%s verified=%s ready=%s https=%s",
+		attempt, maxAttempts, result.ReadinessStatus, boolLabel(result.Verified), boolLabel(result.Ready), boolLabel(result.HTTPSOK))
+}
+
 func doctorCNAMECheck(record customDomainRecord, cnameValue string, cnameErr error) (testResult, bool) {
 	if customdomain.IsApexDomain(record.Domain) {
 		return testResult{
@@ -343,10 +374,13 @@ func runDomainsCommand(args []string) error {
 
 func runDomainCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: mekong domain <add|connect|verify|wait|target|delete> ...")
+		printDomainHelp()
+		return nil
 	}
 
 	switch args[0] {
+	case "list", "ls":
+		return runDomainsCommand(args[1:])
 	case "add", "create":
 		return runDomainAddCommand(args[1:])
 	case "connect", "setup":
@@ -360,7 +394,7 @@ func runDomainCommand(args []string) error {
 	case "delete", "remove", "rm":
 		return runDomainDeleteCommand(args[1:])
 	default:
-		return fmt.Errorf("usage: mekong domain <add|connect|verify|wait|target|delete> ...")
+		return fmt.Errorf("usage: %s", domainCommandUsage())
 	}
 }
 
@@ -451,11 +485,11 @@ func runDomainVerifyCommand(args []string) error {
 	}
 	fmt.Printf(gray+"     Domain   "+reset+yellow+"%s"+reset+"\n", target.Domain)
 	fmt.Printf(gray+"     Status   "+reset+purple+"%s"+reset+"\n", result.Status)
-	fmt.Printf(gray+"     CNAME    "+reset+yellow+"%t"+reset+"\n", result.CNAMEOK)
-	fmt.Printf(gray+"     Address  "+reset+yellow+"%t"+reset+"\n", result.AddressOK)
-	fmt.Printf(gray+"     TXT      "+reset+yellow+"%t"+reset+"\n", result.TXTOK)
-	fmt.Printf(gray+"     HTTPS    "+reset+yellow+"%t"+reset+"\n", result.HTTPSOK)
-	fmt.Printf(gray+"     Ready    "+reset+yellow+"%t"+reset+"\n", result.Ready)
+	fmt.Printf(gray+"     CNAME    "+reset+yellow+"%s"+reset+"\n", boolLabel(result.CNAMEOK))
+	fmt.Printf(gray+"     Address  "+reset+yellow+"%s"+reset+"\n", boolLabel(result.AddressOK))
+	fmt.Printf(gray+"     TXT      "+reset+yellow+"%s"+reset+"\n", boolLabel(result.TXTOK))
+	fmt.Printf(gray+"     HTTPS    "+reset+yellow+"%s"+reset+"\n", boolLabel(result.HTTPSOK))
+	fmt.Printf(gray+"     Ready    "+reset+yellow+"%s"+reset+"\n", boolLabel(result.Ready))
 	fmt.Printf(gray+"     Stage    "+reset+purple+"%s"+reset+"\n", result.ReadinessStatus)
 	fmt.Printf(gray+"     Message  "+reset+purple+"%s"+reset+"\n", result.Message)
 	if result.Ready {
@@ -523,13 +557,21 @@ func waitForCustomDomainReady(token string, target customDomainRecord) error {
 		if err := unwrapData(b, &result); err != nil {
 			return fmt.Errorf("unexpected response: %w", err)
 		}
-		lastResult = result
+		prevResult := lastResult
 		target = applyVerifyDNS(target, result)
 
-		fmt.Printf(gray+"  [%02d/%02d] "+reset+purple+"%s"+reset+"  "+yellow+"verified=%t"+reset+"  "+cyan+"ready=%t"+reset+"  "+green+"https=%t"+reset+"\n",
-			attempt, maxAttempts, result.ReadinessStatus, result.Verified, result.Ready, result.HTTPSOK)
-		if result.Message != "" {
-			fmt.Printf(gray+"           %s"+reset+"\n", result.Message)
+		statusLine := domainWaitStatusLine(attempt, maxAttempts, result)
+		fmt.Printf("\r\033[K%s%s%s", gray, statusLine, reset)
+		message := compactDomainWaitMessage(result.Message)
+		shouldPrintDetail := attempt == 1
+		if attempt > 1 {
+			shouldPrintDetail = prevResult.ReadinessStatus != result.ReadinessStatus || compactDomainWaitMessage(prevResult.Message) != message
+		}
+		if shouldPrintDetail {
+			fmt.Printf("\r\033[K%s%s%s\n", gray, statusLine, reset)
+			if message != "" {
+				fmt.Printf(gray+"           %s"+reset+"\n", message)
+			}
 		}
 		if !result.Verified && !printedDNS {
 			fmt.Printf("\n")
@@ -539,6 +581,7 @@ func waitForCustomDomainReady(token string, target customDomainRecord) error {
 		}
 
 		if result.Ready {
+			fmt.Printf("\r\033[K")
 			fmt.Printf("\n")
 			fmt.Printf(green + "  ✔  Custom domain is ready" + reset + "\n")
 			fmt.Printf(gray+"     Domain  "+reset+yellow+"%s"+reset+"\n", target.Domain)
@@ -549,8 +592,11 @@ func waitForCustomDomainReady(token string, target customDomainRecord) error {
 		if attempt < maxAttempts {
 			time.Sleep(waitStep)
 		}
+
+		lastResult = result
 	}
 
+	fmt.Printf("\r\033[K")
 	fmt.Printf("\n")
 	if !lastResult.Verified {
 		fmt.Printf(yellow + "  ⚠  Timed out waiting for DNS verification" + reset + "\n")

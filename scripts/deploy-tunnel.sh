@@ -12,6 +12,11 @@
 #    3. Install /etc/systemd/system/mekongtunnel.service
 #    4. Optionally install a wildcard nginx vhost (for example *.mekongtunnel.dev)
 #    5. Restart and verify the tunnel service
+#
+#  Notes:
+#    - This is a systemd deploy script for the existing VM workflow.
+#    - Redis is optional. If REDIS_URL is omitted from the uploaded env
+#      file, the tunnel edge still runs in single-node mode.
 # ============================================================
 set -euo pipefail
 

@@ -447,6 +447,257 @@ func TestRedirectToWarningPage(t *testing.T) {
 	}
 }
 
+func TestServeWarningPageRendersSharedTunnelNotice(t *testing.T) {
+	s := newTestServer(t)
+	r := httptest.NewRequest("GET", "https://"+config.DefaultDomain+"/?redirect=https%3A%2F%2Fmyapp."+config.DefaultDomain+"%2F&subdomain=myapp."+config.DefaultDomain, nil)
+	r.Host = config.DefaultDomain
+	w := httptest.NewRecorder()
+
+	s.serveWarningPage(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "You are about to open a shared tunnel.") {
+		t.Fatalf("warning page body missing shared-tunnel title: %q", body)
+	}
+	if !strings.Contains(body, "Continue to site") {
+		t.Fatalf("warning page body missing simplified CTA label: %q", body)
+	}
+	if strings.Contains(body, "Back to MekongTunnel") {
+		t.Fatalf("warning page body still contains confusing back link: %q", body)
+	}
+	if strings.Contains(body, "<form") {
+		t.Fatalf("warning page should use an anchor CTA instead of a form: %q", body)
+	}
+	wantHref := strings.ReplaceAll(warningContinueHref("https://myapp."+config.DefaultDomain+"/", "myapp."+config.DefaultDomain), "&", "&amp;")
+	if !strings.Contains(body, `href="`+wantHref+`"`) {
+		t.Fatalf("warning page CTA should use the one-click continue redirect: %q", body)
+	}
+	if !strings.Contains(body, `data-destination="https://myapp.`+config.DefaultDomain+`/"`) {
+		t.Fatalf("warning page CTA missing destination marker: %q", body)
+	}
+	if strings.Contains(body, `data-warning-confirm=`) {
+		t.Fatalf("warning page should not use background confirm fetch anymore: %q", body)
+	}
+	if !strings.Contains(body, `data-loading-label="Opening site..."`) {
+		t.Fatalf("warning page CTA missing loading label: %q", body)
+	}
+	if !strings.Contains(body, "cta-spinner") {
+		t.Fatalf("warning page CTA missing loading spinner markup: %q", body)
+	}
+	if strings.Contains(body, "https%253A%252F%252F") {
+		t.Fatalf("warning page CTA still double-encodes redirect target: %q", body)
+	}
+	if !strings.Contains(body, "Before you continue") {
+		t.Fatalf("warning page missing safety notice section: %q", body)
+	}
+	if strings.Contains(body, "cta-meta") {
+		t.Fatalf("warning page should not render the old CTA meta text: %q", body)
+	}
+}
+
+func TestServeWarningPageContinueLinkSetsCookieAndRedirects(t *testing.T) {
+	s := newTestServer(t)
+	redirect := "https://myapp." + config.DefaultDomain + "/"
+	sub := "myapp." + config.DefaultDomain
+	r := httptest.NewRequest("GET", "https://"+config.DefaultDomain+"/?continue=1&redirect="+url.QueryEscape(redirect)+"&subdomain="+url.QueryEscape(sub), nil)
+	r.Host = config.DefaultDomain
+	w := httptest.NewRecorder()
+
+	s.serveWarningPage(w, r)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusSeeOther)
+	}
+	if loc := w.Header().Get("Location"); loc != redirect {
+		t.Fatalf("Location = %q, want %q", loc, redirect)
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected warning cookie to be set")
+	}
+	found := false
+	for _, c := range cookies {
+		if c.Name == config.WarningCookieName+"_myapp" {
+			found = true
+			if strings.TrimPrefix(c.Domain, ".") != config.DefaultDomain {
+				t.Fatalf("cookie domain = %q, want %q", c.Domain, config.DefaultDomain)
+			}
+			if c.MaxAge != config.WarningCookieMaxAge {
+				t.Fatalf("cookie MaxAge = %d, want %d", c.MaxAge, config.WarningCookieMaxAge)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("warning cookie %q was not set", config.WarningCookieName+"_myapp")
+	}
+}
+
+func TestServeHTTPShowsOfflinePageForMissingTunnelInBrowser(t *testing.T) {
+	s := newTestServer(t)
+
+	sub := "happy-tiger-a1b2c3d4"
+	r := httptest.NewRequest("GET", "https://"+sub+"."+config.DefaultDomain+"/", nil)
+	r.Host = sub + "." + config.DefaultDomain
+	r.Header.Set("User-Agent", "Mozilla/5.0")
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+	if got := w.Header().Get("Content-Type"); !strings.Contains(got, "text/html") {
+		t.Fatalf("Content-Type = %q, want text/html", got)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "ERR_MEKONG_TUNNEL_OFFLINE") {
+		t.Fatalf("body missing offline code: %q", body)
+	}
+	if !strings.Contains(body, "This tunnel is not live right now") {
+		t.Fatalf("body missing offline title: %q", body)
+	}
+}
+
+func TestServeHTTPShowsUpstreamUnavailablePage(t *testing.T) {
+	s := newTestServer(t)
+	s.tokenValidator = stubTokenValidator{
+		customTargets: map[string]string{
+			"app.example.com": "myapp",
+		},
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	tun := tunnel.New("myapp", listener, "localhost", 3000, "127.0.0.1", time.Hour)
+	tun.SetLocalPort(3000)
+	s.mu.Lock()
+	s.tunnels["myapp"] = tun
+	s.mu.Unlock()
+	_ = listener.Close()
+
+	r := httptest.NewRequest("GET", "https://app.example.com/", nil)
+	r.Host = "app.example.com"
+	r.Header.Set("User-Agent", "Mozilla/5.0")
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadGateway)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "ERR_MEKONG_UPSTREAM_UNREACHABLE") {
+		t.Fatalf("body missing upstream code: %q", body)
+	}
+	if !strings.Contains(body, "Tunnel Status") {
+		t.Fatalf("body missing tunnel status dashboard title: %q", body)
+	}
+	if !strings.Contains(body, "Tunnel is active, but the local service is not reachable") {
+		t.Fatalf("body missing tunnel status main message: %q", body)
+	}
+	for _, label := range []string{"Internet", "Mekong Edge", "Mekong Agent", "Local Service"} {
+		if !strings.Contains(body, label) {
+			t.Fatalf("body missing connection flow label %q: %q", label, body)
+		}
+	}
+	if !strings.Contains(body, "Checking again every 2 seconds") {
+		t.Fatalf("body missing retry note: %q", body)
+	}
+	if !strings.Contains(body, "flow-line-active") {
+		t.Fatalf("body missing animated active flow segment: %q", body)
+	}
+	if !strings.Contains(body, `data-local-node`) {
+		t.Fatalf("body missing local node marker for recovery state: %q", body)
+	}
+	if !strings.Contains(body, `flow-node failed`) {
+		t.Fatalf("body missing failed local service state: %q", body)
+	}
+	if !strings.Contains(body, "window.location.reload()") {
+		t.Fatalf("body missing auto-reload recovery script: %q", body)
+	}
+	if !strings.Contains(body, "localhost:3000") {
+		t.Fatalf("body missing local target: %q", body)
+	}
+}
+
+func TestServeHTTPShowsClientLocalPortInsteadOfRemoteBindPort(t *testing.T) {
+	s := newTestServer(t)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	tun := tunnel.New("myapp", listener, "localhost", 80, "127.0.0.1", time.Hour)
+	tun.SetLocalPort(3000)
+	s.mu.Lock()
+	s.tunnels["myapp"] = tun
+	s.mu.Unlock()
+	_ = listener.Close()
+
+	r := httptest.NewRequest("GET", "https://myapp."+config.DefaultDomain+"/", nil)
+	r.Host = "myapp." + config.DefaultDomain
+	r.Header.Set("User-Agent", "Mozilla/5.0")
+	r.Header.Set("mekongtunnel-skip-warning", "1")
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadGateway)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "localhost:3000") {
+		t.Fatalf("body missing client local port target: %q", body)
+	}
+	if strings.Contains(body, "localhost:80") {
+		t.Fatalf("body still shows remote bind port instead of client local port: %q", body)
+	}
+}
+
+func TestServeHTTPDoesNotGuessClientLocalPortFromRemoteBindPort(t *testing.T) {
+	s := newTestServer(t)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	tun := tunnel.New("myapp", listener, "localhost", 80, "127.0.0.1", time.Hour)
+	s.mu.Lock()
+	s.tunnels["myapp"] = tun
+	s.mu.Unlock()
+	_ = listener.Close()
+
+	r := httptest.NewRequest("GET", "https://myapp."+config.DefaultDomain+"/", nil)
+	r.Host = "myapp." + config.DefaultDomain
+	r.Header.Set("User-Agent", "Mozilla/5.0")
+	r.Header.Set("mekongtunnel-skip-warning", "1")
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadGateway)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "localhost:80") {
+		t.Fatalf("body guessed the remote bind port as the client local app: %q", body)
+	}
+	if strings.Contains(body, "Expected local app") {
+		t.Fatalf("body should omit expected local app when the client did not report one: %q", body)
+	}
+	if !strings.Contains(body, "mekong &lt;local-port&gt;") {
+		t.Fatalf("body missing placeholder reconnect command: %q", body)
+	}
+	if !strings.Contains(body, "did not report its local app port") {
+		t.Fatalf("body missing missing-port explanation: %q", body)
+	}
+}
+
 func TestServeHTTPAllowsActiveReservedSubdomain(t *testing.T) {
 	s := newTestServer(t)
 
@@ -521,6 +772,49 @@ func TestServeHTTPRoutesVerifiedCustomDomain(t *testing.T) {
 	}
 	if body := w.Body.String(); body != "custom ok" {
 		t.Fatalf("body = %q, want %q", body, "custom ok")
+	}
+}
+
+func TestServeHTTPUsesUpstreamHostOverride(t *testing.T) {
+	s := newTestServer(t)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	backend := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Host; got != "myapp.test" {
+			t.Fatalf("backend Host = %q, want %q", got, "myapp.test")
+		}
+		if got := r.Header.Get("X-Forwarded-Host"); got != "myapp."+config.DefaultDomain {
+			t.Fatalf("X-Forwarded-Host = %q, want %q", got, "myapp."+config.DefaultDomain)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "host override ok")
+	})}
+	go func() { _ = backend.Serve(listener) }()
+	t.Cleanup(func() { _ = backend.Close() })
+
+	tun := tunnel.New("myapp", listener, "localhost", 8080, "127.0.0.1", time.Hour)
+	tun.SetUpstreamHost("myapp.test")
+	s.mu.Lock()
+	s.tunnels["myapp"] = tun
+	s.mu.Unlock()
+
+	r := httptest.NewRequest("GET", "https://myapp."+config.DefaultDomain+"/", nil)
+	r.Host = "myapp." + config.DefaultDomain
+	r.Header.Set("User-Agent", "curl/8.0.0")
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if body := w.Body.String(); body != "host override ok" {
+		t.Fatalf("body = %q, want %q", body, "host override ok")
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -382,6 +383,8 @@ func (s *Server) setupSession(requests <-chan *ssh.Request, tun *tunnel.Tunnel) 
 const (
 	tokenEnvName              = "MEKONG_API_TOKEN"
 	requestedSubdomainEnvName = "MEKONG_SUBDOMAIN"
+	upstreamHostEnvName       = "MEKONG_UPSTREAM_HOST"
+	localPortEnvName          = "MEKONG_LOCAL_PORT"
 )
 
 func (s *Server) claimReservedSubdomain(ctx context.Context, tun *tunnel.Tunnel, currentSub string) (string, error) {
@@ -455,6 +458,18 @@ func applyEnvRequest(req *ssh.Request, tun *tunnel.Tunnel) error {
 			}
 		}
 		tun.SetRequestedSubdomain(subdomain)
+	case upstreamHostEnvName:
+		host, err := normalizeUpstreamHost(payload.Value)
+		if err != nil {
+			return err
+		}
+		tun.SetUpstreamHost(host)
+	case localPortEnvName:
+		port, err := normalizeLocalPort(payload.Value)
+		if err != nil {
+			return err
+		}
+		tun.SetLocalPort(port)
 	}
 	return nil
 }
@@ -516,6 +531,38 @@ func parseExecExpiryCommand(command string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func normalizeUpstreamHost(raw string) (string, error) {
+	host := strings.ToLower(strings.TrimSpace(raw))
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.TrimPrefix(host, "https://")
+	host = strings.TrimRight(host, "/")
+	if host == "" {
+		return "", nil
+	}
+	if strings.Contains(host, " ") || strings.Contains(host, "/") {
+		return "", fmt.Errorf("invalid upstream host %q", raw)
+	}
+	if strings.Contains(host, ":") {
+		return "", fmt.Errorf("upstream host should not include a port: %q", raw)
+	}
+	return host, nil
+}
+
+func normalizeLocalPort(raw string) (uint32, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("invalid local port %q", raw)
+	}
+	if n == 0 || n > 65535 {
+		return 0, fmt.Errorf("invalid local port %q", raw)
+	}
+	return uint32(n), nil
 }
 
 func expirationMessage(tun *tunnel.Tunnel, reason tunnel.ExpirationReason) string {

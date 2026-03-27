@@ -30,7 +30,7 @@ func (h *NotificationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	limit := queryInt(r, "limit", 30)
 	offset := queryInt(r, "offset", 0)
 
-	notifs, total, err := h.DB.ListNotifications(r.Context(), claims.UserID, limit, offset)
+	notifs, total, unread, err := h.DB.ListNotifications(r.Context(), claims.UserID, limit, offset)
 	if err != nil {
 		response.InternalError(w, err)
 		return
@@ -39,7 +39,6 @@ func (h *NotificationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		notifs = []*models.Notification{}
 	}
 
-	unread, _ := h.DB.CountUnreadNotifications(r.Context(), claims.UserID)
 	response.Success(w, map[string]any{
 		"notifications": notifs,
 		"total":         total,
@@ -59,11 +58,11 @@ func (h *NotificationsHandler) MarkRead(w http.ResponseWriter, r *http.Request) 
 		response.BadRequest(w, "id is required")
 		return
 	}
-	if err := h.DB.MarkNotificationRead(r.Context(), id, claims.UserID); err != nil {
+	unread, err := h.DB.MarkNotificationRead(r.Context(), id, claims.UserID)
+	if err != nil {
 		response.InternalError(w, err)
 		return
 	}
-	unread, _ := h.DB.CountUnreadNotifications(r.Context(), claims.UserID)
 	response.Success(w, map[string]any{"unread": unread})
 }
 
@@ -74,11 +73,12 @@ func (h *NotificationsHandler) MarkAllRead(w http.ResponseWriter, r *http.Reques
 		response.Unauthorized(w, "authentication required")
 		return
 	}
-	if err := h.DB.MarkAllNotificationsRead(r.Context(), claims.UserID); err != nil {
+	unread, err := h.DB.MarkAllNotificationsRead(r.Context(), claims.UserID)
+	if err != nil {
 		response.InternalError(w, err)
 		return
 	}
-	response.Success(w, map[string]any{"unread": 0})
+	response.Success(w, map[string]any{"unread": unread})
 }
 
 // DeleteOne handles DELETE /api/notifications/{id} — remove a single notification.
@@ -93,11 +93,11 @@ func (h *NotificationsHandler) DeleteOne(w http.ResponseWriter, r *http.Request)
 		response.BadRequest(w, "id is required")
 		return
 	}
-	if err := h.DB.DeleteNotification(r.Context(), id, claims.UserID); err != nil {
+	unread, err := h.DB.DeleteNotification(r.Context(), id, claims.UserID)
+	if err != nil {
 		response.InternalError(w, err)
 		return
 	}
-	unread, _ := h.DB.CountUnreadNotifications(r.Context(), claims.UserID)
 	response.Success(w, map[string]any{"unread": unread})
 }
 

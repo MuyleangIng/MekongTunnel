@@ -41,6 +41,8 @@ func TestIsValid(t *testing.T) {
 	}{
 		{"valid subdomain", "happy-tiger-abcdef01", true},
 		{"valid subdomain 2", "bold-ocean-12345678", true},
+		{"valid fandom subdomain", "mighty-ironman-abcdef01", true},
+		{"valid cartoon subdomain", "neon-oggy-1234abcd", true},
 		{"empty string", "", false},
 		{"no hyphens", "happytigerabcdef01", false},
 		{"too few parts", "happy-tiger", false},

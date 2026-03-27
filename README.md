@@ -11,7 +11,7 @@
 | API | [api.angkorsearch.dev](https://api.angkorsearch.dev) |
 | Tunnel Edge | `proxy.angkorsearch.dev` |
 | License | MIT |
-| Current Version | v1.5.6 |
+| Current Version | v1.5.7 |
 
 ---
 
@@ -55,6 +55,40 @@ For DNS setup:
 - subdomains such as `app.example.com` usually use a `CNAME`
 - invalid hostnames such as `ttt..example.com` are rejected by both the CLI and API
 - deleting a custom domain removes the MekongTunnel route only; DNS stays at the provider until you change it there
+
+## Local dev workflow
+
+For a normal frontend app such as Next.js, Vite, Nuxt, or React, run your app and the tunnel as
+two separate processes:
+
+```bash
+# Terminal 1
+npm run dev
+
+# Terminal 2
+mekong 3000
+```
+
+`mekong 3000` exposes an already-running local app. It does not start `npm run dev` for you unless
+you use a wrapper such as `mekong-cli --with ...`.
+
+If your local app depends on a vhost hostname such as `myapp.test`, use:
+
+```bash
+mekong 80 --upstream-host myapp.test
+```
+
+## Browser tunnel pages
+
+- The first browser visit to a generated tunnel shows a one-time shared-tunnel notice.
+- The `Continue to site` button is a one-click server redirect that sets the warning cookie before returning to the shared URL.
+- If the tunnel process is offline, Mekong serves branded offline or custom-domain-pending pages instead of a raw server error.
+- If the tunnel is live but the local app is still booting or not responding, Mekong shows a `Tunnel Status` page with a 4-step connection flow:
+  `Internet -> Mekong Edge -> Mekong Agent -> Local Service`
+- The first three steps stay green while the local service step fails in gray/red.
+- That page retries automatically every 2 seconds and reloads into the real app once localhost starts responding.
+- When the client reported a real local port, the page shows the expected local app target such as `localhost:3000`.
+- Raw `ssh -R` sessions stay generic because the server cannot reliably know the client-side local port.
 
 ---
 
@@ -155,6 +189,8 @@ cp .env.prod.example .env.prod
 make build          # server + CLI
 make build-all      # cross-compile server (Linux + macOS, amd64 + arm64)
 make build-client-all  # cross-compile CLI (all platforms)
+make release-cli-assets TAG=v1.5.7   # 6 CLI assets + SHA256SUMS + release-notes.md
+make release-cli-publish TAG=v1.5.7  # push tag only; GitHub release workflow publishes assets
 
 # Local API stack with Postgres + Redis
 cp .env.compose.dev.example .env.compose.dev

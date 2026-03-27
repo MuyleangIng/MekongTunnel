@@ -7,7 +7,7 @@
 #    ./scripts/run-api.sh prod   ← production config
 #
 #  Environment is now managed via .env.dev / .env.prod
-#  See .env.api for the full reference template.
+#  See .env.dev.example / .env.prod.example for the templates.
 # ============================================================
 cd "$(dirname "$0")"
 exec ./scripts/run-api.sh dev

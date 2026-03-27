@@ -1,7 +1,10 @@
 // Package domain generates and validates memorable random subdomains
 // in the format adjective-noun-hexsuffix (e.g. "happy-tiger-a1b2c3d4").
 //
-// Entropy: 32 adjectives × 32 nouns × 4,294,967,296 hex values ≈ 4.4 trillion unique subdomains.
+// The word pools intentionally mix classic nature words with more playful,
+// fandom-friendly options so automatic URLs still feel memorable but can
+// occasionally surface pop-culture flavored names too.
+//
 // Validation uses a strict whitelist to prevent injection or enumeration attacks.
 //
 // Author: Ing Muyleang (អុឹង មួយលៀង) — Ing_Muyleang
@@ -20,6 +23,10 @@ var adjectives = []string{
 	"quick", "clever", "brave", "gentle", "kind", "proud", "wise", "keen",
 	"fresh", "crisp", "pure", "clear", "wild", "free", "silent", "quiet",
 	"golden", "silver", "coral", "amber", "jade", "ruby", "pearl", "onyx",
+	"epic", "mighty", "heroic", "cosmic", "electric", "turbo", "stellar", "lucky",
+	"shadow", "neon", "crimson", "frozen", "stormy", "fiery", "lunar", "solar",
+	"galactic", "legend", "nova", "pixel", "retro", "ultra", "sonic", "magic",
+	"mystic", "rocket", "phantom", "thunder", "velvet", "atomic", "royal", "vivid",
 }
 
 // nouns is the whitelist of allowed noun words used in subdomain generation.
@@ -28,6 +35,10 @@ var nouns = []string{
 	"river", "mountain", "forest", "ocean", "meadow", "valley", "canyon", "island",
 	"star", "moon", "cloud", "storm", "wind", "flame", "wave", "stone",
 	"maple", "cedar", "pine", "oak", "willow", "birch", "aspen", "elm",
+	"avenger", "wizard", "ninja", "samurai", "dragon", "phoenix", "comet", "legend",
+	"ironman", "thor", "hulk", "groot", "rocket", "batman", "superman", "flash",
+	"joker", "venom", "spidey", "naruto", "pikachu", "doraemon", "oggy", "garfield",
+	"shrek", "stitch", "nemo", "woody", "buzz", "mario", "sonic", "moana",
 }
 
 // Generate creates a cryptographically random memorable subdomain.

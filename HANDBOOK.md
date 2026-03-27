@@ -1,7 +1,7 @@
 # MekongTunnel — Project Handbook
 
 > Author: **Ing Muyleang** (អុឹង មួយលៀង) · KhmerStack · [angkorsearch.dev](https://angkorsearch.dev)
-> Last updated: 2026-03-25 · Go v1.5.6 · npm v2.0.0 · PyPI v2.1.0 · VS Code v1.5.0
+> Last updated: 2026-03-27 · Go v1.5.7 · npm v2.0.0 · PyPI v2.1.0 · VS Code v1.5.0
 
 ---
 
@@ -28,6 +28,8 @@
 - Use [`README.md`](./README.md) for install, quick CLI usage, and the product overview
 - Use [`SETUP.md`](./SETUP.md) for DNS, TLS, nginx, and production deployment
 - Use [`HANDBOOK.md`](./HANDBOOK.md) when you need architecture, route, schema, and release context
+- Use [`docs/API_FLOW.md`](./docs/API_FLOW.md) for the current API flow and the target service-layer direction
+- Use [`docs/PERFORMANCE.md`](./docs/PERFORMANCE.md) for local stress testing and control-plane benchmark guidance
 
 ---
 
@@ -53,7 +55,7 @@ Developer machine                  Proxy edge                     Public web/API
 
 | Component | Language | Version | Link |
 |-----------|----------|---------|------|
-| Go Server + CLI | Go 1.24 | v1.5.6 | [GitHub](https://github.com/MuyleangIng/MekongTunnel) |
+| Go Server + CLI | Go 1.24 | v1.5.7 | [GitHub](https://github.com/MuyleangIng/MekongTunnel) |
 | npm CLI + SDK | Node.js 18+ | v2.0.0 | [npm](https://www.npmjs.com/package/mekong-cli) |
 | Python CLI + SDK | Python 3.8+ | v2.1.0 | [PyPI](https://pypi.org/project/mekong-tunnel/) |
 | VS Code Extension | TypeScript | v1.5.0 | [Marketplace](https://marketplace.visualstudio.com/items?itemName=KhmerStack.mekong-tunnel) |
@@ -66,6 +68,7 @@ Developer machine                  Proxy edge                     Public web/API
 ```
 tunnl.gg/                              ← Go monorepo root
 ├── cmd/
+│   ├── apibench/                      ← local API stress / latency benchmark
 │   ├── mekong/                        ← CLI client binary
 │   │   ├── main.go                    (reconnect loop, QR, clipboard, expiry)
 │   │   ├── auth.go                    (login, logout, whoami, token-info)
@@ -79,6 +82,7 @@ tunnl.gg/                              ← Go monorepo root
 │
 ├── internal/
 │   ├── config/config.go               (all constants: limits, timeouts, author info)
+│   ├── redisx/                        (optional Redis cache, pub/sub, OTP, rate limiting)
 │   ├── domain/domain.go               (Generate(), IsValid() for subdomains)
 │   ├── expiry/                        (tunnel lifetime, idle timeout handling)
 │   ├── proxy/
@@ -118,7 +122,11 @@ tunnl.gg/                              ← Go monorepo root
 │       └── totp.go                    (TOTP 2FA: setup, verify, backup codes)
 │
 ├── internal/api/
-│   ├── router.go                      (all HTTP routes registered here)
+│   ├── server.go                      (all HTTP routes registered here)
+│   ├── middleware/
+│   │   ├── auth.go                    (JWT auth, optional auth, admin auth)
+│   │   ├── cors.go                    (CORS policy)
+│   │   └── rate_limit.go              (Redis-backed API rate limiting)
 │   └── handlers/
 │       ├── auth.go                    (register, login, OAuth, 2FA, password reset)
 │       ├── user.go                    (profile, password, deletion, verify request)
@@ -138,7 +146,7 @@ tunnl.gg/                              ← Go monorepo root
 │       ├── upload.go                  (file upload — reused for donation receipts)
 │       └── monitor.go                 (system monitoring)
 │
-├── migrations/                        (16 PostgreSQL migration files)
+├── migrations/                        (17 PostgreSQL migration files)
 ├── api/                               (OpenAPI spec — if present)
 ├── mekong-cli/                        ← npm package
 ├── mekong-tunnel/                     ← Python package
@@ -147,6 +155,8 @@ tunnl.gg/                              ← Go monorepo root
 ├── Makefile
 ├── Dockerfile.api
 ├── docker-compose.yml
+├── docker-compose.dev.yml
+├── docker-compose.prod.yml
 ├── install.sh                         (macOS + Linux one-liner)
 ├── install.ps1                        (Windows PowerShell one-liner)
 ├── go.mod
@@ -199,13 +209,21 @@ In production, nginx usually owns public `:80` and `:443`, then proxies to the t
    └─ prints URL to SSH terminal
 
 3. Browser visits https://happy-tiger-a1b2c3d4.proxy.angkorsearch.dev
+   └─ first browser visit to a generated tunnel redirects to a shared-tunnel notice on the root domain
+   └─ clicking Continue to site sets a 24-hour warning cookie and returns to the shared URL
    └─ HTTPS proxy matches generated host or custom domain → finds tunnel in registry
    └─ opens forwarded-tcpip SSH channel back to client
    └─ proxies HTTP/WebSocket bidirectionally
 
-4. When mekong disconnects
+4. If the tunnel is live but the local app is not responding yet
+   └─ browser sees a branded Tunnel Status page instead of a raw 502
+   └─ Internet → Mekong Edge → Mekong Agent show active
+   └─ Local Service shows failed
+   └─ page retries automatically every 2 seconds and reloads into the app once localhost responds
+
+5. When mekong disconnects
    └─ SSH server removes tunnel from registry
-   └─ future requests to that subdomain → 404 warning page
+   └─ future requests to that subdomain → branded offline page
 ```
 
 ### Subdomain format
@@ -217,11 +235,23 @@ happy-tiger-a1b2c3d4.proxy.angkorsearch.dev
 
 By default, generated tunnels use `*.proxy.angkorsearch.dev`. Login with `mekong login` to get a **reserved** subdomain that persists across reconnects, and use `mekong domain connect ...` for custom domains.
 
+### Browser tunnel pages
+
+- Generated tunnel URLs show a one-time shared-tunnel notice for browsers before opening the app.
+- The warning page uses a one-click Continue flow that sets the warning cookie and redirects back to the shared URL in the same request path.
+- Offline tunnels and pending custom domains use branded HTML status pages instead of raw server responses.
+- Upstream-unreachable tunnels use a `Tunnel Status` page with a 4-step connection flow:
+  `Internet -> Mekong Edge -> Mekong Agent -> Local Service`
+- The upstream page keeps retrying and automatically reloads into the real app when the local service starts responding again.
+- When the client reported its true local port, the page can show an exact expected target such as `localhost:3000`.
+- For raw `ssh -R` sessions, the server cannot safely infer the real client-side local port, so the page stays generic instead of faking `localhost:80`.
+
 ### Key dependencies (go.mod)
 
 | Package | Use |
 |---------|-----|
 | `github.com/jackc/pgx/v5` | PostgreSQL driver |
+| `github.com/redis/go-redis/v9` | Optional Redis cache, pub/sub, OTP, rate limiting |
 | `github.com/golang-jwt/jwt/v5` | JWT auth |
 | `github.com/stripe/stripe-go/v76` | Billing |
 | `github.com/pquerna/otp` | TOTP 2FA |
@@ -229,6 +259,46 @@ By default, generated tunnels use `*.proxy.angkorsearch.dev`. Login with `mekong
 | `github.com/mdp/qrterminal/v3` | QR codes in terminal |
 | `github.com/atotto/clipboard` | Auto-copy URL |
 | `github.com/shirou/gopsutil/v4` | System metrics |
+
+### Optional Redis layer
+
+Redis is optional. The system still works without it on a single node.
+
+When `REDIS_URL` is configured, Mekong uses Redis for:
+
+- caching `server_config` reads
+- caching verified custom-domain target lookups for the tunnel edge
+- pub/sub fan-out of notifications across multiple API instances
+- email login OTP code storage and verification
+- distributed API rate limiting for public auth and CLI device endpoints
+
+PostgreSQL stays the source of truth for users, tokens, domains, billing, and notification history.
+
+### API flow
+
+Current runtime flow:
+
+```text
+middleware -> handler -> db / notify / redisx / mailer -> response
+```
+
+Target flow from `STRUCTURE.md`:
+
+```text
+handler -> service -> repository -> models
+```
+
+The repo still has direct handler-to-db calls in several places, so the target service layer is documented but not finished. See [`docs/API_FLOW.md`](./docs/API_FLOW.md).
+
+### Redis environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `REDIS_URL` | unset | Enable Redis integration |
+| `REDIS_PREFIX` | `mekong` | Key prefix / namespace |
+| `REDIS_CACHE_TTL` | `30s` | Generic cache TTL |
+| `REDIS_DOMAIN_CACHE_TTL` | `1m` | Verified custom-domain lookup cache TTL |
+| `REDIS_NOTIFICATION_CHANNEL` | `notifications` | Notification pub/sub channel |
 
 ---
 
@@ -250,7 +320,12 @@ make build-small        # max size optimization (~6 MB server, ~4 MB CLI)
 make build-tiny         # UPX compression (~2 MB server)
 make build-all          # cross-compile server: linux/darwin × amd64/arm64
 make build-client-all   # cross-compile CLI: all platforms incl. windows/arm64
+make release-cli-assets TAG=v1.5.7   # dist/v1.5.7 assets + checksum + release notes
+make release-cli-publish TAG=v1.5.7  # push tag only; release.yml publishes the GitHub release
 make test               # run all tests (excludes known flaky proxy tests)
+make compose-dev-up     # start local Postgres + Redis + API
+make compose-init-dev   # run migrations + server_config seed + admin bootstrap
+make stress-local       # 1000 users + 5000 tunnel reports against local API
 make clean              # remove bin/
 ```
 
@@ -268,12 +343,23 @@ bin/mekong-windows-arm64.exe
 ### Run locally (development)
 
 ```bash
-# Start API server
-go run ./cmd/api
-
-# Start tunnel server
-go run ./cmd/mekongtunnel
+cp .env.dev.example .env.dev
+cp .env.prod.example .env.prod
+./scripts/run-api.sh dev
+cp .env.compose.dev.example .env.compose.dev
+docker compose --env-file .env.compose.dev -f docker-compose.yml -f docker-compose.dev.yml up -d
+./scripts/init-stack.sh dev
+go run ./cmd/apibench -base-url http://127.0.0.1:8080 -users 1000 -tunnels 5000 -concurrency 100
 ```
+
+`.env` and `.env.api` are no longer part of the supported local workflow.
+
+Supported env files now:
+
+- `.env.dev`
+- `.env.prod`
+- `.env.compose.dev`
+- `.env.compose.prod`
 
 ### Environment variables (API server)
 
@@ -318,32 +404,48 @@ TLS_KEY=/etc/letsencrypt/live/proxy.angkorsearch.dev/privkey.pem
 ### Requirements
 
 - PostgreSQL 16+
+- Redis 7+ (optional in code, included in the Compose stack)
 
 ### Start database (Docker)
 
 ```bash
-docker compose up -d postgres
+cp .env.compose.dev.example .env.compose.dev
+docker compose --env-file .env.compose.dev -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis api
 ```
 
-`docker-compose.yml` starts PostgreSQL 16 on port 5432 with:
+The local Compose stack includes:
+
+- PostgreSQL 16
+- Redis 7
+- `api-init` bootstrap job
+- Go API
+- optional `adminer` and `redis-commander` tools via `--profile tools`
+
+Development defaults:
 ```
-DB: mekongtunnel
-User: postgres
-Pass: (see docker-compose.yml)
+DB: mekong
+User: mekong
+Pass: (see .env.compose.dev)
 ```
 
 ### Run migrations
 
-Migrations run **automatically** when the API server starts. The migration runner reads all files in `migrations/` in order and applies any that haven't been run yet.
+Migrations run automatically in two places:
+
+- API startup
+- `api-init` bootstrap job
+
+Bootstrap also:
+
+- ensures the single `server_config` row exists
+- promotes `ADMIN_EMAIL` to admin
+- creates the admin account when `ADMIN_PASSWORD` is set and the user does not exist yet
 
 To run manually:
 
 ```bash
-# Via the API server (auto-applies on startup)
-go run ./cmd/api
-
-# Or apply a specific migration file manually
-psql $DATABASE_URL -f migrations/001_init.sql
+./scripts/init-stack.sh dev
+./scripts/init-stack.sh prod
 ```
 
 ### Migration files
@@ -553,6 +655,12 @@ Authentication: `Authorization: Bearer <jwt_or_api_token>`
 
 API tokens have prefix `mkt_` and work on all authenticated endpoints.
 
+When Redis-backed rate limiting is enabled, protected public endpoints also return:
+
+- `X-RateLimit-Limit`
+- `X-RateLimit-Remaining`
+- `Retry-After` on `429`
+
 ---
 
 ### Auth
@@ -585,6 +693,19 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 | GET | `/api/cli/device` | — | `?session_id=` | Poll for token → `{status, token?}` |
 | POST | `/api/cli/device/approve` | ✓ | `?session_id=` | Browser approves CLI login |
 
+Rate-limited when Redis is enabled:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/token-info`
+- `POST /api/auth/forgot-password`
+- `POST /api/auth/verify-email`
+- `POST /api/auth/resend-verify`
+- `POST /api/auth/request-admin-verify`
+- `POST /api/auth/email-otp/verify`
+- `POST /api/cli/device`
+- `GET /api/cli/device`
+
 ---
 
 ### User
@@ -615,7 +736,6 @@ API tokens have prefix `mkt_` and work on all authenticated endpoints.
 | Method | Path | Auth | Body | Description |
 |--------|------|------|------|-------------|
 | GET | `/api/tunnels` | ✓ | — | List user's tunnel sessions |
-| DELETE | `/api/tunnels/:id` | ✓ | — | Kill active tunnel |
 | GET | `/api/tunnels/stats` | — | — | Aggregate tunnel stats (used by tunnel server) |
 | POST | `/api/tunnels` | internal | `{subdomain, local_port, ...}` | Tunnel server reports new tunnel (no auth) |
 | PATCH | `/api/tunnels/:id` | internal | `{status}` | Update tunnel status (no auth) |
@@ -708,7 +828,7 @@ Notes:
 | GET | `/api/server-limits` | — | — | Current server rate limits |
 | GET | `/api/partners` | — | — | Partner directory |
 | GET | `/api/sponsors` | — | — | Sponsor listings |
-| POST | `/api/newsletter` | — | `{email}` | Subscribe to newsletter |
+| POST | `/api/newsletter/subscribe` | — | `{email}` | Subscribe to newsletter |
 | GET | `/api/newsletter/unsubscribe` | — | `?token=` | Unsubscribe via email token |
 | POST | `/api/donations/submit` | — | `{name, email?, amount, currency, payment_method, receipt_url?, social_url?, message?}` | Submit donation for review |
 | GET | `/api/donations` | — | — | Public list of approved+show_on_home donations |
@@ -734,8 +854,8 @@ Notes:
 | DELETE | `/api/admin/abuse/blocked/:id` | ✓ admin | — | Unblock IP |
 | GET | `/api/admin/plans` | ✓ admin | — | All plan configs |
 | PUT | `/api/admin/plans` | ✓ admin | `{plans[]}` | Update plan limits |
-| GET | `/api/admin/server-config` | ✓ admin | — | Live server config (includes freeTrialEnabled, trialDurationDays, bakongDiscountPercent) |
-| PUT | `/api/admin/server-config` | ✓ admin | `ServerConfig` | Update server config |
+| GET | `/api/admin/server-limits` | ✓ admin | — | Live server config (includes freeTrialEnabled, trialDurationDays, bakongDiscountPercent) |
+| PATCH | `/api/admin/server-limits` | ✓ admin | `ServerConfig` | Update server config |
 | GET | `/api/admin/organizations` | ✓ admin | `?search=&limit=&offset=` | Organization list |
 | POST | `/api/admin/organizations` | ✓ admin | — | Create org |
 | GET | `/api/admin/organizations/:id` | ✓ admin | — | Get single org |
@@ -753,7 +873,6 @@ Notes:
 | POST | `/api/admin/billing/receipt` | ✓ admin | `{user_id}` | Send receipt email |
 | GET | `/api/admin/system` | ✓ admin | — | System snapshot (CPU, RAM, disk) |
 | GET | `/api/admin/system/stream` | ✓ admin | — | SSE stream of live system metrics |
-| GET | `/api/admin/subscribers` | ✓ admin | — | Newsletter subscribers |
 | GET | `/api/admin/newsletter/campaigns` | ✓ admin | — | Sent newsletter campaigns |
 | POST | `/api/admin/newsletter/send` | ✓ admin | `{subject, body}` | Send newsletter to all subscribers |
 | GET | `/api/admin/donations` | ✓ admin | `?status=` | All donation submissions |
@@ -1437,7 +1556,15 @@ Triggers: tag push matching `v*` (e.g. `v1.5.6`)
 Steps:
   1. Cross-compile 6 binaries (darwin/linux/windows × amd64/arm64)
   2. Generate SHA-256 checksums
-  3. Create GitHub Release with all binaries + checksums
+  3. Build release notes from CHANGELOG.md
+  4. Create GitHub Release with all binaries + checksums
+```
+
+Local equivalent:
+
+```bash
+make release-cli-assets TAG=v1.5.7
+make release-cli-publish TAG=v1.5.7
 ```
 
 ### publish-npm.yml — npm
@@ -1546,6 +1673,15 @@ What they do:
 
 - `deploy-api.sh` builds `cmd/api`, uploads it to the API host on SSH `:2222`, restarts `mekong-api`, and checks `/api/health`, `/api/cli/subdomains`, and `/api/cli/domains`
 - `deploy-tunnel.sh` builds `cmd/mekongtunnel`, uploads `bin/mekongtunnel` plus local `.env.prod`, installs `mekongtunnel.service`, verifies ports `22`, `8081`, `8443`, `9090`, and can install a branded wildcard nginx vhost
+
+If the real servers still use `systemd`, GitHub Actions can run these same scripts now:
+
+- push to `main` -> `Deploy Dev`
+- publish a GitHub Release -> `Deploy Production`
+
+Use [`docs/GITHUB_DEPLOY.md`](./docs/GITHUB_DEPLOY.md) for the required GitHub Environment secrets and variables.
+
+Redis is optional in this VM workflow. Leave `REDIS_URL` unset if you are still running a single API instance and a single tunnel edge.
 
 ### Proxy host expectations
 

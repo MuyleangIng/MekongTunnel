@@ -15,8 +15,11 @@ import (
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api"
+	"github.com/MuyleangIng/MekongTunnel/internal/auth"
 	"github.com/MuyleangIng/MekongTunnel/internal/db"
 	"github.com/MuyleangIng/MekongTunnel/internal/mailer"
+	"github.com/MuyleangIng/MekongTunnel/internal/models"
+	"github.com/MuyleangIng/MekongTunnel/internal/redisx"
 )
 
 func main() {
@@ -43,7 +46,11 @@ func main() {
 	allowedOriginsRaw := getEnv("ALLOWED_ORIGINS", "http://localhost:3000")
 	allowedOrigins := splitComma(allowedOriginsRaw)
 
+	bootstrapOnly := getEnvBool("API_BOOTSTRAP_ONLY", false)
 	adminEmail := getEnv("ADMIN_EMAIL", "")
+	adminName := getEnv("ADMIN_NAME", "Mekong Admin")
+	adminPassword := getEnv("ADMIN_PASSWORD", "")
+	adminPlan := normalizePlan(getEnv("ADMIN_PLAN", string(models.PlanOrg)))
 
 	planPrices := map[string]string{
 		"pro": getEnv("STRIPE_PRICE_PRO", ""),
@@ -54,7 +61,7 @@ func main() {
 	publicURL := getEnv("PUBLIC_URL", "http://localhost:8080")
 
 	// Resend (preferred on cloud — no SMTP port restrictions)
-	resendKey  := getEnv("RESEND_API_KEY", "")
+	resendKey := getEnv("RESEND_API_KEY", "")
 	resendFrom := getEnv("RESEND_FROM", "Mekong Tunnel <noreply@angkorsearch.dev>")
 
 	// SMTP fallback
@@ -73,6 +80,20 @@ func main() {
 	defer database.Close()
 	log.Println("[api] database connected")
 
+	redisClient, err := redisx.Connect(context.Background(), redisx.ConfigFromEnv())
+	if err != nil {
+		log.Fatalf("[api] redis connect: %v", err)
+	}
+	if redisClient != nil {
+		log.Println("[api] redis connected")
+		database.SetRedis(redisClient)
+		defer func() {
+			if err := redisClient.Close(); err != nil {
+				log.Printf("[api] redis close: %v", err)
+			}
+		}()
+	}
+
 	// ── Migrations ───────────────────────────────────────────────
 	migrationsDir := migrationsPath()
 	log.Printf("[api] running migrations from %s", migrationsDir)
@@ -80,10 +101,20 @@ func main() {
 		log.Fatalf("[api] migrations failed: %v", err)
 	}
 	log.Println("[api] migrations complete")
+	if err := database.EnsureServerConfig(context.Background()); err != nil {
+		log.Fatalf("[api] seed server_config: %v", err)
+	}
 
 	// ── Seed admin ───────────────────────────────────────────────
 	if adminEmail != "" {
-		seedAdmin(database, adminEmail)
+		if err := seedAdmin(database, adminEmail, adminName, adminPassword, adminPlan); err != nil {
+			log.Fatalf("[api] admin seed failed: %v", err)
+		}
+	}
+
+	if bootstrapOnly {
+		log.Println("[api] bootstrap only mode complete")
+		return
 	}
 
 	// ── API Server ───────────────────────────────────────────────
@@ -113,9 +144,11 @@ func main() {
 			Pass:       smtpPass,
 			From:       smtpFrom,
 		},
+		Redis: redisClient,
 	}
 
 	srv := api.New(database, cfg)
+	defer srv.Close()
 
 	httpServer := &http.Server{
 		Addr:         addr,
@@ -148,23 +181,63 @@ func main() {
 	log.Println("[api] stopped")
 }
 
-// seedAdmin sets is_admin=true for the user with ADMIN_EMAIL if they exist.
-func seedAdmin(database *db.DB, email string) {
+// seedAdmin promotes the configured admin or creates it when ADMIN_PASSWORD is provided.
+func seedAdmin(database *db.DB, email, name, password, plan string) error {
 	ctx := context.Background()
-	user, err := database.GetUserByEmail(ctx, strings.ToLower(email))
+	email = strings.ToLower(strings.TrimSpace(email))
+	name = strings.TrimSpace(name)
+	plan = normalizePlan(plan)
+
+	user, err := database.GetUserByEmail(ctx, email)
 	if err != nil || user == nil {
-		log.Printf("[api] admin seed: user %q not found (will be promoted on first registration)", email)
-		return
+		if strings.TrimSpace(password) == "" {
+			log.Printf("[api] admin seed: user %q not found (set ADMIN_PASSWORD to create it automatically)", email)
+			return nil
+		}
+
+		hash, err := auth.HashPassword(password)
+		if err != nil {
+			return err
+		}
+
+		user, err = database.CreateUser(ctx, email, fallbackString(name, "Mekong Admin"), hash)
+		if err != nil {
+			return err
+		}
+		log.Printf("[api] admin seed: created %s", email)
 	}
-	if user.IsAdmin {
-		log.Printf("[api] admin seed: %s is already admin", email)
-		return
+
+	fields := map[string]any{}
+	if !user.IsAdmin {
+		fields["is_admin"] = true
 	}
-	if _, err := database.UpdateUser(ctx, user.ID, map[string]any{"is_admin": true}); err != nil {
-		log.Printf("[api] admin seed error: %v", err)
-		return
+	if !user.EmailVerified {
+		fields["email_verified"] = true
 	}
-	log.Printf("[api] admin seed: %s promoted to admin", email)
+	if plan != "" && user.Plan != plan {
+		fields["plan"] = plan
+	}
+	if name != "" && strings.TrimSpace(user.Name) == "" {
+		fields["name"] = name
+	}
+	if strings.TrimSpace(password) != "" && (user.PasswordHash == nil || *user.PasswordHash == "") {
+		hash, err := auth.HashPassword(password)
+		if err != nil {
+			return err
+		}
+		fields["password_hash"] = hash
+	}
+
+	if len(fields) == 0 {
+		log.Printf("[api] admin seed: %s already up to date", email)
+		return nil
+	}
+
+	if _, err := database.UpdateUser(ctx, user.ID, fields); err != nil {
+		return err
+	}
+	log.Printf("[api] admin seed: %s bootstrapped (admin=%t, plan=%s)", email, true, plan)
+	return nil
 }
 
 // migrationsPath returns the path to the migrations directory relative to the binary.
@@ -200,10 +273,47 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
+func getEnvBool(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	switch strings.ToLower(raw) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
 func splitComma(s string) []string {
 	parts := strings.Split(s, ",")
 	for i := range parts {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
 	return parts
+}
+
+func fallbackString(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
+}
+
+func normalizePlan(plan string) string {
+	switch strings.ToLower(strings.TrimSpace(plan)) {
+	case string(models.PlanFree):
+		return string(models.PlanFree)
+	case string(models.PlanStudent):
+		return string(models.PlanStudent)
+	case string(models.PlanPro):
+		return string(models.PlanPro)
+	case string(models.PlanOrg):
+		return string(models.PlanOrg)
+	default:
+		return string(models.PlanOrg)
+	}
 }

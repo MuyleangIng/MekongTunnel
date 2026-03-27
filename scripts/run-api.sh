@@ -9,8 +9,8 @@
 #    ./scripts/run-api.sh prod      # production config  (.env.prod)
 #
 #  First time setup:
-#    cp .env.api .env.dev    # copy template, fill in dev values
-#    cp .env.api .env.prod   # copy template, fill in prod values
+#    cp .env.dev.example .env.dev
+#    cp .env.prod.example .env.prod
 # ============================================================
 set -euo pipefail
 
@@ -23,7 +23,12 @@ if [ ! -f "$ENV_FILE" ]; then
   echo "  ERROR: $ENV_FILE not found."
   echo ""
   echo "  Create it by copying the template:"
-  echo "    cp .env.api $ENV_FILE"
+  if [ -f "${ENV_FILE}.example" ]; then
+    echo "    cp ${ENV_FILE}.example $ENV_FILE"
+  else
+    echo "    cp .env.dev.example .env.dev"
+    echo "    cp .env.prod.example .env.prod"
+  fi
   echo "  Then fill in your values and re-run."
   echo ""
   exit 1

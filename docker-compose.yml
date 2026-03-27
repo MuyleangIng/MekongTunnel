@@ -1,179 +1,138 @@
-# ============================================================
-#  MekongTunnel — Docker Compose
-#  Author: Ing Muyleang (អុឹង មួយលៀង) — Ing_Muyleang
-#  Open Source by KhmerStack
-#
-#  QUICK START:
-#    cp .env.example .env       # fill in DOMAIN + TLS paths
-#    mkdir -p data/certs
-#    cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem data/certs/
-#    cp /etc/letsencrypt/live/yourdomain.com/privkey.pem   data/certs/
-#    docker compose up -d
-#
-#  DEV (no TLS needed):
-#    docker compose --profile dev up mekongtunnel-dev
-# ============================================================
+name: mekong
+
+x-api-env: &api-env
+  DATABASE_URL: postgres://${POSTGRES_USER:-mekong}:${POSTGRES_PASSWORD:-mekong_secret}@postgres:5432/${POSTGRES_DB:-mekong}?sslmode=disable
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  REDIS_PREFIX: ${REDIS_PREFIX:-mekong}
+  REDIS_CACHE_TTL: ${REDIS_CACHE_TTL:-30s}
+  REDIS_DOMAIN_CACHE_TTL: ${REDIS_DOMAIN_CACHE_TTL:-1m}
+  REDIS_NOTIFICATION_CHANNEL: ${REDIS_NOTIFICATION_CHANNEL:-notifications}
+  API_ADDR: :8080
+  MIGRATIONS_DIR: /app/migrations
+  UPLOAD_DIR: /data/uploads
+  TUNNEL_SERVER_URL: ${TUNNEL_SERVER_URL:-http://mekong-tunnel:9090}
+  PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+  JWT_SECRET: ${JWT_SECRET:-change_me_dev_jwt_secret}
+  REFRESH_SECRET: ${REFRESH_SECRET:-change_me_dev_refresh_secret}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@localhost}
+  ADMIN_NAME: ${ADMIN_NAME:-Mekong Admin}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+  ADMIN_PLAN: ${ADMIN_PLAN:-org}
+
+x-tunnel-env: &tunnel-env
+  DATABASE_URL: postgres://${POSTGRES_USER:-mekong}:${POSTGRES_PASSWORD:-mekong_secret}@postgres:5432/${POSTGRES_DB:-mekong}?sslmode=disable
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  REDIS_PREFIX: ${REDIS_PREFIX:-mekong}
+  REDIS_CACHE_TTL: ${REDIS_CACHE_TTL:-30s}
+  REDIS_DOMAIN_CACHE_TTL: ${REDIS_DOMAIN_CACHE_TTL:-1m}
+  DOMAIN: ${DOMAIN:-localhost}
+  SSH_ADDR: :22
+  HTTP_ADDR: :80
+  HTTPS_ADDR: :443
+  STATS_ADDR: :9090
+  HOST_KEY_PATH: /data/hostkey/host_key
+  TLS_CERT: /certs/fullchain.pem
+  TLS_KEY: /certs/privkey.pem
+  MAX_TUNNELS_PER_IP: ${MAX_TUNNELS_PER_IP:-1000}
+  MAX_TOTAL_TUNNELS: ${MAX_TOTAL_TUNNELS:-0}
+  MAX_CONNECTIONS_PER_MINUTE: ${MAX_CONNECTIONS_PER_MINUTE:-0}
+  REQUESTS_PER_SECOND: ${REQUESTS_PER_SECOND:-0}
+  BURST_SIZE: ${BURST_SIZE:-0}
+  RATE_LIMIT_VIOLATIONS_MAX: ${RATE_LIMIT_VIOLATIONS_MAX:-0}
+  BLOCK_DURATION: ${BLOCK_DURATION:-0s}
+  MAX_REQUEST_BODY_MB: ${MAX_REQUEST_BODY_MB:-1024}
+  MAX_RESPONSE_BODY_MB: ${MAX_RESPONSE_BODY_MB:-1024}
+  MAX_WEBSOCKET_TRANSFER_MB: ${MAX_WEBSOCKET_TRANSFER_MB:-0}
 
 services:
-
-  # ──────────────────────────────────────────────
-  #  PostgreSQL 16
-  # ──────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: mekong-postgres
-    restart: unless-stopped
     environment:
-      POSTGRES_DB: mekong
-      POSTGRES_USER: mekong
+      POSTGRES_DB: ${POSTGRES_DB:-mekong}
+      POSTGRES_USER: ${POSTGRES_USER:-mekong}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mekong_secret}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mekong -d mekong"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mekong} -d ${POSTGRES_DB:-mekong}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
-  # ──────────────────────────────────────────────
-  #  REST API  (Go)
-  # ──────────────────────────────────────────────
-  mekong-api:
+  api-init:
     build:
       context: .
       dockerfile: Dockerfile.api
-    container_name: mekong-api
-    restart: unless-stopped
+    environment:
+      <<: *api-env
+      API_BOOTSTRAP_ONLY: "true"
     depends_on:
       postgres:
         condition: service_healthy
-    # Load API-specific env vars from .env.dev (local) or .env.prod (production)
-    # Copy .env.api to .env.dev and fill in values: cp .env.api .env.dev
-    env_file: .env.dev
-    ports:
-      - "8080:8080"
-    environment:
-      # Override DATABASE_URL to use the docker postgres container hostname
-      - DATABASE_URL=postgres://mekong:${POSTGRES_PASSWORD:-mekong_secret}@postgres:5432/mekong?sslmode=disable
-      - API_ADDR=:8080
-      - MIGRATIONS_DIR=/app/migrations
-    labels:
-      - "maintainer=Ing Muyleang <Ing_Muyleang>"
-      - "org.opencontainers.image.title=MekongTunnel API"
+      redis:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - uploads_data:/data/uploads
 
-
-  # ──────────────────────────────────────────────
-  #  PRODUCTION  (default)
-  #  All config comes from .env
-  # ──────────────────────────────────────────────
-  mekongtunnel:
+  api:
     build:
       context: .
+      dockerfile: Dockerfile.api
+    depends_on:
+      api-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *api-env
+      API_BOOTSTRAP_ONLY: "false"
+    volumes:
+      - uploads_data:/data/uploads
+    expose:
+      - "8080"
+
+  mekong-tunnel:
+    build:
+      context: .
+      dockerfile: Dockerfile
       args:
         VERSION: ${IMAGE_TAG:-dev}
-    image: mekongtunnel:${IMAGE_TAG:-latest}
-    container_name: mekongtunnel
-    restart: unless-stopped
-
-    # Load ALL environment variables from .env
-    env_file: .env
-
-    ports:
-      - "${SSH_ADDR:-:22}:22"      # SSH tunnel connections
-      - "${HTTP_ADDR:-:80}:80"     # HTTP → HTTPS redirect
-      - "${HTTPS_ADDR:-:443}:443"  # HTTPS tunnel traffic
-
-    volumes:
-      # SSH host key — auto-generated on first run, then reused
-      - ./data/host_key:/host_key
-      # TLS certificates — copy from certbot output before starting
-      - ./data/certs:/certs:ro
-
-    # Minimal Linux capabilities — only what's needed to bind ports <1024
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-
-    security_opt:
-      - no-new-privileges:true
-
-    # Read-only filesystem — data written only to volume mounts
-    read_only: true
-
-    # Health check: stats endpoint responds on localhost
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/ || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-    labels:
-      - "maintainer=Ing Muyleang <Ing_Muyleang>"
-      - "org.opencontainers.image.title=MekongTunnel"
-      - "org.opencontainers.image.description=SSH tunnel service by KhmerStack"
-      - "org.opencontainers.image.source=https://github.com/Ing-Muyleang/mekongtunnel"
-
-
-  # ──────────────────────────────────────────────
-  #  DEVELOPMENT  (no TLS, alternate ports)
-  #  Usage: docker compose --profile dev up mekongtunnel-dev
-  #
-  #  Connect via:
-  #    ssh -t -R 80:localhost:8080 localhost -p 2223
-  # ──────────────────────────────────────────────
-  mekongtunnel-dev:
-    build:
-      context: .
-      args:
-        VERSION: ${DEV_IMAGE_TAG:-dev}
-    image: mekongtunnel:${DEV_IMAGE_TAG:-dev}
-    container_name: mekongtunnel-dev
-    restart: unless-stopped
-    profiles:
-      - dev
-
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
     environment:
-      - DOMAIN=${DOMAIN:-localhost}
-      - SSH_ADDR=:22
-      - HTTP_ADDR=:80
-      - HTTPS_ADDR=:443
-      - STATS_ADDR=127.0.0.1:9090
-      - MAX_TUNNELS_PER_IP=${MAX_TUNNELS_PER_IP:-10}
-      - MAX_TOTAL_TUNNELS=${MAX_TOTAL_TUNNELS:-5000}
-      - MAX_CONNECTIONS_PER_MINUTE=${MAX_CONNECTIONS_PER_MINUTE:-600}
-      - HOST_KEY_PATH=/host_key
-      - TLS_CERT=/certs/fullchain.pem
-      - TLS_KEY=/certs/privkey.pem
-
-    ports:
-      - "2223:22"    # SSH  — connect with: ssh -p 2223
-      - "8080:80"    # HTTP
-      - "8443:443"   # HTTPS
-
+      <<: *tunnel-env
     volumes:
-      - ./data-dev/host_key:/host_key
-      - ./data-dev/certs:/certs:ro
-
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-
-    security_opt:
-      - no-new-privileges:true
-
-    read_only: true
-
-    labels:
-      - "maintainer=Ing Muyleang <Ing_Muyleang>"
-      - "org.opencontainers.image.title=MekongTunnel (dev)"
-
+      - tunnel_hostkey:/data/hostkey
+      - ${TLS_CERTS_DIR:-./deploy/certs}:/certs:ro
+    expose:
+      - "22"
+      - "80"
+      - "443"
+      - "9090"
+    profiles:
+      - tunnel
 
 volumes:
   postgres_data: {}
+  redis_data: {}
+  uploads_data: {}
+  tunnel_hostkey: {}

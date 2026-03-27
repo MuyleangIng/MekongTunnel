@@ -25,6 +25,7 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
 	"github.com/MuyleangIng/MekongTunnel/internal/db"
 	"github.com/MuyleangIng/MekongTunnel/internal/proxy"
+	"github.com/MuyleangIng/MekongTunnel/internal/redisx"
 )
 
 // version is set at build time via -ldflags "-X main.version=..."
@@ -136,6 +137,19 @@ func main() {
 		if err != nil {
 			log.Printf("WARNING: could not connect to database (%v) — token validation disabled", err)
 		} else {
+			redisClient, err := redisx.Connect(context.Background(), redisx.ConfigFromEnv())
+			if err != nil {
+				log.Fatalf("Failed to connect to Redis: %v", err)
+			}
+			if redisClient != nil {
+				database.SetRedis(redisClient)
+				log.Println("Redis cache enabled for domain lookups")
+				defer func() {
+					if err := redisClient.Close(); err != nil {
+						log.Printf("Redis close error: %v", err)
+					}
+				}()
+			}
 			srv.SetTokenValidator(database)
 			log.Println("Token validation enabled (database connected)")
 			defer database.Close()

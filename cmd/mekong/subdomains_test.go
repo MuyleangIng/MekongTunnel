@@ -153,3 +153,73 @@ func TestRunDeleteCommandNotFound(t *testing.T) {
 		t.Fatal("runDeleteCommand() should fail when the subdomain is missing")
 	}
 }
+
+func TestRunSubdomainCommandReservesFromBareName(t *testing.T) {
+	oldBase := authAPIBase
+	t.Cleanup(func() { authAPIBase = oldBase })
+	oldDo := apiDo
+	t.Cleanup(func() { apiDo = oldDo })
+	t.Setenv("MEKONG_TOKEN", "mkt_test")
+	authAPIBase = "https://api.angkorsearch.dev"
+
+	created := false
+	apiDo = func(r *http.Request) (*http.Response, error) {
+		if got := r.Header.Get("Authorization"); got != "Bearer mkt_test" {
+			t.Fatalf("Authorization = %q, want %q", got, "Bearer mkt_test")
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/api/cli/subdomains" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		created = true
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"id":"sub_123","subdomain":"myapp","created_at":"2026-03-25T00:00:00Z"}}`)),
+			Header:     make(http.Header),
+		}, nil
+	}
+
+	if err := runSubdomainCommand([]string{"myapp"}); err != nil {
+		t.Fatalf("runSubdomainCommand() error = %v", err)
+	}
+	if !created {
+		t.Fatal("reserve endpoint was not called")
+	}
+}
+
+func TestRunSubdomainCommandDeletesWithVerb(t *testing.T) {
+	oldBase := authAPIBase
+	t.Cleanup(func() { authAPIBase = oldBase })
+	oldDo := apiDo
+	t.Cleanup(func() { apiDo = oldDo })
+	t.Setenv("MEKONG_TOKEN", "mkt_test")
+	authAPIBase = "https://api.angkorsearch.dev"
+
+	var calls []string
+	apiDo = func(r *http.Request) (*http.Response, error) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/cli/subdomains":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"subdomains":[{"id":"sub_123","subdomain":"myapp","created_at":"2026-03-25T00:00:00Z"}],"count":1,"limit":1}}`)),
+				Header:     make(http.Header),
+			}, nil
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/cli/subdomains/sub_123":
+			return &http.Response{
+				StatusCode: http.StatusNoContent,
+				Body:       io.NopCloser(strings.NewReader("")),
+				Header:     make(http.Header),
+			}, nil
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+			return nil, nil
+		}
+	}
+
+	if err := runSubdomainCommand([]string{"delete", "myapp"}); err != nil {
+		t.Fatalf("runSubdomainCommand() error = %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("call count = %d, want %d (%v)", len(calls), 2, calls)
+	}
+}

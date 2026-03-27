@@ -1,0 +1,22 @@
+# GitHub Environment: production
+#
+# Paste these into:
+#   GitHub -> Settings -> Environments -> production -> Variables
+#
+# These values come from the current deploy scripts in this repo.
+
+API_REMOTE_HOST=root@139.59.108.158
+API_SSH_PORT=2222
+API_REMOTE_DIR=/opt/mekong/api
+API_SERVICE_NAME=mekong-api
+PUBLIC_API_BASE=https://api.angkorsearch.dev
+
+TUNNEL_REMOTE_HOST=root@proxy.angkorsearch.dev
+TUNNEL_SSH_PORT=2222
+TUNNEL_REMOTE_APP_DIR=/opt/mekongtunnel
+TUNNEL_SERVICE_NAME=mekongtunnel.service
+TUNNEL_SERVER_BIN=/usr/local/bin/mekongtunnel
+
+# Optional branded wildcard support
+TUNNEL_WILDCARD_DOMAIN=mekongtunnel.dev
+TUNNEL_WILDCARD_UPSTREAM=https://127.0.0.1:8443

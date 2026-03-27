@@ -33,57 +33,87 @@ func (db *DB) GetAdminIDs(ctx context.Context) ([]string, error) {
 	return ids, rows.Err()
 }
 
-func (db *DB) ListNotifications(ctx context.Context, userID string, limit, offset int) ([]*models.Notification, int, error) {
-	var total int
+func (db *DB) ListNotifications(ctx context.Context, userID string, limit, offset int) ([]*models.Notification, int, int, error) {
+	var total, unread int
 	if err := db.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM notifications WHERE user_id = $1`, userID).Scan(&total); err != nil {
-		return nil, 0, err
+		`SELECT COUNT(*), COUNT(*) FILTER (WHERE read_at IS NULL) FROM notifications WHERE user_id = $1`, userID).
+		Scan(&total, &unread); err != nil {
+		return nil, 0, 0, err
 	}
+
 	rows, err := db.Pool.Query(ctx, `
 		SELECT id, user_id, type, title, body, link, read_at, created_at
 		FROM notifications WHERE user_id = $1
 		ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		userID, limit, offset)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	defer rows.Close()
 	var notifs []*models.Notification
 	for rows.Next() {
 		n, err := scanNotification(rows)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, 0, err
 		}
 		notifs = append(notifs, n)
 	}
-	return notifs, total, rows.Err()
+	return notifs, total, unread, rows.Err()
+}
+
+func (db *DB) CountNotifications(ctx context.Context, userID string) (int, int, error) {
+	var total, unread int
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT COUNT(*), COUNT(*) FILTER (WHERE read_at IS NULL) FROM notifications WHERE user_id = $1`, userID).
+		Scan(&total, &unread); err != nil {
+		return 0, 0, err
+	}
+	return total, unread, nil
 }
 
 func (db *DB) CountUnreadNotifications(ctx context.Context, userID string) (int, error) {
-	var count int
-	err := db.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND read_at IS NULL`, userID).Scan(&count)
-	return count, err
+	_, unread, err := db.CountNotifications(ctx, userID)
+	return unread, err
 }
 
-func (db *DB) MarkNotificationRead(ctx context.Context, id, userID string) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE notifications SET read_at = $1 WHERE id = $2 AND user_id = $3 AND read_at IS NULL`,
-		time.Now(), id, userID)
-	return err
+func (db *DB) MarkNotificationRead(ctx context.Context, id, userID string) (int, error) {
+	var unread int
+	err := db.Pool.QueryRow(ctx, `
+		WITH updated AS (
+			UPDATE notifications
+			SET read_at = $1
+			WHERE id = $2 AND user_id = $3 AND read_at IS NULL
+			RETURNING 1
+		)
+		SELECT COUNT(*) FROM notifications WHERE user_id = $3 AND read_at IS NULL`,
+		time.Now(), id, userID).Scan(&unread)
+	return unread, err
 }
 
-func (db *DB) MarkAllNotificationsRead(ctx context.Context, userID string) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE notifications SET read_at = $1 WHERE user_id = $2 AND read_at IS NULL`,
-		time.Now(), userID)
-	return err
+func (db *DB) MarkAllNotificationsRead(ctx context.Context, userID string) (int, error) {
+	var unread int
+	err := db.Pool.QueryRow(ctx, `
+		WITH updated AS (
+			UPDATE notifications
+			SET read_at = $1
+			WHERE user_id = $2 AND read_at IS NULL
+			RETURNING 1
+		)
+		SELECT COUNT(*) FROM notifications WHERE user_id = $2 AND read_at IS NULL`,
+		time.Now(), userID).Scan(&unread)
+	return unread, err
 }
 
-func (db *DB) DeleteNotification(ctx context.Context, id, userID string) error {
-	_, err := db.Pool.Exec(ctx,
-		`DELETE FROM notifications WHERE id = $1 AND user_id = $2`, id, userID)
-	return err
+func (db *DB) DeleteNotification(ctx context.Context, id, userID string) (int, error) {
+	var unread int
+	err := db.Pool.QueryRow(ctx, `
+		WITH deleted AS (
+			DELETE FROM notifications WHERE id = $1 AND user_id = $2
+			RETURNING 1
+		)
+		SELECT COUNT(*) FROM notifications WHERE user_id = $2 AND read_at IS NULL`,
+		id, userID).Scan(&unread)
+	return unread, err
 }
 
 func (db *DB) DeleteAllNotifications(ctx context.Context, userID string) error {

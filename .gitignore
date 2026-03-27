@@ -27,7 +27,10 @@ index.html
 # ══════════════════════════════════════════════════════════════════════════════
 .env
 .env.*
-!.env.example
+!.env.dev.example
+!.env.prod.example
+!.env.compose.dev.example
+!.env.compose.prod.example
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  RUNTIME DATA
@@ -70,6 +73,8 @@ mekong-tunnel/.pytest_cache/
 .github/*
 !.github/workflows/
 !.github/workflows/*.yml
+!.github/examples/
+!.github/examples/*.example
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CHECKSUMS (generated per release — add manually with: git add -f SHA256SUMS-vX.Y.Z.txt)
@@ -97,3 +102,4 @@ SHA256SUMS-*.txt
 # ══════════════════════════════════════════════════════════════════════════════
 .claude/
 .cluade/
+log

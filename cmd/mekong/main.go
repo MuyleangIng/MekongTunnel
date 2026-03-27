@@ -240,6 +240,13 @@ func readActiveTunnelStates() ([]tunnelState, error) {
 
 // isPIDAlive is defined in platform_unix.go / platform_windows.go
 
+func resolveTunnelSessionToken(apiToken, requestedSubdomain string) string {
+	if strings.TrimSpace(requestedSubdomain) == "" {
+		return ""
+	}
+	return strings.TrimSpace(apiToken)
+}
+
 // reorderArgs moves flags (and their values) before positional arguments so
 // that flag.Parse() works regardless of where flags appear on the command line.
 // e.g. ["3000", "--no-qr"] → ["--no-qr", "3000"]
@@ -252,8 +259,10 @@ func reorderArgs(args []string) []string {
 		"--expire": true, "-expire": true,
 		"--subdomain": true, "-subdomain": true,
 		"--token": true, "-token": true,
-		"-e": true,
-		"-p": true,
+		"--upstream-host": true,
+		"--host-header":   true,
+		"-e":              true,
+		"-p":              true,
 	}
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
@@ -319,8 +328,33 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "subdomain":
+			if err := runSubdomainCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+				printSubdomainHelp()
+				os.Exit(1)
+			}
+			return
 		case "domains":
 			if err := runDomainsCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "help":
+			if err := runHelpCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "detect":
+			if err := runDetectCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "init":
+			if err := runInitCommand(os.Args[2:]); err != nil {
 				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
 				os.Exit(1)
 			}
@@ -328,6 +362,7 @@ func main() {
 		case "domain":
 			if err := runDomainCommand(os.Args[2:]); err != nil {
 				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+				printDomainHelp()
 				os.Exit(1)
 			}
 			return
@@ -361,57 +396,23 @@ func main() {
 	}
 
 	var (
-		serverFlag    = flag.String("server", tunnelDomain, "MekongTunnel server hostname")
-		sshPortFlag   = flag.Int("ssh-port", 22, "SSH server port")
-		localPortFlag = flag.Int("port", 0, "Local port to expose (alternative to positional arg)")
-		expireFlag    = flag.String("expire", "", "Tunnel lifetime (examples: 30m, 48h, 2d, 1w, or bare hours like 48)")
-		subdomainFlag = flag.String("subdomain", "", "Reserved subdomain to use (requires login or --token)")
-		tokenFlag     = flag.String("token", "", "API token for reserved subdomain (env: MEKONG_TOKEN)")
-		detachFlag    = flag.Bool("d", false, "Run tunnel in background (daemon mode)")
-		noQR          = flag.Bool("no-qr", false, "Disable QR code display")
-		noClip        = flag.Bool("no-clipboard", false, "Disable auto clipboard copy")
-		noReconnect   = flag.Bool("no-reconnect", false, "Disable auto-reconnect on disconnect")
+		serverFlag       = flag.String("server", tunnelDomain, "MekongTunnel server hostname")
+		sshPortFlag      = flag.Int("ssh-port", 22, "SSH server port")
+		localPortFlag    = flag.Int("port", 0, "Local port to expose (alternative to positional arg)")
+		expireFlag       = flag.String("expire", "", "Tunnel lifetime (examples: 30m, 48h, 2d, 1w, or bare hours like 48)")
+		subdomainFlag    = flag.String("subdomain", "", "Pick a specific reserved subdomain (saved login or token required)")
+		tokenFlag        = flag.String("token", "", "API token override (flag > env > saved login)")
+		upstreamHostFlag = flag.String("upstream-host", "", "Override Host header sent to the local app (useful for Laragon/XAMPP/WAMP vhosts)")
+		detachFlag       = flag.Bool("d", false, "Run tunnel in background (daemon mode)")
+		noQR             = flag.Bool("no-qr", false, "Disable QR code display")
+		noClip           = flag.Bool("no-clipboard", false, "Disable auto clipboard copy")
+		noReconnect      = flag.Bool("no-reconnect", false, "Disable auto-reconnect on disconnect")
 	)
 	flag.IntVar(localPortFlag, "p", 0, "Local port to expose (shorthand for --port)")
 	flag.StringVar(expireFlag, "e", "", "Shorthand for --expire")
+	flag.StringVar(upstreamHostFlag, "host-header", "", "Alias for --upstream-host")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "  Usage: mekong [flags] <local-port>")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "  Examples:")
-		fmt.Fprintln(os.Stderr, "    mekong 3000                            expose localhost:3000")
-		fmt.Fprintln(os.Stderr, "    mekong -d 3000                         run in background")
-		fmt.Fprintln(os.Stderr, "    mekong logs                            show daemon logs")
-		fmt.Fprintln(os.Stderr, "    mekong logs -f                         follow daemon logs")
-		fmt.Fprintln(os.Stderr, "    mekong 3000 --expire 1w                keep the tunnel for up to 1 week")
-		fmt.Fprintln(os.Stderr, "    mekong status                          show your active tunnels")
-		fmt.Fprintln(os.Stderr, "    mekong status 3000                     show tunnel for port 3000")
-		fmt.Fprintln(os.Stderr, "    mekong stop 3000                       stop the background tunnel for port 3000")
-		fmt.Fprintln(os.Stderr, "    mekong stop --all                      stop all background tunnels")
-		fmt.Fprintln(os.Stderr, "    mekong update                          self-update binary")
-		fmt.Fprintln(os.Stderr, "    mekong login                           login to angkorsearch.dev")
-		fmt.Fprintln(os.Stderr, "    mekong logout                          clear saved credentials")
-		fmt.Fprintln(os.Stderr, "    mekong whoami                          show logged-in account")
-		fmt.Fprintln(os.Stderr, "    mekong subdomains                      list your reserved subdomains")
-		fmt.Fprintln(os.Stderr, "    mekong domains                         list your custom domains")
-		fmt.Fprintln(os.Stderr, "    mekong domain add app.example.com      add a custom domain")
-		fmt.Fprintln(os.Stderr, "    mekong domain connect app.example.com myapp  add, verify, target, and wait")
-		fmt.Fprintln(os.Stderr, "    mekong domain verify app.example.com   check DNS and HTTPS for a custom domain")
-		fmt.Fprintln(os.Stderr, "    mekong domain wait app.example.com     poll until HTTPS is ready")
-		fmt.Fprintln(os.Stderr, "    mekong domain target app.example.com myapp  route a custom domain to a reserved subdomain")
-		fmt.Fprintln(os.Stderr, "    mekong domain delete app.example.com   delete a custom domain")
-		fmt.Fprintln(os.Stderr, "    mekong reserve myapp                   reserve a subdomain")
-		fmt.Fprintln(os.Stderr, "    mekong delete myapp                    delete a reserved subdomain")
-		fmt.Fprintln(os.Stderr, "    mekong 3000 --subdomain myapp          use a specific reserved subdomain")
-		fmt.Fprintln(os.Stderr, "    mekong test                            test connectivity, auth, and binary")
-		fmt.Fprintln(os.Stderr, "    mekong doctor                          alias for mekong test")
-		fmt.Fprintln(os.Stderr, "    mekong doctor app.example.com          check custom-domain DNS and HTTPS")
-		fmt.Fprintln(os.Stderr, "    mekong --token <tok> 3000              use reserved subdomain")
-		fmt.Fprintln(os.Stderr, "    MEKONG_TOKEN=<tok> mekong 3000          token via env var")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "  Flags:")
-		flag.PrintDefaults()
-		fmt.Fprintln(os.Stderr, "")
+		printMainHelp()
 	}
 	// Go's flag package stops at the first non-flag argument, so
 	// `mekong 3000 --subdomain myapp` would leave "--subdomain" as a
@@ -421,6 +422,24 @@ func main() {
 
 	// Resolve API token: flag > env var > saved login (~/.mekong/config.json).
 	apiToken := resolveAPIToken(*tokenFlag)
+	projectCfg, err := loadProjectConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+		os.Exit(1)
+	}
+
+	upstreamHost, err := normalizeUpstreamHost(*upstreamHostFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+		os.Exit(1)
+	}
+	if upstreamHost == "" && projectCfg != nil {
+		upstreamHost, err = normalizeUpstreamHost(projectCfg.UpstreamHost)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  error: invalid upstream_host in .mekong.json: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
 	requestedLifetime := config.DefaultTunnelLifetime
 	if strings.TrimSpace(*expireFlag) != "" {
@@ -445,42 +464,28 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  error: --subdomain requires login or --token\n")
 		os.Exit(1)
 	}
+	tunnelToken := resolveTunnelSessionToken(apiToken, requestedSubdomain)
 
-	// Build port list: -p/--port flag takes priority; fall back to positional args.
-	var ports []int
-	if *localPortFlag > 0 {
-		if *localPortFlag < 1 || *localPortFlag > 65535 {
-			fmt.Fprintf(os.Stderr, "  error: invalid port %d\n", *localPortFlag)
-			os.Exit(1)
-		}
-		ports = []int{*localPortFlag}
-		// positional args not allowed when -p is used
-		if flag.NArg() > 0 {
-			fmt.Fprintf(os.Stderr, "  error: cannot mix -p/--port flag with positional port arguments\n")
-			os.Exit(1)
-		}
-	} else {
-		if flag.NArg() < 1 {
-			flag.Usage()
-			os.Exit(1)
-		}
-		ports = make([]int, 0, flag.NArg())
-		for _, arg := range flag.Args() {
-			p, err := strconv.Atoi(arg)
-			if err != nil || p < 1 || p > 65535 {
-				fmt.Fprintf(os.Stderr, "  error: invalid port %q\n", arg)
-				os.Exit(1)
-			}
-			ports = append(ports, p)
-		}
+	ports, err := resolvePorts(*localPortFlag, flag.Args(), projectCfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+		os.Exit(1)
+	}
+	if len(ports) == 0 {
+		flag.Usage()
+		os.Exit(1)
 	}
 	if requestedSubdomain != "" && len(ports) != 1 {
 		fmt.Fprintf(os.Stderr, "  error: --subdomain can only be used with a single local port\n")
 		os.Exit(1)
 	}
+	if upstreamHost != "" && len(ports) != 1 {
+		fmt.Fprintf(os.Stderr, "  error: --upstream-host can only be used with a single local port\n")
+		os.Exit(1)
+	}
 	for _, port := range ports {
 		if err := ensureLocalPortReady(port); err != nil {
-			fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "  error: %v\n", augmentLocalPortError(port, err, projectCfg))
 			os.Exit(1)
 		}
 	}
@@ -488,7 +493,7 @@ func main() {
 	// --- Daemon mode ---
 	// Re-exec self without -d, redirect output to log file, detach from terminal.
 	if *detachFlag {
-		if err := spawnDaemon(ports, *serverFlag, *sshPortFlag, requestedLifetime, apiToken, requestedSubdomain, *noReconnect); err != nil {
+		if err := spawnDaemon(ports, *serverFlag, *sshPortFlag, requestedLifetime, tunnelToken, requestedSubdomain, upstreamHost, *noReconnect); err != nil {
 			fmt.Fprintf(os.Stderr, "%s  ✖  Failed to start daemon: %v%s\n", red, err, reset)
 			os.Exit(1)
 		}
@@ -510,6 +515,10 @@ func main() {
 	}()
 
 	printBanner(*serverFlag, ports, requestedLifetime)
+	if upstreamHost != "" {
+		fmt.Println(formatOutputForPorts(ports, fmt.Sprintf(gray+"  Upstream   "+purple+"%s"+reset, upstreamHost)))
+		fmt.Printf("\n")
+	}
 
 	addTunnelState := func(ts tunnelState) {
 		stateMu.Lock()
@@ -537,7 +546,7 @@ func main() {
 					backoff = 2 * time.Second
 				}
 
-				_, err := connect(*serverFlag, *sshPortFlag, localPort, requestedLifetime, apiToken, requestedSubdomain, !*noQR, !*noClip, func(u string) {
+				_, err := connect(*serverFlag, *sshPortFlag, localPort, requestedLifetime, tunnelToken, requestedSubdomain, upstreamHost, !*noQR, !*noClip, func(u string) {
 					ts := tunnelState{
 						PID:       os.Getpid(),
 						URL:       u,
@@ -578,7 +587,7 @@ func main() {
 
 // spawnDaemon re-execs the current binary without the -d flag, detached from
 // the terminal. Stdout/stderr are redirected to ~/.mekong/mekong.log.
-func spawnDaemon(ports []int, server string, sshPort int, requestedLifetime time.Duration, apiToken, requestedSubdomain string, noReconnect bool) error {
+func spawnDaemon(ports []int, server string, sshPort int, requestedLifetime time.Duration, apiToken, requestedSubdomain, upstreamHost string, noReconnect bool) error {
 	_ = os.MkdirAll(mekongDir(), 0755)
 	for _, port := range ports {
 		if err := pruneLogFile(port, false); err != nil {
@@ -609,6 +618,9 @@ func spawnDaemon(ports []int, server string, sshPort int, requestedLifetime time
 	}
 	if requestedSubdomain != "" {
 		baseArgs = append(baseArgs, "--subdomain", requestedSubdomain)
+	}
+	if upstreamHost != "" {
+		baseArgs = append(baseArgs, "--upstream-host", upstreamHost)
 	}
 
 	self, err := os.Executable()
@@ -641,6 +653,9 @@ func spawnDaemon(ports []int, server string, sshPort int, requestedLifetime time
 		fmt.Printf(gray+"     PID     "+purple+"%d"+reset+gray+"  [:%d]"+reset+"\n", proc.pid, proc.port)
 	}
 	fmt.Printf(gray+"     Logs    "+purple+"%s"+reset+"\n", logFilePath())
+	if upstreamHost != "" {
+		fmt.Printf(gray+"     Host    "+purple+"%s"+reset+"\n", upstreamHost)
+	}
 	if len(ports) == 1 {
 		fmt.Printf(gray+"     View    "+purple+"mekong logs %d"+reset+"\n", ports[0])
 		fmt.Printf(gray+"     Follow  "+purple+"mekong logs -f %d"+reset+"\n", ports[0])
@@ -659,23 +674,18 @@ func spawnDaemon(ports []int, server string, sshPort int, requestedLifetime time
 
 // printBanner prints the startup header.
 func printBanner(server string, ports []int, requestedLifetime time.Duration) {
-	portStr := make([]string, len(ports))
+	localTargets := make([]string, len(ports))
 	for i, p := range ports {
-		portStr[i] = strconv.Itoa(p)
+		localTargets[i] = fmt.Sprintf("localhost:%d", p)
 	}
 	lines := []string{
-		cyan + "  ███╗   ███╗███████╗██╗  ██╗ ██████╗ ███╗   ██╗ ██████╗ " + reset,
-		cyan + "  ████╗ ████║██╔════╝██║ ██╔╝██╔═══██╗████╗  ██║██╔════╝ " + reset,
-		cyan + "  ██╔████╔██║█████╗  █████╔╝ ██║   ██║██╔██╗ ██║██║  ███╗" + reset,
-		cyan + "  ██║╚██╔╝██║██╔══╝  ██╔═██╗ ██║   ██║██║╚██╗██║██║   ██║" + reset,
-		cyan + "  ██║ ╚═╝ ██║███████╗██║  ██╗╚██████╔╝██║ ╚████║╚██████╔╝" + reset,
-		cyan + "  ╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ " + reset,
-		gray + "  by " + yellow + "Ing Muyleang" + gray + " · Founder of " + yellow + "KhmerStack" + reset,
-		gray + "  ─────────────────────────────────────────────────────" + reset,
-		fmt.Sprintf(gray+"  Server     "+purple+"%s"+reset, server),
-		fmt.Sprintf(gray+"  Local      "+purple+"localhost:%s"+reset, strings.Join(portStr, ", ")),
-		fmt.Sprintf(gray+"  Expire     "+purple+"%s"+reset, expiry.Format(requestedLifetime)),
-		gray + "  ─────────────────────────────────────────────────────" + reset,
+		cyan + "  Mekong Tunnel" + reset,
+		gray + "  ─────────────────────────────────────────" + reset,
+		fmt.Sprintf(gray+"  Server   "+purple+"%s"+reset, server),
+		fmt.Sprintf(gray+"  Local    "+purple+"%s"+reset, strings.Join(localTargets, ", ")),
+		fmt.Sprintf(gray+"  Expires  "+purple+"%s"+reset, expiry.Format(requestedLifetime)),
+		gray + "  Tips     " + reset + cyan + "Ctrl+C" + reset + gray + " stop | " + reset + cyan + "mekong status" + reset + gray + " | " + reset + cyan + "mekong logs" + reset,
+		gray + "  ─────────────────────────────────────────" + reset,
 	}
 
 	fmt.Printf("\n")
@@ -687,7 +697,7 @@ func printBanner(server string, ports []int, requestedLifetime time.Duration) {
 
 // connect establishes one SSH tunnel session. Returns the tunnel URL and any error.
 // onURL is called as soon as the tunnel URL is received from the server (while still connected).
-func connect(server string, sshPort, localPort int, requestedLifetime time.Duration, apiToken, requestedSubdomain string, showQR, copyClip bool, onURL func(string)) (string, error) {
+func connect(server string, sshPort, localPort int, requestedLifetime time.Duration, apiToken, requestedSubdomain, upstreamHost string, showQR, copyClip bool, onURL func(string)) (string, error) {
 	var auths []ssh.AuthMethod
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		if agentConn, err := net.Dial("unix", sock); err == nil {
@@ -776,6 +786,10 @@ func connect(server string, sshPort, localPort int, requestedLifetime time.Durat
 	if requestedSubdomain != "" {
 		_ = sess.Setenv("MEKONG_SUBDOMAIN", requestedSubdomain)
 	}
+	if upstreamHost != "" {
+		_ = sess.Setenv("MEKONG_UPSTREAM_HOST", upstreamHost)
+	}
+	_ = sess.Setenv("MEKONG_LOCAL_PORT", strconv.Itoa(localPort))
 
 	if err := sess.Shell(); err != nil {
 		return "", fmt.Errorf("shell: %w", err)

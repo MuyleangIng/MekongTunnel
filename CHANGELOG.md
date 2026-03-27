@@ -1,6 +1,29 @@
 # Changelog
 
-## v1.5.6 - 2026-03-25
+## v1.5.7 - 2026-03-27
+
+Highlights:
+
+- Added optional Redis integration for the Go API and tunnel edge
+- Cached `server_config` reads and verified custom-domain target lookups in Redis
+- Added Redis pub/sub fan-out for notifications so multiple API instances can serve SSE correctly
+- Added Redis-backed distributed API rate limiting for public auth and CLI device endpoints
+- Moved email login OTP codes to Redis when configured, with PostgreSQL fallback kept for single-node or Redis-disabled setups
+- Added GitHub Actions workflows for systemd-based dev and production deploys, plus deployment docs for environment secrets, variables, and optional Redis setup
+- Added compose base/dev/prod stack files for Postgres + Redis + API + optional tunnel edge
+- Added bootstrap-only API mode plus `api-init` workflow for migrations, `server_config`, and admin creation/promotion
+- Added `.env.compose.dev.example` and `.env.compose.prod.example` templates
+- Added `cmd/apibench` and `scripts/stress-local.sh` for local API stress runs such as 1000 users and 5000 tunnel reports
+- Redesigned the shared-tunnel warning page into a simpler one-click flow so the first Continue click sets the warning cookie and opens the site correctly
+- Added a cleaner branded Tunnel Status page for unreachable local apps with a 4-step connection flow, active/failed state colors, mobile-safe text wrapping, and automatic retry/reopen when the local app starts responding again
+- Improved tunnel browser error pages so they show the real client-reported local port when available and never fake `localhost:80` for raw `ssh -R` sessions
+- Expanded the random generated tunnel-name word pool while keeping the stable `word-word-8hex` format
+- Added `docs/API_FLOW.md` and `docs/PERFORMANCE.md`
+- Replaced the old local `.env` / `.env.api` workflow with explicit `.env.dev` / `.env.prod` templates, cleaned the compose env templates, and updated scripts/docs to match
+- Updated the README, CLI contract, and handbook to document the normal `npm run dev` + `mekong 3000` workflow and the new browser tunnel UX
+- Built fresh multi-platform client binaries with `main.version=v1.5.7`
+
+## v1.5.1 - 2026-03-25
 
 Highlights:
 
@@ -11,7 +34,7 @@ Highlights:
 - Added donations API improvements, free-trial and newsletter config updates, public receipt upload support, and stronger OTP enforcement on OAuth sign-in
 - Improved QR code reliability and frontend compatibility for auth flows
 - Added API and tunnel deploy tooling plus cloud startup planning docs for the ecosystem deployment workflow
-- Built fresh multi-platform client binaries with `main.version=v1.5.6`
+- Built fresh multi-platform client binaries with `main.version=v1.5.1`
 
 ## v1.5.0 - 2026-03-23
 
@@ -93,6 +116,7 @@ Highlights:
 
 | Tag | Date |
 | --- | --- |
+| `v1.5.7` | 2026-03-27 |
 | `v1.5.6` | 2026-03-25 |
 | `v1.4.9` | 2026-03-14 |
 | `v1.4.8` | 2026-03-14 |

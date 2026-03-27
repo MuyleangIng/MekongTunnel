@@ -419,6 +419,14 @@ func (db *DB) DisableEmailOTP(ctx context.Context, userID string) error {
 // CreateEmailOTPCode stores a hashed OTP code valid for 5 minutes.
 // Deletes any previous unused codes for this user first.
 func (db *DB) CreateEmailOTPCode(ctx context.Context, userID, codeHash string, expiresAt time.Time) error {
+	if db.redis != nil {
+		if ttl := time.Until(expiresAt); ttl > 0 {
+			if err := db.redis.StoreEmailOTP(ctx, userID, codeHash, ttl); err == nil {
+				return nil
+			}
+		}
+	}
+
 	_, _ = db.Pool.Exec(ctx,
 		`DELETE FROM email_otp_codes WHERE user_id = $1 AND used_at IS NULL`, userID)
 	_, err := db.Pool.Exec(ctx,
@@ -430,6 +438,16 @@ func (db *DB) CreateEmailOTPCode(ctx context.Context, userID, codeHash string, e
 // VerifyEmailOTPCode checks the most recent valid code for the user.
 // Returns true and marks it used if valid; returns false otherwise.
 func (db *DB) VerifyEmailOTPCode(ctx context.Context, userID, codeHash string) (bool, error) {
+	if db.redis != nil {
+		ok, err := db.redis.VerifyEmailOTP(ctx, userID, codeHash)
+		if err == nil && ok {
+			return true, nil
+		}
+		if err != nil {
+			// Fall back to the database path when Redis is unavailable or transiently failing.
+		}
+	}
+
 	row := db.Pool.QueryRow(ctx, `
 		SELECT id FROM email_otp_codes
 		WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL AND expires_at > now()

@@ -3,8 +3,10 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api/handlers"
 	"github.com/MuyleangIng/MekongTunnel/internal/api/middleware"
@@ -14,6 +16,7 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/hub"
 	"github.com/MuyleangIng/MekongTunnel/internal/mailer"
 	"github.com/MuyleangIng/MekongTunnel/internal/notify"
+	"github.com/MuyleangIng/MekongTunnel/internal/redisx"
 )
 
 // Config holds all environment-driven configuration for the API server.
@@ -35,14 +38,17 @@ type Config struct {
 	UploadDir           string
 	PublicURL           string
 	MailConfig          mailer.Config
+	Redis               *redisx.Client
 }
 
 // Server is the MekongTunnel REST API HTTP server.
 type Server struct {
-	mux *http.ServeMux
-	db  *db.DB
-	cfg Config
-	hub *hub.Hub
+	mux         *http.ServeMux
+	handler     http.Handler
+	db          *db.DB
+	cfg         Config
+	hub         *hub.Hub
+	redisCancel context.CancelFunc
 }
 
 // New creates a new Server, wires routes, and returns it.
@@ -54,13 +60,21 @@ func New(database *db.DB, cfg Config) *Server {
 		hub: hub.New(),
 	}
 	s.registerRoutes()
+	s.handler = middleware.CORSMiddleware(cfg.AllowedOrigins)(s.mux)
+	s.startNotificationRelay()
 	return s
 }
 
 // ServeHTTP implements http.Handler, applying global middleware.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	corsMiddleware := middleware.CORSMiddleware(s.cfg.AllowedOrigins)
-	corsMiddleware(s.mux).ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
+}
+
+// Close stops background Redis subscribers.
+func (s *Server) Close() {
+	if s.redisCancel != nil {
+		s.redisCancel()
+	}
 }
 
 // ─── Route registration ───────────────────────────────────────
@@ -68,9 +82,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) registerRoutes() {
 	authRequired := middleware.AuthMiddleware(s.cfg.JWTSecret)
 	adminRequired := middleware.AdminMiddleware()
+	registerRate := middleware.RateLimitIP(s.cfg.Redis, "auth-register", 10, time.Minute)
+	loginRate := middleware.RateLimitIP(s.cfg.Redis, "auth-login", 20, time.Minute)
+	forgotPasswordRate := middleware.RateLimitIP(s.cfg.Redis, "auth-forgot-password", 8, time.Minute)
+	verifyEmailRate := middleware.RateLimitIP(s.cfg.Redis, "auth-verify-email", 20, time.Minute)
+	resendVerifyRate := middleware.RateLimitIP(s.cfg.Redis, "auth-resend-verify", 8, time.Minute)
+	adminVerifyRequestRate := middleware.RateLimitIP(s.cfg.Redis, "auth-request-admin-verify", 6, time.Minute)
+	emailOTPRate := middleware.RateLimitIP(s.cfg.Redis, "auth-email-otp", 20, time.Minute)
+	tokenInfoRate := middleware.RateLimitIP(s.cfg.Redis, "auth-token-info", 60, time.Minute)
+	cliDeviceCreateRate := middleware.RateLimitIP(s.cfg.Redis, "cli-device-create", 20, time.Minute)
+	cliDevicePollRate := middleware.RateLimitIP(s.cfg.Redis, "cli-device-poll", 120, time.Minute)
 
 	// ── Shared notification service ──────────────────────────────
-	notifySvc := &notify.Service{DB: s.db, Hub: s.hub}
+	notifySvc := &notify.Service{DB: s.db, Hub: s.hub, Redis: s.cfg.Redis}
 
 	// ── Mailer ───────────────────────────────────────────────────
 	mailSvc := mailer.New(s.cfg.MailConfig)
@@ -110,6 +134,9 @@ func (s *Server) registerRoutes() {
 	tunnelsH := &handlers.TunnelsHandler{
 		DB:              s.db,
 		TunnelServerURL: s.cfg.TunnelServerURL,
+		StatsClient: &http.Client{
+			Timeout: 5 * time.Second,
+		},
 	}
 
 	userH := &handlers.UserHandler{DB: s.db, Notify: notifySvc}
@@ -158,18 +185,18 @@ func (s *Server) registerRoutes() {
 	})
 
 	// ── Auth ────────────────────────────────────────────────────
-	s.mux.HandleFunc("POST /api/auth/register", authH.Register)
-	s.mux.HandleFunc("POST /api/auth/login", authH.Login)
+	s.mux.HandleFunc("POST /api/auth/register", chain(authH.Register, registerRate))
+	s.mux.HandleFunc("POST /api/auth/login", chain(authH.Login, loginRate))
 	s.mux.HandleFunc("POST /api/auth/logout", authH.Logout)
 	s.mux.HandleFunc("GET /api/auth/me", chain(authH.Me, authRequired))
-	s.mux.HandleFunc("GET /api/auth/token-info", authH.TokenInfo) // API token (mkt_xxx) — no JWT needed
+	s.mux.HandleFunc("GET /api/auth/token-info", chain(authH.TokenInfo, tokenInfoRate)) // API token (mkt_xxx) — no JWT needed
 	s.mux.HandleFunc("POST /api/auth/refresh", authH.Refresh)
-	s.mux.HandleFunc("POST /api/auth/forgot-password", authH.ForgotPassword)
+	s.mux.HandleFunc("POST /api/auth/forgot-password", chain(authH.ForgotPassword, forgotPasswordRate))
 	s.mux.HandleFunc("POST /api/auth/reset-password", authH.ResetPassword)
-	s.mux.HandleFunc("POST /api/auth/verify-email", authH.VerifyEmail)
-	s.mux.HandleFunc("POST /api/auth/resend-verify", authH.ResendVerify)
-	s.mux.HandleFunc("POST /api/auth/request-admin-verify", authH.RequestAdminVerify)
-	s.mux.HandleFunc("POST /api/auth/email-otp/verify", authH.VerifyEmailOTP)
+	s.mux.HandleFunc("POST /api/auth/verify-email", chain(authH.VerifyEmail, verifyEmailRate))
+	s.mux.HandleFunc("POST /api/auth/resend-verify", chain(authH.ResendVerify, resendVerifyRate))
+	s.mux.HandleFunc("POST /api/auth/request-admin-verify", chain(authH.RequestAdminVerify, adminVerifyRequestRate))
+	s.mux.HandleFunc("POST /api/auth/email-otp/verify", chain(authH.VerifyEmailOTP, emailOTPRate))
 	s.mux.HandleFunc("POST /api/auth/2fa/email/enable", chain(authH.EnableEmailOTP, authRequired))
 	s.mux.HandleFunc("POST /api/auth/2fa/email/disable", chain(authH.DisableEmailOTP, authRequired))
 	s.mux.HandleFunc("GET /api/auth/github", authH.GitHubOAuth)
@@ -187,8 +214,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/tokens/{id}", chain(tokensH.RevokeToken, authRequired))
 
 	// ── CLI Device Auth (mekong login) ───────────────────────────
-	s.mux.HandleFunc("POST /api/cli/device", cliDeviceH.CreateSession)
-	s.mux.HandleFunc("GET /api/cli/device", cliDeviceH.PollSession)
+	s.mux.HandleFunc("POST /api/cli/device", chain(cliDeviceH.CreateSession, cliDeviceCreateRate))
+	s.mux.HandleFunc("GET /api/cli/device", chain(cliDeviceH.PollSession, cliDevicePollRate))
 	s.mux.HandleFunc("POST /api/cli/device/approve", chain(cliDeviceH.ApproveSession, authRequired))
 	s.mux.HandleFunc("GET /api/cli/subdomains", subdomainH.ListCLI)
 	s.mux.HandleFunc("POST /api/cli/subdomains", subdomainH.CreateCLI)
@@ -367,6 +394,24 @@ func (s *Server) registerRoutes() {
 	// ── File uploads ─────────────────────────────────────────────
 	s.mux.HandleFunc("POST /api/upload", uploadH.Upload)
 	s.mux.HandleFunc("GET /api/uploads/{filename}", uploadH.ServeFile)
+}
+
+func (s *Server) startNotificationRelay() {
+	if s.cfg.Redis == nil || !s.cfg.Redis.Enabled() {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.redisCancel = cancel
+
+	go func() {
+		err := s.cfg.Redis.SubscribeNotifications(ctx, func(userID string, payload []byte) {
+			s.hub.Push(userID, payload)
+		})
+		if err != nil && ctx.Err() == nil {
+			log.Printf("[api] notification relay: %v", err)
+		}
+	}()
 }
 
 // ─── Middleware chain helper ──────────────────────────────────

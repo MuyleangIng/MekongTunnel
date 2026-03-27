@@ -1,4 +1,4 @@
-.PHONY: build build-small build-tiny clean test run
+.PHONY: build build-small build-tiny clean test run compose-dev-up compose-dev-down compose-prod-up compose-prod-down compose-init-dev compose-init-prod stress-local release-cli-assets release-cli-publish
 
 # Binary name
 BINARY=mekongtunnel
@@ -56,6 +56,14 @@ build-client-all: clean
 	@echo "Client binaries:"
 	@ls -lh $(BUILD_DIR)/mekong*
 
+release-cli-assets:
+	@test -n "$(TAG)" || (echo "usage: make release-cli-assets TAG=v1.5.7" && exit 1)
+	./scripts/release-cli.sh "$(TAG)"
+
+release-cli-publish:
+	@test -n "$(TAG)" || (echo "usage: make release-cli-publish TAG=v1.5.7" && exit 1)
+	./scripts/release-cli.sh "$(TAG)" --publish
+
 # Tiny build: smallest possible binary (requires upx)
 build-tiny: build-small
 	@command -v upx >/dev/null 2>&1 && upx --best --lzma $(BUILD_DIR)/$(BINARY) || echo "upx not installed, skipping compression"
@@ -83,6 +91,27 @@ build-dev:
 # Run tests
 test:
 	$(GOTEST) -v ./...
+
+compose-dev-up:
+	docker compose --env-file .env.compose.dev -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+compose-dev-down:
+	docker compose --env-file .env.compose.dev -f docker-compose.yml -f docker-compose.dev.yml down
+
+compose-prod-up:
+	docker compose --env-file .env.compose.prod -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+compose-prod-down:
+	docker compose --env-file .env.compose.prod -f docker-compose.yml -f docker-compose.prod.yml down
+
+compose-init-dev:
+	./scripts/init-stack.sh dev
+
+compose-init-prod:
+	./scripts/init-stack.sh prod
+
+stress-local:
+	./scripts/stress-local.sh
 
 # Run the application
 run: build-dev

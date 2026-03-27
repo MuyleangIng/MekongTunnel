@@ -59,6 +59,42 @@ func (db *DB) ListTunnelsByUser(ctx context.Context, userID string, status strin
 	return scanTunnelRows(rows)
 }
 
+// ListTunnelsByUserPage returns a paginated tunnel history plus the total row count.
+func (db *DB) ListTunnelsByUserPage(ctx context.Context, userID string, status string, limit, offset int) ([]*models.Tunnel, int, error) {
+	countQuery := `SELECT COUNT(*) FROM tunnels WHERE user_id = $1`
+	query := `
+		SELECT id, user_id, subdomain, local_port, remote_ip, status,
+		       started_at, ended_at, total_requests, total_bytes
+		FROM tunnels WHERE user_id = $1`
+	args := []any{userID}
+
+	if status != "" {
+		countQuery += ` AND status = $2`
+		query += ` AND status = $2`
+		args = append(args, status)
+	}
+
+	var total int
+	if err := db.Pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query += fmt.Sprintf(" ORDER BY started_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	tunnels, err := scanTunnelRows(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	return tunnels, total, nil
+}
+
 // ListAllTunnels returns tunnels with optional status filter, paginated.
 func (db *DB) ListAllTunnels(ctx context.Context, status string, limit, offset int) ([]*models.Tunnel, error) {
 	query := `

@@ -69,7 +69,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
-if ! scripts/extract_changelog_section.sh "$tag" CHANGELOG.md >/dev/null 2>&1; then
+if ! bash scripts/extract_changelog_section.sh "$tag" CHANGELOG.md >/dev/null 2>&1; then
   echo "CHANGELOG.md does not have a section for ${tag}" >&2
   exit 1
 fi
@@ -119,7 +119,7 @@ echo "▶ Verifying checksum file ..."
 )
 
 echo "▶ Building release notes from CHANGELOG.md ..."
-scripts/extract_changelog_section.sh "$tag" CHANGELOG.md > "${out_dir}/release-notes.md"
+bash scripts/extract_changelog_section.sh "$tag" CHANGELOG.md > "${out_dir}/release-notes.md"
 {
   echo
   echo "## Release Assets"

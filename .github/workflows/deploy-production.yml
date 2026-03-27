@@ -1,0 +1,219 @@
+name: Deploy Production
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy, for example main or v1.5.7"
+        required: true
+        default: main
+        type: string
+      deploy_api:
+        description: "Deploy the API service"
+        required: false
+        default: true
+        type: boolean
+      deploy_tunnel:
+        description: "Deploy the tunnel edge"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_REF: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.ref }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.DEPLOY_REF }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build server binaries
+        run: |
+          go build ./cmd/api
+          go build ./cmd/mekongtunnel
+
+      - name: Run stable server test suites
+        run: |
+          go test ./internal/domain
+          go test ./internal/expiry
+          go test ./internal/tunnel
+          go test ./internal/proxy
+
+  deploy-api:
+    if: ${{ github.event_name == 'release' || inputs.deploy_api }}
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_REF: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.ref }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.DEPLOY_REF }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate API deploy configuration
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          API_ENV_FILE: ${{ secrets.API_ENV_FILE }}
+          API_REMOTE_HOST: ${{ vars.API_REMOTE_HOST }}
+          API_SSH_PORT: ${{ vars.API_SSH_PORT }}
+          API_REMOTE_DIR: ${{ vars.API_REMOTE_DIR }}
+          API_SERVICE_NAME: ${{ vars.API_SERVICE_NAME }}
+          PUBLIC_API_BASE: ${{ vars.PUBLIC_API_BASE }}
+        run: |
+          set -euo pipefail
+
+          for name in DEPLOY_SSH_KEY API_REMOTE_HOST API_SSH_PORT API_REMOTE_DIR API_SERVICE_NAME PUBLIC_API_BASE; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required production environment secret/variable: ${name}"
+              exit 1
+            fi
+          done
+
+          if [[ -z "${API_ENV_FILE:-}" ]]; then
+            echo "API_ENV_FILE not set in production; deploy will keep using the existing API service env on the server."
+          fi
+
+      - name: Write API env file
+        env:
+          API_ENV_FILE: ${{ secrets.API_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${API_ENV_FILE:-}" ]]; then
+            printf '%s' "${API_ENV_FILE}" > .env.github.api
+          else
+            rm -f .env.github.api
+          fi
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          API_REMOTE_HOST: ${{ vars.API_REMOTE_HOST }}
+          API_SSH_PORT: ${{ vars.API_SSH_PORT }}
+        run: |
+          set -euo pipefail
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${DEPLOY_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          host="${API_REMOTE_HOST#*@}"
+          ssh-keyscan -p "${API_SSH_PORT}" -H "${host}" >> ~/.ssh/known_hosts
+
+      - name: Deploy API
+        env:
+          REMOTE_HOST: ${{ vars.API_REMOTE_HOST }}
+          REMOTE_SSH_PORT: ${{ vars.API_SSH_PORT }}
+          REMOTE_DIR: ${{ vars.API_REMOTE_DIR }}
+          REMOTE_SERVICE_NAME: ${{ vars.API_SERVICE_NAME }}
+          PUBLIC_API_BASE: ${{ vars.PUBLIC_API_BASE }}
+        run: |
+          set -euo pipefail
+          if [[ -s .env.github.api ]]; then
+            export LOCAL_ENV_FILE=.env.github.api
+          fi
+          ./scripts/deploy-api.sh
+
+  deploy-tunnel:
+    if: ${{ github.event_name == 'release' || inputs.deploy_tunnel }}
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_REF: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.ref }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.DEPLOY_REF }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate tunnel deploy configuration
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          TUNNEL_ENV_FILE: ${{ secrets.TUNNEL_ENV_FILE }}
+          TUNNEL_REMOTE_HOST: ${{ vars.TUNNEL_REMOTE_HOST }}
+          TUNNEL_SSH_PORT: ${{ vars.TUNNEL_SSH_PORT }}
+          TUNNEL_REMOTE_APP_DIR: ${{ vars.TUNNEL_REMOTE_APP_DIR }}
+          TUNNEL_SERVICE_NAME: ${{ vars.TUNNEL_SERVICE_NAME }}
+          TUNNEL_SERVER_BIN: ${{ vars.TUNNEL_SERVER_BIN }}
+        run: |
+          set -euo pipefail
+
+          for name in DEPLOY_SSH_KEY TUNNEL_ENV_FILE TUNNEL_REMOTE_HOST TUNNEL_SSH_PORT TUNNEL_REMOTE_APP_DIR TUNNEL_SERVICE_NAME TUNNEL_SERVER_BIN; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required production environment secret/variable: ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Write tunnel env file
+        env:
+          TUNNEL_ENV_FILE: ${{ secrets.TUNNEL_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${TUNNEL_ENV_FILE}" > .env.github.tunnel
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          TUNNEL_REMOTE_HOST: ${{ vars.TUNNEL_REMOTE_HOST }}
+          TUNNEL_SSH_PORT: ${{ vars.TUNNEL_SSH_PORT }}
+        run: |
+          set -euo pipefail
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${DEPLOY_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          host="${TUNNEL_REMOTE_HOST#*@}"
+          ssh-keyscan -p "${TUNNEL_SSH_PORT}" -H "${host}" >> ~/.ssh/known_hosts
+
+      - name: Deploy tunnel edge
+        env:
+          REMOTE_HOST: ${{ vars.TUNNEL_REMOTE_HOST }}
+          REMOTE_SSH_PORT: ${{ vars.TUNNEL_SSH_PORT }}
+          REMOTE_APP_DIR: ${{ vars.TUNNEL_REMOTE_APP_DIR }}
+          REMOTE_SERVICE_NAME: ${{ vars.TUNNEL_SERVICE_NAME }}
+          REMOTE_SERVER_BIN: ${{ vars.TUNNEL_SERVER_BIN }}
+          LOCAL_ENV_FILE: .env.github.tunnel
+          WILDCARD_DOMAIN: ${{ vars.TUNNEL_WILDCARD_DOMAIN }}
+          REMOTE_WILDCARD_UPSTREAM: ${{ vars.TUNNEL_WILDCARD_UPSTREAM }}
+        run: ./scripts/deploy-tunnel.sh

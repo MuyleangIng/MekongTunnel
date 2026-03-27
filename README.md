@@ -35,12 +35,19 @@ Auto-detects OS and architecture, installs to `PATH`, removes macOS Gatekeeper q
 
 ```bash
 mekong login
-mekong reserve myapp
+mekong subdomain myapp
 mekong 3000 --subdomain myapp
 ```
 
+Plain `mekong 3000` keeps using a random generated tunnel URL. Add `--subdomain myapp`
+only when you want a specific reserved name.
+
 Generated tunnels use `*.proxy.angkorsearch.dev` by default. Branded custom domains such as
 `app.mekongtunnel.dev` are supported through `mekong domain connect ...`.
+
+Browser visitors to generated tunnel URLs see a one-time shared-tunnel notice first. If the
+developer stops Mekong or the local app goes offline, Mekong serves branded tunnel status pages
+instead of a raw 404 or generic bad gateway response.
 
 For DNS setup:
 
@@ -55,7 +62,8 @@ For DNS setup:
 
 ```bash
 # Expose ports
-mekong 3000                    # single port
+mekong 3000                    # single port with a random URL
+mekong 3000 --subdomain myapp  # single port with a specific reserved subdomain
 mekong 3000 8080               # multi-port, each gets its own URL
 mekong 3000 --expire 48h       # with expiry (-e also works)
 
@@ -72,11 +80,22 @@ mekong stop --all              # stop all tunnels
 mekong login                   # browser device flow
 mekong whoami                  # show email + plan
 mekong logout                  # clear saved token
-mekong subdomains              # list reserved subdomains
+mekong subdomain               # list reserved subdomains
+mekong subdomain myapp         # reserve a reserved subdomain
+mekong subdomain delete myapp  # remove a reserved subdomain
 mekong domains                 # list custom domains
+mekong domain add app.example.com
 mekong domain connect app.example.com myapp
 mekong doctor                  # connectivity/auth checks
 mekong doctor app.example.com  # custom-domain DNS + HTTPS checks
+
+# Project setup
+mekong detect                  # detect the local stack in the current project
+mekong init                    # write .mekong.json from detection
+mekong help php                # Laragon/XAMPP/WAMP/Laravel examples
+
+# Local virtual hosts
+mekong 80 --upstream-host myapp.test
 
 # Maintenance
 mekong update                  # self-update binary (checksum-verified)
@@ -125,20 +144,102 @@ django-mekong runserver 8000
 ## Self-hosting
 
 ```bash
+# Local runtime env files
+cp .env.dev.example .env.dev
+cp .env.prod.example .env.prod
+
+# Run the API with the matching env file
+./scripts/run-api.sh dev
+
 # Build from source
 make build          # server + CLI
 make build-all      # cross-compile server (Linux + macOS, amd64 + arm64)
 make build-client-all  # cross-compile CLI (all platforms)
 
-# Production deploy scripts
+# Local API stack with Postgres + Redis
+cp .env.compose.dev.example .env.compose.dev
+docker compose --env-file .env.compose.dev -f docker-compose.yml -f docker-compose.dev.yml up -d
+./scripts/init-stack.sh dev
+
+# Production Compose stack
+cp .env.compose.prod.example .env.compose.prod
+docker compose --env-file .env.compose.prod -f docker-compose.yml -f docker-compose.prod.yml up -d
+./scripts/init-stack.sh prod
+
+# Optional tunnel edge locally or in staging
+docker compose --env-file .env.compose.dev -f docker-compose.yml -f docker-compose.dev.yml --profile tunnel up -d mekong-tunnel
+
+# Deploy scripts for existing VM workflows
 ./scripts/deploy-api.sh
 ./scripts/deploy-tunnel.sh
 ```
+
+`deploy-tunnel.sh` uploads your local `.env.prod` to the tunnel host. `.env` and `.env.api` are no longer part of the supported workflow.
+
+Supported env files now:
+
+- `.env.dev`
+- `.env.prod`
+- `.env.compose.dev`
+- `.env.compose.prod`
+
+If your real servers still use `systemd`, GitHub Actions can run those same deploy scripts for you:
+
+- run `Deploy Dev` manually from the Actions tab
+- publish a GitHub Release -> `Deploy Production`
+
+See [docs/GITHUB_DEPLOY.md](./docs/GITHUB_DEPLOY.md) for the required GitHub Environment secrets and variables, including the optional `API_ENV_FILE` and required `TUNNEL_ENV_FILE` multi-line secrets.
+
+`api-init` runs the bootstrap path inside the API image:
+
+- runs migrations
+- ensures `server_config` exists
+- promotes `ADMIN_EMAIL` to admin
+- creates the admin account when `ADMIN_PASSWORD` is provided and the user does not exist yet
+
+Optional Redis is recommended once you run more than one API instance or more than one tunnel edge. With `REDIS_URL` configured, Mekong uses Redis for:
+
+- server config caching
+- verified custom-domain target caching
+- notification pub/sub across API instances
+- email OTP code storage
+- distributed API rate limiting
+
+Example:
+
+```bash
+export REDIS_URL=redis://127.0.0.1:6379/0
+export REDIS_PREFIX=mekong
+export REDIS_CACHE_TTL=30s
+export REDIS_DOMAIN_CACHE_TTL=1m
+export REDIS_NOTIFICATION_CHANNEL=notifications
+```
+
+Without `REDIS_URL`, the API and tunnel edge still work normally in single-node mode.
 
 See:
 
 - [HANDBOOK.md](./HANDBOOK.md) for architecture, API, data model, and release notes
 - [SETUP.md](./SETUP.md) for DNS, TLS, proxy host setup, and production deploy steps
+- [docs/GITHUB_DEPLOY.md](./docs/GITHUB_DEPLOY.md) for GitHub Actions deployment on existing `systemd` servers
+- [docs/API_FLOW.md](./docs/API_FLOW.md) for current API flow and target service-layer structure
+- [docs/PERFORMANCE.md](./docs/PERFORMANCE.md) for stress testing and benchmark guidance
+
+## Stress test
+
+Local API benchmark:
+
+```bash
+go run ./cmd/apibench -base-url http://127.0.0.1:8080 -users 1000 -tunnels 5000 -concurrency 100
+```
+
+Or:
+
+```bash
+USERS=1000 TUNNELS=5000 CONCURRENCY=100 ./scripts/stress-local.sh
+```
+
+This measures the API control plane only: register/login-style throughput, tunnel report throughput, latency, and API-side bytes. It does not measure real SSH/HTTPS proxy bandwidth.
 
 ---
 
@@ -160,6 +261,8 @@ Internet
    ▼
 localhost:3000  (your app)
 ```
+
+Redis is optional in development. In multi-instance production it is used as a coordination layer for API-side cache, notification fan-out, email OTP codes, and shared rate limits, while PostgreSQL remains the source of truth.
 
 Every tunnel gets a random subdomain such as:
 

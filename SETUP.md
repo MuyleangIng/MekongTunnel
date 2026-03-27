@@ -12,6 +12,8 @@
 - [`README.md`](./README.md): quick start and developer-facing overview
 - [`HANDBOOK.md`](./HANDBOOK.md): architecture, API surface, and release notes
 - [`SETUP.md`](./SETUP.md): production DNS, TLS, deploy, and verification
+- [`docs/API_FLOW.md`](./docs/API_FLOW.md): current API flow and target service-layer direction
+- [`docs/PERFORMANCE.md`](./docs/PERFORMANCE.md): local stress and benchmark guidance
 
 ## Recommended Production Model
 
@@ -34,6 +36,8 @@ The preferred deployment flow is:
 ./scripts/deploy-tunnel.sh
 WILDCARD_DOMAIN=mekongtunnel.dev ./scripts/deploy-tunnel.sh   # optional branded wildcard
 ```
+
+If your production servers still use `systemd`, you can keep this exact deploy path and let GitHub Actions run it for you. Use [docs/GITHUB_DEPLOY.md](./docs/GITHUB_DEPLOY.md) for the `development` and `production` environment setup.
 
 `update.sh` is still supported, but only for a git checkout that already exists on the proxy host.
 
@@ -150,6 +154,13 @@ Important:
 ## 4. Local `.env.prod`
 
 `./scripts/deploy-tunnel.sh` uploads your local [`.env.prod`](./.env.prod) to the proxy host as `/opt/mekongtunnel/.env.prod`.
+`./scripts/deploy-api.sh` can also upload an API env file and install the API systemd unit when `LOCAL_ENV_FILE` is set.
+
+Start from the tracked template:
+
+```bash
+cp .env.prod.example .env.prod
+```
 
 Minimum tunnel-side values:
 
@@ -169,7 +180,37 @@ Notes:
 
 - `HTTP_ADDR` and `HTTPS_ADDR` stay on loopback because nginx terminates public `80/443`
 - `DATABASE_URL` must be valid if you want reserved subdomains and custom domains
-- `./scripts/deploy-api.sh` does not manage API secrets; it only updates the API binary and restarts the service
+- `REDIS_URL` is optional; leave it unset if you are still on one API node and one tunnel edge
+- `./scripts/deploy-api.sh` always uploads the API binary and `migrations/`
+- if `LOCAL_ENV_FILE` is set, it also uploads the API env file, links the remote `.env`, and installs the API systemd unit
+
+If you want Redis on an existing `systemd` server:
+
+```bash
+apt update
+apt install -y redis-server
+systemctl enable --now redis-server
+redis-cli ping
+```
+
+Then add `REDIS_URL=redis://127.0.0.1:6379/0` to the service env and restart the API or tunnel service.
+
+### Compose-based production
+
+If you want to run Postgres, Redis, and the API with Docker Compose instead of systemd-managed binaries:
+
+```bash
+cp .env.compose.prod.example .env.compose.prod
+docker compose --env-file .env.compose.prod -f docker-compose.yml -f docker-compose.prod.yml up -d
+./scripts/init-stack.sh prod
+```
+
+Notes:
+
+- `api-init` applies migrations and bootstraps the admin account before `api` starts
+- the tunnel edge is available as the `mekong-tunnel` service
+- provide real TLS files in `TLS_CERTS_DIR`
+- if you already use managed Postgres or managed Redis, replace the compose URLs in `.env.compose.prod`
 
 ---
 
@@ -190,8 +231,16 @@ WILDCARD_DOMAIN=mekongtunnel.dev ./scripts/deploy-tunnel.sh
 
 What the scripts do:
 
-- `deploy-api.sh`: build `cmd/api`, upload to the API host over SSH `:2222`, restart `mekong-api`, verify `/api/health`, `/api/cli/subdomains`, and `/api/cli/domains`
+- `deploy-api.sh`: build `cmd/api`, upload the API binary and `migrations/` to the API host over SSH `:2222`, optionally install the API env and systemd unit, restart `mekong-api`, and verify `/api/health`, `/api/cli/subdomains`, and `/api/cli/domains`
 - `deploy-tunnel.sh`: build `cmd/mekongtunnel`, upload `.env.prod`, install `/etc/systemd/system/mekongtunnel.service`, restart it, verify ports, and optionally install the branded wildcard nginx vhost
+
+GitHub Actions can run these same scripts without changing your server model:
+
+- `.github/workflows/deploy-dev.yml`
+- `.github/workflows/deploy-production.yml`
+
+The GitHub path is documented in [docs/GITHUB_DEPLOY.md](./docs/GITHUB_DEPLOY.md).
+If you want GitHub to fully manage the API runtime env too, add the `API_ENV_FILE` secret in the GitHub Environment.
 
 Optional server-side git workflow:
 

@@ -1,0 +1,26 @@
+# GitHub Environment: development
+#
+# Copy these into:
+#   GitHub -> Settings -> Environments -> development -> Variables
+#
+# This example matches a single testing server that runs both:
+#   - the API on /opt/mekong/api
+#   - the tunnel server on /opt/mekongtunnel
+#
+# Replace hostnames/domains before use if your real SSH host or public URLs differ.
+
+API_REMOTE_HOST=root@testing
+API_SSH_PORT=2222
+API_REMOTE_DIR=/opt/mekong/api
+API_SERVICE_NAME=mekong-api
+PUBLIC_API_BASE=https://api.testing.example.com
+
+TUNNEL_REMOTE_HOST=root@testing
+TUNNEL_SSH_PORT=2222
+TUNNEL_REMOTE_APP_DIR=/opt/mekongtunnel
+TUNNEL_SERVICE_NAME=mekongtunnel.service
+TUNNEL_SERVER_BIN=/usr/local/bin/mekongtunnel
+
+# Optional branded wildcard support
+TUNNEL_WILDCARD_DOMAIN=
+TUNNEL_WILDCARD_UPSTREAM=https://127.0.0.1:8443

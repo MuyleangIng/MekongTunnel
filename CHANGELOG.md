@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased
+
+Highlights:
+
+- Split browser error handling for reserved subdomains and custom domains so known-but-offline routes now return a branded `502` tunnel-offline page, while unknown routes return a branded `404` not-found page
+- Added last-seen timestamps to offline tunnel pages when the tunnel has historical activity in PostgreSQL
+- Added in-memory tunnel log history plus live subscribers on the tunnel edge so active tunnels can expose recent request logs and SSE follow streams
+- Added localhost-only tunnel-edge APIs for live active-tunnel snapshots and per-subdomain log streaming
+- Added API endpoints for live tunnel data and dashboard summaries: `GET /api/tunnels/live`, `GET /api/tunnels/overview`, `POST /api/tunnels/{id}/log-token`, and `GET /api/tunnels/{id}/logs`
+- Merged live tunnel state into `GET /api/tunnels` so active status, today request counts, and live bandwidth counters are fresher for the existing dashboard UI
+- Added `GET /api/team/{id}/members/{userId}/tunnels` for teacher/admin/owner read-only member tunnel access
+- Restored tunnel lifecycle sync from the tunnel edge into the API so newly opened tunnels are inserted into PostgreSQL and show up in dashboard/user tunnel APIs immediately
+- Added tunnel-log SSE retry hints and keepalive heartbeats, and made the dashboard log inspector keep existing lines visible while browser EventSource auto-reconnects after transient drops
+- Retired older active tunnel rows when the same subdomain reconnects, and added list-side active de-duplication so dashboards do not show duplicate active entries for one live tunnel
+- Deployed the dashboard live-state backend and token-based tunnel log backend to production on `2026-03-27`; public routes remain auth-protected and still need authenticated end-to-end UI validation
+- Added frontend tunnel log inspectors for members and team leaders, plus upgraded `/dashboard/tunnels` with log actions and team-member filtering; deployed frontend to production on `2026-03-27`
+- Expanded tunnel logger tests to cover retained history and live subscriber delivery
+- Added team-route assignment for team-owned reserved subdomains so owner/admin/teacher can assign one member per route, inspect that member from team detail, and keep personal routes separate from team route dashboards
+- Split team-owned route quotas from per-member route limits: student teams can manage 3 shared routes while each member stays limited to 1 assigned route, and pro teams can manage 10 shared routes while each member stays limited to 3
+- Expanded `/dashboard/team` so route and member actions open a real member-detail view with assigned team routes, route usage snapshots, route filtering, and direct log access without leaving the team page
+- Normalized team-member identity fields in the dashboard client so Team route assignment now shows the real member name/email consistently, and added `Delete route` actions to team-owned reserved routes
+- Fixed admin organization member listing to read real `org_members` data, made bulk/manual org import update existing user names from CSV when provided, applied the visible import allocation fields, and added an admin-only delete action on `/admin/organizations`
+- Added a dedicated admin import route for `/admin/organizations` so global admins can add org members without also being org owners, and expanded the regular `/dashboard/org` page into an org-management view for owners/admins with member import, allocation controls, and request review
+- Fixed auth routing so successful sign-in now resolves to `/dashboard/org` for organization users, keeps explicit safe redirect targets for invite/CLI flows, and enforces forced password reset across login, 2FA, email OTP, refresh restore, and protected dashboard/admin routes
+- Fixed org member import defaults so organization membership no longer changes a user’s personal plan unless `plan` is set explicitly, while org allocations continue to control org-managed tunnels, subdomains, bandwidth, and custom-domain access
+- Updated `/dashboard/org` and `/admin/organizations` member forms and CSV guidance to label personal plan as optional and keep org role separate from the user’s personal subscription plan
+- Updated provisioned welcome emails to use `/auth/login` with the invited email prefilled, and added a compatibility `/login` redirect on the frontend for older links
+- Added per-member organization `team_limit` allocation support, plus org-managed team creation/deletion endpoints so org owner/admin can create teams for members without depending on the member’s personal paid plan
+- Simplified `/dashboard/org` member creation so new people default to `Member of ORG`, moved personal-plan changes into advanced settings, surfaced team limits in org allocation, and added automatic notifications when an org team is created for a member
+- Added self-service organization creation on `/dashboard/org` for authenticated ORG-plan users who are not yet in an organization, and removed the manual role/personal-plan controls from the normal add-member UI so manual invites default to standard org membership
+- Added import preview endpoints for organization member CSV/JSON uploads, plus preview/confirm UI on `/dashboard/org` and `/admin/organizations` with row-by-row validation, projected seat usage, and failed-row CSV export before final import
+- Added shared workspace identity cards across dashboard pages, plus stronger organization summary cards, seat-usage visibility, member lifecycle badges, and clearer empty states on `/dashboard/org` and `/admin/organizations`
+- Expanded organization requests with richer request types, threaded comments, reviewer notes, `needs discussion` status, automatic allocation changes on approval, and request-status notifications/emails for requesters and org managers
+- Added richer admin organization lifecycle tools with status changes, admin notes, creator/manager/team/request summary fields, and better org detail data on `/admin/organizations`
+- Added the ORG verification approval flow end-to-end: requested org domain and seat limits, approval notes, waiting-state UI, admin review details, and org creation/linking/activation when an ORG request is approved
+- Added approved ORG contract discount support so admins can set `0`-`100%` during org approval, the billing page surfaces the approved discount, and ORG checkout applies it to Stripe checkout sessions
+- Extended organization billing requests so members can request a discount percentage and org managers can approve a specific percentage with notes on the org dashboard
+
+## v1.5.8 - 2026-03-28
+
+Highlights:
+
+- Added manual payment receipt system for PayPal, ABA Pay, and Bakong so users can upload proof of payment and admins can approve, reject, or request resubmission from the admin billing page
+- Added duplicate receipt prevention so a user cannot submit a second receipt for the same plan while one is already pending or awaiting resubmission
+- Added refund tracking fields on receipt rejection so admins can record the bank account, refund amount, and notes for the user
+- Sent admin in-app notification when a new receipt is submitted, and sent approval confirmation email to the user via Resend when a receipt is approved
+- Added seven new API endpoints for receipt management: submit, list, count (user + admin), review, delete
+- Fixed Google and GitHub OAuth to accept `?redirect_to=<origin>` so the callback token is delivered to the correct frontend origin, enabling `localhost:3000` dev servers to receive the OAuth token without landing on production
+- Fixed CORS middleware to always allow `localhost:*` and `127.0.0.1:*` origins regardless of the `ALLOWED_ORIGINS` env var, removing the need for developers to change server config when running locally
+- Updated HANDBOOK.md with Manual Payment Receipts API table, updated OAuth endpoint docs with `?redirect_to` param, and corrected `ALLOWED_ORIGINS` example
+
 ## v1.5.7 - 2026-03-27
 
 Highlights:

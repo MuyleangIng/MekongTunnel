@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -21,7 +22,7 @@ import (
 // Config holds credentials for either Resend or SMTP.
 type Config struct {
 	// Resend (preferred — works on DigitalOcean, no port blocks)
-	ResendKey string // RESEND_API_KEY  e.g. "re_..."
+	ResendKey  string // RESEND_API_KEY  e.g. "re_..."
 	ResendFrom string // e.g. "Mekong Tunnel <noreply@angkorsearch.dev>"
 
 	// SMTP fallback (Gmail STARTTLS port 587)
@@ -192,12 +193,50 @@ func (m *Mailer) SendLoginOTP(toEmail, name, code string) {
 	}
 }
 
+// SendInvitation sends a team invitation email with an accept link.
+func (m *Mailer) SendInvitation(toEmail, inviterEmail, teamName, token, frontendURL string) {
+	link := frontendURL + "/invite/" + token
+	html := invitationHTML(inviterEmail, teamName, link)
+	if err := m.Send(toEmail, "You're invited to join "+teamName+" on Mekong Tunnel", html); err != nil {
+		log.Printf("[mailer] SendInvitation to %s: %v", toEmail, err)
+	} else {
+		log.Printf("[mailer] invitation email sent to %s", toEmail)
+	}
+}
+
 // SendNewsletter sends a newsletter campaign to a single recipient.
 // Called in a goroutine per recipient from the admin send handler.
 func (m *Mailer) SendNewsletter(toEmail, name, subject, bodyHTML string) {
 	if err := m.Send(toEmail, subject, bodyHTML); err != nil {
 		log.Printf("[mailer] newsletter to %s: %v", toEmail, err)
 	}
+}
+
+// SendProvisionedWelcome sends a welcome email to a user provisioned by an org admin.
+func (m *Mailer) SendProvisionedWelcome(toEmail, name, orgName, tempPassword, frontendURL string) {
+	link := strings.TrimRight(frontendURL, "/") + "/auth/login?email=" + url.QueryEscape(toEmail)
+	subject := fmt.Sprintf("You've been added to %s — your login details", orgName)
+	html := provisionedWelcomeHTML(name, orgName, toEmail, tempPassword, link)
+	if err := m.Send(toEmail, subject, html); err != nil {
+		log.Printf("[mailer] SendProvisionedWelcome to %s: %v", toEmail, err)
+	}
+}
+
+func provisionedWelcomeHTML(name, orgName, email, tempPassword, loginURL string) string {
+	return `<!DOCTYPE html><html><body style="font-family:sans-serif;background:#0a0a0a;color:#e0e0e0;padding:32px;">
+<div style="max-width:520px;margin:0 auto;background:#111;border:1px solid #222;border-radius:16px;padding:40px;">
+  <h2 style="color:#f5c518;margin-top:0;">Welcome to ` + orgName + `</h2>
+  <p>Hi ` + name + `,</p>
+  <p>You have been added to <strong>` + orgName + `</strong> on <strong>Mekong Tunnel</strong>.</p>
+  <p>Your temporary login details:</p>
+  <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin:16px 0;">
+    <p style="margin:0;"><strong>Email:</strong> ` + email + `</p>
+    <p style="margin:8px 0 0;"><strong>Temporary password:</strong> <code style="font-size:18px;color:#f5c518;letter-spacing:2px;">` + tempPassword + `</code></p>
+  </div>
+  <p style="color:#ff6b6b;font-weight:bold;">You will be required to change your password on first login.</p>
+  <a href="` + loginURL + `" style="display:inline-block;background:#f5c518;color:#000;font-weight:bold;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:8px;">Log in now</a>
+  <p style="margin-top:32px;color:#666;font-size:12px;">If you did not expect this email, you can ignore it.</p>
+</div></body></html>`
 }
 
 // ── Email templates ───────────────────────────────────────────────────────────
@@ -313,6 +352,32 @@ func loginOTPHTML(name, code string) string {
 </p>`, name, code)
 
 	return emailWrapper("Your Mekong Tunnel login code", "Your one-time login code — expires in 5 minutes.", body)
+}
+
+func invitationHTML(inviterEmail, teamName, link string) string {
+	body := fmt.Sprintf(`
+<h2 style="margin:0 0 8px;font-size:22px;color:#1a1a2e">You're invited!</h2>
+<p style="margin:0 0 20px;font-size:15px;color:#555">
+  <strong>%s</strong> has invited you to join the team
+  <strong>%s</strong> on Mekong Tunnel.
+</p>
+<p style="margin:0 0 8px;font-size:15px;color:#555">
+  Click the button below to accept the invitation and join the team.
+</p>
+%s
+<p style="font-size:13px;color:#999;margin:0 0 6px">
+  Or paste this link into your browser:
+</p>
+<p style="font-size:12px;word-break:break-all;margin:0 0 28px">
+  <a href="%s" style="color:#cc0001;text-decoration:none">%s</a>
+</p>
+<hr style="border:none;border-top:1px solid #eee;margin:0 0 20px">
+<p style="font-size:12px;color:#aaa;margin:0">
+  This invitation expires in <strong>7 days</strong>.<br>
+  If you were not expecting an invitation, you can safely ignore this email.
+</p>`, inviterEmail, teamName, bulletButton("Accept Invitation", link, "#cc0001"), link, link)
+
+	return emailWrapper("Team Invitation — Mekong Tunnel", "You've been invited to join a team on Mekong Tunnel.", body)
 }
 
 func resetPasswordHTML(name, link string) string {

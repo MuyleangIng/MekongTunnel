@@ -1,0 +1,169 @@
+{
+  "name": "mekong-tunnel",
+  "displayName": "Mekong Tunnel",
+  "description": "Expose your local dev server to the internet with one click — auto-detects port and framework",
+  "version": "1.5.0",
+  "publisher": "KhmerStack",
+  "icon": "images/MekongNoBG.png",
+  "galleryBanner": {
+    "color": "#0D1117",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "tunnel",
+    "ngrok",
+    "localhost",
+    "mekong",
+    "devtools",
+    "expose",
+    "port",
+    "sharing"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mekong.startTunnel",
+        "title": "Mekong: Start Tunnel",
+        "icon": "$(radio-tower)"
+      },
+      {
+        "command": "mekong.stopTunnel",
+        "title": "Mekong: Stop Tunnel",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "mekong.copyUrl",
+        "title": "Mekong: Copy Public URL"
+      },
+      {
+        "command": "mekong.openUrl",
+        "title": "Mekong: Open Public URL in Browser"
+      },
+      {
+        "command": "mekong.startLiveServer",
+        "title": "Mekong: Start Live Server",
+        "icon": "$(broadcast)"
+      },
+      {
+        "command": "mekong.stopLiveServer",
+        "title": "Mekong: Stop Live Server"
+      },
+      {
+        "command": "mekong.openWithLiveServer",
+        "title": "Open with Mekong Live Server",
+        "icon": "$(broadcast)"
+      },
+      {
+        "command": "mekong.openLiveInBrowser",
+        "title": "Mekong: Open Live Server in Browser"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "mekong.openWithLiveServer",
+          "when": "resourceExtname =~ /\\.html?$/i || explorerResourceIsFolder",
+          "group": "navigation@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "mekong.openWithLiveServer",
+          "when": "resourceExtname =~ /\\.html?$/i",
+          "group": "navigation@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "mekong.openWithLiveServer",
+          "when": "resourceExtname =~ /\\.html?$/i",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mekong-sidebar",
+          "title": "MK",
+          "icon": "images/MekongNoBG.png"
+        }
+      ]
+    },
+    "views": {
+      "mekong-sidebar": [
+        {
+          "type": "webview",
+          "id": "mekongTunnel.panel",
+          "name": "Mekong Tunnel"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Mekong Tunnel",
+      "properties": {
+        "mekong.port": {
+          "type": "number",
+          "default": null,
+          "description": "Local port to tunnel (auto-detected if not set)"
+        },
+        "mekong.autoStart": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically start tunnel when workspace opens"
+        },
+        "mekong.expire": {
+          "type": "string",
+          "default": "",
+          "description": "Tunnel expiry e.g. 2h, 1d, 1w"
+        },
+        "mekong.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to mekong binary (leave empty for auto-detect)"
+        },
+        "mekong.showQr": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show QR code in terminal output"
+        },
+        "mekong.liveServerPort": {
+          "type": "number",
+          "default": 5500,
+          "description": "Starting port for Live Server (auto-increments if taken)"
+        },
+        "mekong.apiToken": {
+          "type": "string",
+          "default": "",
+          "description": "API token for reserved subdomain. Get your token from angkorsearch.dev/dashboard/tokens"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MuyleangIng/MekongTunnel"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^2.0.0"
+  }
+}

@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/models"
@@ -11,7 +12,29 @@ import (
 // - approved  → no-op, return as-is
 // - pending / reviewing → UPDATE in-place with new data, reset to pending
 // - rejected / none → INSERT a fresh record
-func (db *DB) UpsertVerifyRequest(ctx context.Context, userID, reqType, orgName, reason, documentURL string) (*models.VerifyRequest, error) {
+func (db *DB) UpsertVerifyRequest(ctx context.Context, userID, reqType, orgName, reason, documentURL string, extra ...any) (*models.VerifyRequest, error) {
+	requestedOrgDomain := ""
+	requestedOrgSeatLimit := 25
+	if len(extra) > 0 {
+		if domain, ok := extra[0].(string); ok {
+			requestedOrgDomain = strings.TrimSpace(domain)
+		}
+	}
+	if len(extra) > 1 {
+		switch seatLimit := extra[1].(type) {
+		case int:
+			requestedOrgSeatLimit = seatLimit
+		case int32:
+			requestedOrgSeatLimit = int(seatLimit)
+		case int64:
+			requestedOrgSeatLimit = int(seatLimit)
+		case float64:
+			requestedOrgSeatLimit = int(seatLimit)
+		}
+	}
+	if requestedOrgSeatLimit < 1 {
+		requestedOrgSeatLimit = 25
+	}
 	existing, _ := db.GetVerifyRequestByUser(ctx, userID)
 
 	if existing != nil {
@@ -26,27 +49,32 @@ func (db *DB) UpsertVerifyRequest(ctx context.Context, userID, reqType, orgName,
 			row := db.Pool.QueryRow(ctx, `
 				UPDATE verify_requests
 				SET type = $2, org_name = $3, reason = $4, document_url = $5,
-				    status = 'pending', reject_reason = '', admin_note = '', updated_at = now()
+				    requested_org_domain = $6, requested_org_seat_limit = $7,
+				    status = 'pending', reject_reason = '', admin_note = '', approval_note = '', approved_org_id = NULL,
+				    approved_discount_percent = 0, updated_at = now()
 				WHERE id = $1
-				RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note, created_at, updated_at`,
-				existing.ID, reqType, orgName, reason, documentURL)
+				RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note,
+				          requested_org_domain, requested_org_seat_limit, approved_org_id, approval_note, approved_discount_percent, created_at, updated_at`,
+				existing.ID, reqType, orgName, reason, documentURL, requestedOrgDomain, requestedOrgSeatLimit)
 			return scanVerifyRequest(row)
 		}
 	}
 
 	// No prior request, or previous was rejected → insert fresh.
 	row := db.Pool.QueryRow(ctx, `
-		INSERT INTO verify_requests (user_id, type, org_name, reason, document_url)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note, created_at, updated_at`,
-		userID, reqType, orgName, reason, documentURL)
+		INSERT INTO verify_requests (user_id, type, org_name, reason, document_url, requested_org_domain, requested_org_seat_limit)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note,
+		          requested_org_domain, requested_org_seat_limit, approved_org_id, approval_note, approved_discount_percent, created_at, updated_at`,
+		userID, reqType, orgName, reason, documentURL, requestedOrgDomain, requestedOrgSeatLimit)
 	return scanVerifyRequest(row)
 }
 
 // GetVerifyRequestByUser returns the most recent verify request for a user.
 func (db *DB) GetVerifyRequestByUser(ctx context.Context, userID string) (*models.VerifyRequest, error) {
 	row := db.Pool.QueryRow(ctx, `
-		SELECT id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note, created_at, updated_at
+		SELECT id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note,
+		       requested_org_domain, requested_org_seat_limit, approved_org_id, approval_note, approved_discount_percent, created_at, updated_at
 		FROM verify_requests
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -59,6 +87,7 @@ func (db *DB) ListVerifyRequests(ctx context.Context, status string) ([]*models.
 	query := `
 		SELECT vr.id, vr.user_id, vr.type, vr.status, vr.org_name, vr.reject_reason,
 		       vr.reason, vr.document_url, vr.admin_note,
+		       vr.requested_org_domain, vr.requested_org_seat_limit, vr.approved_org_id, vr.approval_note, vr.approved_discount_percent,
 		       vr.created_at, vr.updated_at,
 		       u.name, u.email, u.plan,
 		       (u.stripe_subscription_id IS NOT NULL AND u.stripe_subscription_id != '') AS has_subscription
@@ -83,6 +112,7 @@ func (db *DB) ListVerifyRequests(ctx context.Context, status string) ([]*models.
 		if err := rows.Scan(
 			&vr.ID, &vr.UserID, &vr.Type, &vr.Status, &vr.OrgName, &vr.RejectReason,
 			&vr.Reason, &vr.DocumentURL, &vr.AdminNote,
+			&vr.RequestedOrgDomain, &vr.RequestedOrgSeatLimit, &vr.ApprovedOrgID, &vr.ApprovalNote, &vr.ApprovedDiscountPercent,
 			&vr.CreatedAt, &vr.UpdatedAt,
 			&vr.UserName, &vr.UserEmail,
 			&vr.UserPlan, &vr.UserHasSubscription,
@@ -106,13 +136,21 @@ var planRank = map[string]int{
 // UpdateVerifyRequest updates the status (and optionally reject reason) of a request.
 // If approved, it upgrades the user's plan — but only if the new plan outranks the current one.
 // Pass force=true to override this protection.
-func (db *DB) UpdateVerifyRequest(ctx context.Context, id, status, rejectReason string, force bool) (*models.VerifyRequest, bool, error) {
+func (db *DB) UpdateVerifyRequest(ctx context.Context, id, status, rejectReason, approvalNote string, approvedDiscountPercent int, force bool) (*models.VerifyRequest, bool, error) {
+	rejectReason = strings.TrimSpace(rejectReason)
+	approvalNote = strings.TrimSpace(approvalNote)
 	row := db.Pool.QueryRow(ctx, `
 		UPDATE verify_requests
-		SET status = $1, reject_reason = $2, updated_at = $3
-		WHERE id = $4
-		RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note, created_at, updated_at`,
-		status, rejectReason, time.Now(), id)
+		SET status = $1,
+		    reject_reason = CASE WHEN $1 = 'rejected' THEN $2 ELSE '' END,
+		    approval_note = CASE WHEN $1 = 'approved' THEN $3 ELSE '' END,
+		    approved_discount_percent = CASE WHEN $1 = 'approved' THEN $4 ELSE 0 END,
+		    approved_org_id = CASE WHEN $1 = 'approved' THEN approved_org_id ELSE NULL END,
+		    updated_at = $5
+		WHERE id = $6
+		RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note,
+		          requested_org_domain, requested_org_seat_limit, approved_org_id, approval_note, approved_discount_percent, created_at, updated_at`,
+		status, rejectReason, approvalNote, approvedDiscountPercent, time.Now(), id)
 	vr, err := scanVerifyRequest(row)
 	if err != nil {
 		return nil, false, err
@@ -142,13 +180,25 @@ func (db *DB) UpdateVerifyRequest(ctx context.Context, id, status, rejectReason 
 	return vr, planSkipped, nil
 }
 
+func (db *DB) SetVerifyRequestApprovedOrg(ctx context.Context, id, orgID, approvalNote string, approvedDiscountPercent int) (*models.VerifyRequest, error) {
+	row := db.Pool.QueryRow(ctx, `
+		UPDATE verify_requests
+		SET approved_org_id = $2, approval_note = $3, approved_discount_percent = $4, updated_at = now()
+		WHERE id = $1
+		RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note,
+		          requested_org_domain, requested_org_seat_limit, approved_org_id, approval_note, approved_discount_percent, created_at, updated_at`,
+		id, orgID, strings.TrimSpace(approvalNote), approvedDiscountPercent)
+	return scanVerifyRequest(row)
+}
+
 // SetAdminNote updates the admin_note field (used for "request resubmission" messages).
 func (db *DB) SetAdminNote(ctx context.Context, id, note string) (*models.VerifyRequest, error) {
 	row := db.Pool.QueryRow(ctx, `
 		UPDATE verify_requests
 		SET admin_note = $1, updated_at = $2
 		WHERE id = $3
-		RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note, created_at, updated_at`,
+		RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note,
+		          requested_org_domain, requested_org_seat_limit, approved_org_id, approval_note, approved_discount_percent, created_at, updated_at`,
 		note, time.Now(), id)
 	return scanVerifyRequest(row)
 }
@@ -158,9 +208,11 @@ func (db *DB) SetAdminNote(ctx context.Context, id, note string) (*models.Verify
 func (db *DB) ResetVerifyRequest(ctx context.Context, id, adminNote string) (*models.VerifyRequest, error) {
 	row := db.Pool.QueryRow(ctx, `
 		UPDATE verify_requests
-		SET status = 'pending', document_url = '', reject_reason = '', admin_note = $2, updated_at = now()
+		SET status = 'pending', document_url = '', reject_reason = '', admin_note = $2,
+		    approval_note = '', approved_org_id = NULL, approved_discount_percent = 0, updated_at = now()
 		WHERE id = $1
-		RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note, created_at, updated_at`,
+		RETURNING id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note,
+		          requested_org_domain, requested_org_seat_limit, approved_org_id, approval_note, approved_discount_percent, created_at, updated_at`,
 		id, adminNote)
 	return scanVerifyRequest(row)
 }
@@ -174,7 +226,8 @@ func (db *DB) DeleteVerifyRequest(ctx context.Context, id string) error {
 // GetVerifyRequestByID returns a single verify request by its ID.
 func (db *DB) GetVerifyRequestByID(ctx context.Context, id string) (*models.VerifyRequest, error) {
 	row := db.Pool.QueryRow(ctx, `
-		SELECT id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note, created_at, updated_at
+		SELECT id, user_id, type, status, org_name, reject_reason, reason, document_url, admin_note,
+		       requested_org_domain, requested_org_seat_limit, approved_org_id, approval_note, approved_discount_percent, created_at, updated_at
 		FROM verify_requests WHERE id = $1`, id)
 	return scanVerifyRequest(row)
 }
@@ -199,6 +252,7 @@ func scanVerifyRequest(row interface{ Scan(...any) error }) (*models.VerifyReque
 	err := row.Scan(
 		&vr.ID, &vr.UserID, &vr.Type, &vr.Status, &vr.OrgName, &vr.RejectReason,
 		&vr.Reason, &vr.DocumentURL, &vr.AdminNote,
+		&vr.RequestedOrgDomain, &vr.RequestedOrgSeatLimit, &vr.ApprovedOrgID, &vr.ApprovalNote, &vr.ApprovedDiscountPercent,
 		&vr.CreatedAt, &vr.UpdatedAt,
 	)
 	if err != nil {

@@ -81,8 +81,8 @@ func (h *UserHandler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.CurrentPassword == "" || body.NewPassword == "" {
-		response.BadRequest(w, "current_password and new_password are required")
+	if body.NewPassword == "" {
+		response.BadRequest(w, "new_password is required")
 		return
 	}
 	if len(body.NewPassword) < 8 {
@@ -96,9 +96,18 @@ func (h *UserHandler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if user.PasswordHash == nil || !auth.CheckPassword(*user.PasswordHash, body.CurrentPassword) {
-		response.Unauthorized(w, "current password is incorrect")
-		return
+	if user.ForcePasswordReset {
+		// Provisioned users must be able to set a new password immediately after login
+		// without re-entering the temporary password.
+	} else {
+		if body.CurrentPassword == "" {
+			response.BadRequest(w, "current_password is required")
+			return
+		}
+		if user.PasswordHash == nil || !auth.CheckPassword(*user.PasswordHash, body.CurrentPassword) {
+			response.Unauthorized(w, "current password is incorrect")
+			return
+		}
 	}
 
 	newHash, err := auth.HashPassword(body.NewPassword)
@@ -111,6 +120,7 @@ func (h *UserHandler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		response.InternalError(w, err)
 		return
 	}
+	_ = h.DB.SetForcePasswordReset(r.Context(), claims.UserID, false)
 
 	response.Success(w, map[string]any{"message": "password updated"})
 }
@@ -221,6 +231,18 @@ func (h *UserHandler) SetActivePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if body.Plan == "org" {
+		if org, _, err := h.DB.GetMyOrg(r.Context(), claims.UserID); err == nil && org != nil && org.OwnerID != nil && *org.OwnerID == claims.UserID && org.Status == "pending" {
+			_ = h.DB.UpdateOrganizationStatus(r.Context(), org.ID, "active")
+			if h.Notify != nil {
+				go h.Notify.Send(context.Background(), claims.UserID, "org_plan_activated",
+					"Organization plan active",
+					"Your Organization workspace is now active and ready to manage.",
+					"/dashboard/org")
+			}
+		}
+	}
+
 	response.Success(w, sanitizeUser(updated))
 }
 
@@ -251,10 +273,12 @@ func (h *UserHandler) SubmitVerifyRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	var body struct {
-		Type        string `json:"type"`
-		OrgName     string `json:"org_name"`
-		Reason      string `json:"reason"`
-		DocumentURL string `json:"document_url"`
+		Type                 string `json:"type"`
+		OrgName              string `json:"org_name"`
+		Reason               string `json:"reason"`
+		DocumentURL          string `json:"document_url"`
+		RequestedOrgDomain   string `json:"requested_org_domain"`
+		RequestedOrgSeatLimit int   `json:"requested_org_seat_limit"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		response.BadRequest(w, "invalid JSON body")
@@ -266,8 +290,29 @@ func (h *UserHandler) SubmitVerifyRequest(w http.ResponseWriter, r *http.Request
 		response.BadRequest(w, "type must be one of: student, teacher, org")
 		return
 	}
+	body.OrgName = strings.TrimSpace(body.OrgName)
+	body.Reason = strings.TrimSpace(body.Reason)
+	body.DocumentURL = strings.TrimSpace(body.DocumentURL)
+	body.RequestedOrgDomain = strings.ToLower(strings.TrimSpace(body.RequestedOrgDomain))
+	if body.Type == "org" {
+		if body.RequestedOrgSeatLimit < 1 {
+			body.RequestedOrgSeatLimit = 25
+		}
+	} else {
+		body.RequestedOrgDomain = ""
+		body.RequestedOrgSeatLimit = 0
+	}
 
-	vr, err := h.DB.UpsertVerifyRequest(r.Context(), claims.UserID, body.Type, body.OrgName, body.Reason, body.DocumentURL)
+	vr, err := h.DB.UpsertVerifyRequest(
+		r.Context(),
+		claims.UserID,
+		body.Type,
+		body.OrgName,
+		body.Reason,
+		body.DocumentURL,
+		body.RequestedOrgDomain,
+		body.RequestedOrgSeatLimit,
+	)
 	if err != nil {
 		response.InternalError(w, err)
 		return
@@ -279,6 +324,9 @@ func (h *UserHandler) SubmitVerifyRequest(w http.ResponseWriter, r *http.Request
 		name := claims.UserID
 		if user != nil {
 			name = user.Name + " (" + user.Email + ")"
+		}
+		if body.Type == "org" && body.RequestedOrgDomain != "" {
+			name += " requested org domain " + body.RequestedOrgDomain
 		}
 		go h.Notify.SendToAdmins(context.Background(), "verify_submitted",
 			"New verification request",

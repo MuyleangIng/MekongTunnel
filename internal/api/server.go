@@ -32,13 +32,16 @@ type Config struct {
 	StripeSecretKey     string
 	StripeWebhookSecret string
 	TunnelServerURL     string
-	AllowedOrigins      []string
-	FrontendURL         string
-	PlanPrices          map[string]string
-	UploadDir           string
-	PublicURL           string
-	MailConfig          mailer.Config
-	Redis               *redisx.Client
+	// TunnelEdgeSecret is a shared secret required on internal tunnel-edge write endpoints.
+	// Set TUNNEL_EDGE_SECRET in env. If empty, the check is skipped (dev/single-node only).
+	TunnelEdgeSecret string
+	AllowedOrigins   []string
+	FrontendURL      string
+	PlanPrices       map[string]string
+	UploadDir        string
+	PublicURL        string
+	MailConfig       mailer.Config
+	Redis            *redisx.Client
 }
 
 // Server is the MekongTunnel REST API HTTP server.
@@ -82,6 +85,7 @@ func (s *Server) Close() {
 func (s *Server) registerRoutes() {
 	authRequired := middleware.AuthMiddleware(s.cfg.JWTSecret)
 	adminRequired := middleware.AdminMiddleware()
+	internalOnly := middleware.InternalSecretMiddleware(s.cfg.TunnelEdgeSecret)
 	registerRate := middleware.RateLimitIP(s.cfg.Redis, "auth-register", 10, time.Minute)
 	loginRate := middleware.RateLimitIP(s.cfg.Redis, "auth-login", 20, time.Minute)
 	forgotPasswordRate := middleware.RateLimitIP(s.cfg.Redis, "auth-forgot-password", 8, time.Minute)
@@ -92,6 +96,9 @@ func (s *Server) registerRoutes() {
 	tokenInfoRate := middleware.RateLimitIP(s.cfg.Redis, "auth-token-info", 60, time.Minute)
 	cliDeviceCreateRate := middleware.RateLimitIP(s.cfg.Redis, "cli-device-create", 20, time.Minute)
 	cliDevicePollRate := middleware.RateLimitIP(s.cfg.Redis, "cli-device-poll", 120, time.Minute)
+	refreshRate := middleware.RateLimitIP(s.cfg.Redis, "auth-refresh", 30, time.Minute)
+	twoFAVerifyRate := middleware.RateLimitIP(s.cfg.Redis, "auth-2fa-verify", 10, time.Minute)
+	donationSubmitRate := middleware.RateLimitIP(s.cfg.Redis, "donation-submit", 5, time.Minute)
 
 	// ── Shared notification service ──────────────────────────────
 	notifySvc := &notify.Service{DB: s.db, Hub: s.hub, Redis: s.cfg.Redis}
@@ -137,6 +144,8 @@ func (s *Server) registerRoutes() {
 		StatsClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
+		StreamClient: &http.Client{},
+		JWTSecret:    s.cfg.JWTSecret,
 	}
 
 	userH := &handlers.UserHandler{DB: s.db, Notify: notifySvc}
@@ -150,7 +159,13 @@ func (s *Server) registerRoutes() {
 		Notify:              notifySvc,
 	}
 
-	teamH := &handlers.TeamHandler{DB: s.db}
+	receiptH := &handlers.ReceiptHandler{
+		DB:     s.db,
+		Notify: notifySvc,
+		Mailer: mailSvc,
+	}
+
+	teamH := &handlers.TeamHandler{DB: s.db, Mailer: mailSvc, Notify: notifySvc, FrontendURL: s.cfg.FrontendURL}
 	adminH := &handlers.AdminHandler{DB: s.db, Notify: notifySvc, Mailer: mailSvc, FrontendURL: s.cfg.FrontendURL}
 	newsletterH := &handlers.NewsletterHandler{DB: s.db, Mailer: mailSvc}
 	partnersH := &handlers.PartnersHandler{DB: s.db}
@@ -190,7 +205,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/auth/logout", authH.Logout)
 	s.mux.HandleFunc("GET /api/auth/me", chain(authH.Me, authRequired))
 	s.mux.HandleFunc("GET /api/auth/token-info", chain(authH.TokenInfo, tokenInfoRate)) // API token (mkt_xxx) — no JWT needed
-	s.mux.HandleFunc("POST /api/auth/refresh", authH.Refresh)
+	s.mux.HandleFunc("POST /api/auth/refresh", chain(authH.Refresh, refreshRate))
 	s.mux.HandleFunc("POST /api/auth/forgot-password", chain(authH.ForgotPassword, forgotPasswordRate))
 	s.mux.HandleFunc("POST /api/auth/reset-password", authH.ResetPassword)
 	s.mux.HandleFunc("POST /api/auth/verify-email", chain(authH.VerifyEmail, verifyEmailRate))
@@ -206,7 +221,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/auth/2fa/setup", chain(authH.Setup2FA, authRequired))
 	s.mux.HandleFunc("POST /api/auth/2fa/enable", chain(authH.Enable2FA, authRequired))
 	s.mux.HandleFunc("POST /api/auth/2fa/disable", chain(authH.Disable2FA, authRequired))
-	s.mux.HandleFunc("POST /api/auth/2fa/verify", authH.Verify2FA)
+	s.mux.HandleFunc("POST /api/auth/2fa/verify", chain(authH.Verify2FA, twoFAVerifyRate))
 
 	// ── API Tokens ──────────────────────────────────────────────
 	s.mux.HandleFunc("GET /api/tokens", chain(tokensH.ListTokens, authRequired))
@@ -228,9 +243,14 @@ func (s *Server) registerRoutes() {
 
 	// ── Tunnels ─────────────────────────────────────────────────
 	s.mux.HandleFunc("GET /api/tunnels", chain(tunnelsH.ListTunnels, authRequired))
+	s.mux.HandleFunc("GET /api/tunnels/live", chain(tunnelsH.ListLiveTunnels, authRequired))
+	s.mux.HandleFunc("GET /api/tunnels/overview", chain(tunnelsH.GetOverview, authRequired))
 	s.mux.HandleFunc("GET /api/tunnels/stats", tunnelsH.GetStats)
-	s.mux.HandleFunc("POST /api/tunnels", tunnelsH.ReportTunnel) // internal, no auth
-	s.mux.HandleFunc("PATCH /api/tunnels/{id}", tunnelsH.UpdateTunnelStatus)
+	s.mux.HandleFunc("DELETE /api/tunnels/history", chain(tunnelsH.ClearHistory, authRequired))
+	s.mux.HandleFunc("POST /api/tunnels/{id}/log-token", chain(tunnelsH.CreateLogToken, authRequired))
+	s.mux.HandleFunc("GET /api/tunnels/{id}/logs", tunnelsH.GetLogs)
+	s.mux.HandleFunc("POST /api/tunnels", chain(tunnelsH.ReportTunnel, internalOnly))   // tunnel edge only
+	s.mux.HandleFunc("PATCH /api/tunnels/{id}", chain(tunnelsH.UpdateTunnelStatus, internalOnly)) // tunnel edge only
 
 	// ── User ────────────────────────────────────────────────────
 	s.mux.HandleFunc("PUT /api/user", chain(userH.UpdateProfile, authRequired))
@@ -245,6 +265,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/billing/checkout", chain(billingH.CreateCheckout, authRequired))
 	s.mux.HandleFunc("POST /api/billing/portal", chain(billingH.CreatePortal, authRequired))
 	s.mux.HandleFunc("POST /api/billing/webhook", billingH.WebhookHandler)
+	s.mux.HandleFunc("POST /api/billing/manual-payment", chain(receiptH.SubmitReceipt, authRequired))
+	s.mux.HandleFunc("GET /api/billing/manual-payment", chain(receiptH.ListMyReceipts, authRequired))
+	s.mux.HandleFunc("GET /api/billing/manual-payment/count", chain(receiptH.UserReceiptPendingCount, authRequired))
 
 	// ── Team ────────────────────────────────────────────────────
 	s.mux.HandleFunc("GET /api/team", chain(teamH.GetTeam, authRequired))
@@ -257,7 +280,35 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/team/invite", chain(teamH.Invite, authRequired))
 	s.mux.HandleFunc("POST /api/team/invite/code", chain(teamH.GenerateInviteCode, authRequired))
 	s.mux.HandleFunc("POST /api/team/invite/accept", chain(teamH.AcceptInvite, authRequired))
+	s.mux.HandleFunc("POST /api/team/invite/accept-by-id", chain(teamH.AcceptInviteByID, authRequired))
 	s.mux.HandleFunc("DELETE /api/team/invite/{id}", chain(teamH.RevokeInvite, authRequired))
+	s.mux.HandleFunc("POST /api/team/invite/{id}/resend", chain(teamH.ResendInvite, authRequired))
+	s.mux.HandleFunc("GET /api/team/joined", chain(teamH.GetJoinedTeams, authRequired))
+	s.mux.HandleFunc("GET /api/team/{id}/detail", chain(teamH.GetTeamDetail, authRequired))
+	s.mux.HandleFunc("GET /api/team/{id}/stats", chain(teamH.GetTeamStats, authRequired))
+	s.mux.HandleFunc("GET /api/team/{id}/my-tunnels", chain(teamH.GetMyTunnels, authRequired))
+	s.mux.HandleFunc("GET /api/team/{id}/members/{userId}/tunnels", chain(teamH.GetMemberTunnels, authRequired))
+	s.mux.HandleFunc("PATCH /api/team/members/{userId}/role", chain(teamH.ChangeRole, authRequired))
+	s.mux.HandleFunc("GET /api/team/my-invitations", chain(teamH.GetMyInvitations, authRequired))
+	s.mux.HandleFunc("POST /api/team/{id}/leave", chain(teamH.LeaveTeam, authRequired))
+
+	// ── Org ─────────────────────────────────────────────────────
+	orgH := &handlers.OrgHandler{DB: s.db, Mailer: mailSvc, Notify: notifySvc, FrontendURL: s.cfg.FrontendURL}
+	s.mux.HandleFunc("POST /api/org/create", chain(orgH.CreateMyOrg, authRequired))
+	s.mux.HandleFunc("GET /api/org/mine", chain(orgH.GetMine, authRequired))
+	s.mux.HandleFunc("GET /api/org/{id}", chain(orgH.GetOrg, authRequired))
+	s.mux.HandleFunc("GET /api/org/{id}/members", chain(orgH.ListMembers, authRequired))
+	s.mux.HandleFunc("DELETE /api/org/{id}/members/{userId}", chain(orgH.RemoveMember, authRequired))
+	s.mux.HandleFunc("PATCH /api/org/{id}/members/{userId}/allocation", chain(orgH.SetAllocation, authRequired))
+	s.mux.HandleFunc("GET /api/org/{id}/teams", chain(orgH.ListTeams, authRequired))
+	s.mux.HandleFunc("POST /api/org/{id}/teams", chain(orgH.CreateTeam, authRequired))
+	s.mux.HandleFunc("DELETE /api/org/{id}/teams/{teamId}", chain(orgH.DeleteTeam, authRequired))
+	s.mux.HandleFunc("GET /api/org/{id}/requests", chain(orgH.ListRequests, authRequired))
+	s.mux.HandleFunc("PATCH /api/org/{id}/requests/{reqId}", chain(orgH.ReviewRequest, authRequired))
+	s.mux.HandleFunc("POST /api/org/{id}/requests/{reqId}/comments", chain(orgH.AddRequestComment, authRequired))
+	s.mux.HandleFunc("POST /api/org/request", chain(orgH.SubmitRequest, authRequired))
+	s.mux.HandleFunc("POST /api/org/{id}/import/preview", chain(orgH.PreviewImport, authRequired))
+	s.mux.HandleFunc("POST /api/org/{id}/import", chain(orgH.BulkImport, authRequired))
 
 	// ── Admin ───────────────────────────────────────────────────
 	adminChain := func(h http.HandlerFunc) http.HandlerFunc {
@@ -283,8 +334,12 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/admin/organizations", adminChain(adminH.CreateOrg))
 	s.mux.HandleFunc("GET /api/admin/organizations/{id}", adminChain(adminH.GetOrg))
 	s.mux.HandleFunc("GET /api/admin/organizations/{id}/members", adminChain(adminH.ListOrgMembers))
+	s.mux.HandleFunc("POST /api/admin/organizations/{id}/import/preview", adminChain(orgH.PreviewImport))
+	s.mux.HandleFunc("POST /api/admin/organizations/{id}/import", adminChain(orgH.BulkImport))
 	s.mux.HandleFunc("PATCH /api/admin/organizations/{id}", adminChain(adminH.UpdateOrg))
 	s.mux.HandleFunc("DELETE /api/admin/organizations/{id}", adminChain(adminH.DeleteOrg))
+	s.mux.HandleFunc("PATCH /api/admin/org/{id}/seat-limit", adminChain(orgH.SetSeatLimit))
+	s.mux.HandleFunc("PATCH /api/admin/org/{id}/plan", adminChain(orgH.SetPlan))
 	s.mux.HandleFunc("GET /api/admin/abuse/events", adminChain(adminH.ListAbuseEvents))
 	s.mux.HandleFunc("GET /api/admin/abuse/blocked", adminChain(adminH.ListBlockedIPs))
 	s.mux.HandleFunc("POST /api/admin/abuse/blocked", adminChain(adminH.BlockIP))
@@ -299,6 +354,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/admin/billing/subscribers", adminChain(billingH.GetSubscribers))
 	s.mux.HandleFunc("POST /api/admin/billing/refund", adminChain(billingH.AdminRefund))
 	s.mux.HandleFunc("POST /api/admin/billing/receipt", adminChain(billingH.AdminSendReceipt))
+	s.mux.HandleFunc("GET /api/admin/billing/receipts", adminChain(receiptH.AdminListReceipts))
+	s.mux.HandleFunc("GET /api/admin/billing/receipts/count", adminChain(receiptH.AdminReceiptCount))
+	s.mux.HandleFunc("POST /api/admin/billing/receipts/{id}/review", adminChain(receiptH.AdminReviewReceipt))
+	s.mux.HandleFunc("DELETE /api/admin/billing/receipts/{id}", adminChain(receiptH.AdminDeleteReceipt))
 
 	// ── System monitor (admin only) ─────────────────────────────
 	s.mux.HandleFunc("GET /api/admin/system", adminChain(monitorH.GetSnapshot))
@@ -362,6 +421,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/subdomains/analytics", chain(subdomainH.Analytics, authRequired))
 	s.mux.HandleFunc("POST /api/subdomains", chain(subdomainH.Create, authRequired))
 	s.mux.HandleFunc("DELETE /api/subdomains/{id}", chain(subdomainH.Delete, authRequired))
+	s.mux.HandleFunc("PATCH /api/subdomains/{id}/assignment", chain(subdomainH.UpdateAssignment, authRequired))
 	s.mux.HandleFunc("PUT /api/subdomains/{id}/rule", chain(subdomainH.UpsertRule, authRequired))
 
 	// ── Custom Domains ───────────────────────────────────────────
@@ -382,7 +442,7 @@ func (s *Server) registerRoutes() {
 
 	// ── Donations ─────────────────────────────────────────────────
 	donationH := &handlers.DonationHandler{DB: s.db, Notify: notifySvc}
-	s.mux.HandleFunc("POST /api/donations/submit", donationH.Submit)
+	s.mux.HandleFunc("POST /api/donations/submit", chain(donationH.Submit, donationSubmitRate))
 	s.mux.HandleFunc("GET /api/donations", donationH.PublicList)
 	s.mux.HandleFunc("GET /api/admin/donations", adminChain(donationH.AdminList))
 	s.mux.HandleFunc("PATCH /api/admin/donations/{id}", adminChain(donationH.AdminUpdate))
@@ -392,7 +452,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/admin/users/{id}/trial", chain(adminH.SetUserTrial, authRequired, adminRequired))
 
 	// ── File uploads ─────────────────────────────────────────────
-	s.mux.HandleFunc("POST /api/upload", uploadH.Upload)
+	s.mux.HandleFunc("POST /api/upload", chain(uploadH.Upload, authRequired))
 	s.mux.HandleFunc("GET /api/uploads/{filename}", uploadH.ServeFile)
 }
 

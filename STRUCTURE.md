@@ -96,9 +96,9 @@ tunnl.gg/
 │   └── tunnel/
 │
 ├── migrations/
-├── mekong-cli/
-├── mekong-tunnel/
-├── mekong-tunnel-vscode/
+├── mekong-node-sdk/
+├── mekong-python-sdk/
+├── mekong-vscode-extension/
 ├── scripts/
 ├── docs/
 ├── Makefile
@@ -217,9 +217,9 @@ tunnl.gg/
 │   ├── 001_init.sql
 │   └── ... (017 files total, run in order)
 │
-├── mekong-cli/                        ← npm package wrapper
-├── mekong-tunnel/                     ← Python package wrapper
-├── mekong-tunnel-vscode/              ← VS Code extension
+├── mekong-node-sdk/                   ← local folder for the npm package wrapper
+├── mekong-python-sdk/                 ← local folder for the Python package wrapper
+├── mekong-vscode-extension/           ← local folder for the VS Code extension
 ├── scripts/                           ← deploy + run scripts
 ├── docs/
 │   └── CLI_CONTRACT.md

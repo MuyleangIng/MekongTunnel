@@ -7,28 +7,44 @@ package proxy
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/MuyleangIng/MekongTunnel/internal/tunnel"
+)
+
+var (
+	tunnelLogSSERetryInterval     = 3 * time.Second
+	tunnelLogSSEHeartbeatInterval = 10 * time.Second
 )
 
 // TunnelDetail holds per-tunnel metrics for the dashboard.
 type TunnelDetail struct {
-	Subdomain     string `json:"subdomain"`
-	ClientIP      string `json:"client_ip"`
-	UptimeSecs    int64  `json:"uptime_secs"`
-	RequestCount  uint64 `json:"request_count"`
+	Subdomain     string    `json:"subdomain"`
+	UserID        string    `json:"user_id,omitempty"`
+	ClientIP      string    `json:"client_ip"`
+	UptimeSecs    int64     `json:"uptime_secs"`
+	RequestCount  uint64    `json:"request_count"`
+	TodayRequests uint64    `json:"today_requests"`
+	TotalBytes    uint64    `json:"total_bytes"`
+	TodayBytes    uint64    `json:"today_bytes"`
+	LocalPort     uint32    `json:"local_port"`
+	LastActiveAt  time.Time `json:"last_active_at"`
+	StartedAt     time.Time `json:"started_at"`
 }
 
 // Stats holds a point-in-time snapshot of server metrics.
 // It is returned by the /api/stats HTTP endpoint as JSON.
 type Stats struct {
-	ActiveTunnels    int            `json:"active_tunnels"`    // number of currently open tunnels
-	UniqueIPs        int            `json:"unique_ips"`        // number of unique client IPs with active tunnels
-	TotalConnections uint64         `json:"total_connections"` // total SSH connections accepted since start
-	TotalRequests    uint64         `json:"total_requests"`    // total HTTP requests proxied since start
+	ActiveTunnels    int            `json:"active_tunnels"`       // number of currently open tunnels
+	UniqueIPs        int            `json:"unique_ips"`           // number of unique client IPs with active tunnels
+	TotalConnections uint64         `json:"total_connections"`    // total SSH connections accepted since start
+	TotalRequests    uint64         `json:"total_requests"`       // total HTTP requests proxied since start
 	Subdomains       []string       `json:"subdomains,omitempty"` // active subdomain list (optional)
 	Tunnels          []TunnelDetail `json:"tunnels,omitempty"`    // per-tunnel details (optional)
 
@@ -79,9 +95,22 @@ func (s *Server) GetStats(includeSubdomains bool) Stats {
 	for _, t := range s.tunnels {
 		stats.Tunnels = append(stats.Tunnels, TunnelDetail{
 			Subdomain:    t.Subdomain,
+			UserID:       t.UserID(),
 			ClientIP:     t.ClientIP,
 			UptimeSecs:   int64(time.Since(t.CreatedAt).Seconds()),
 			RequestCount: t.RequestCount(),
+			TodayRequests: func() uint64 {
+				reqs, _ := t.TodayStats()
+				return reqs
+			}(),
+			TotalBytes: t.TotalBytes(),
+			TodayBytes: func() uint64 {
+				_, bytes := t.TodayStats()
+				return bytes
+			}(),
+			LocalPort:    t.LocalPort(),
+			LastActiveAt: t.LastActiveAt(),
+			StartedAt:    t.CreatedAt,
 		})
 	}
 
@@ -122,6 +151,62 @@ func (s *Server) StatsHandler() http.Handler {
 		}
 	}))
 
+	mux.HandleFunc("/api/tunnels/live", guard(func(w http.ResponseWriter, r *http.Request) {
+		userID := strings.TrimSpace(r.URL.Query().Get("user_id"))
+		subdomain := strings.TrimSpace(r.URL.Query().Get("subdomain"))
+
+		stats := s.GetStats(false)
+		filtered := make([]TunnelDetail, 0, len(stats.Tunnels))
+		for _, t := range stats.Tunnels {
+			if userID != "" && t.UserID != userID {
+				continue
+			}
+			if subdomain != "" && t.Subdomain != subdomain {
+				continue
+			}
+			filtered = append(filtered, t)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(filtered); err != nil {
+			log.Printf("Failed to encode live tunnels response: %v", err)
+		}
+	}))
+
+	mux.HandleFunc("/api/tunnels/logs/", guard(func(w http.ResponseWriter, r *http.Request) {
+		subdomain := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/tunnels/logs/"), "/")
+		if subdomain == "" {
+			http.Error(w, "subdomain required", http.StatusBadRequest)
+			return
+		}
+
+		tun := s.GetTunnel(subdomain)
+		if tun == nil {
+			http.Error(w, "tunnel not active", http.StatusNotFound)
+			return
+		}
+
+		logger := tun.Logger()
+		if logger == nil {
+			http.Error(w, "logs unavailable", http.StatusNotFound)
+			return
+		}
+
+		if strings.EqualFold(r.URL.Query().Get("stream"), "sse") || r.URL.Query().Get("follow") == "true" {
+			streamTunnelLogs(w, r, subdomain, logger)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"subdomain": subdomain,
+			"active":    true,
+			"lines":     logger.Snapshot(),
+		}); err != nil {
+			log.Printf("Failed to encode tunnel logs response: %v", err)
+		}
+	}))
+
 	// HTML dashboard.
 	mux.HandleFunc("/", guard(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -129,6 +214,76 @@ func (s *Server) StatsHandler() http.Handler {
 	}))
 
 	return mux
+}
+
+func streamTunnelLogs(w http.ResponseWriter, r *http.Request, subdomain string, logger *tunnel.RequestLogger) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	if tunnelLogSSERetryInterval > 0 {
+		fmt.Fprintf(w, "retry: %d\n\n", tunnelLogSSERetryInterval/time.Millisecond)
+		flusher.Flush()
+	}
+
+	for _, line := range logger.Snapshot() {
+		fmt.Fprintf(w, "event: line\ndata: %s\n\n", marshalSSEData(map[string]any{
+			"subdomain": subdomain,
+			"line":      line,
+			"history":   true,
+		}))
+	}
+	flusher.Flush()
+
+	ch, unsubscribe := logger.Subscribe()
+	defer unsubscribe()
+
+	fmt.Fprintf(w, "event: ready\ndata: %s\n\n", marshalSSEData(map[string]any{
+		"subdomain": subdomain,
+	}))
+	flusher.Flush()
+
+	var heartbeat <-chan time.Time
+	var ticker *time.Ticker
+	if tunnelLogSSEHeartbeatInterval > 0 {
+		ticker = time.NewTicker(tunnelLogSSEHeartbeatInterval)
+		defer ticker.Stop()
+		heartbeat = ticker.C
+	}
+
+	for {
+		select {
+		case line, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "event: line\ndata: %s\n\n", marshalSSEData(map[string]any{
+				"subdomain": subdomain,
+				"line":      line,
+			}))
+			flusher.Flush()
+		case <-heartbeat:
+			fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func marshalSSEData(v any) string {
+	buf, err := json.Marshal(v)
+	if err != nil {
+		return `{"error":"encode failed"}`
+	}
+	return string(buf)
 }
 
 // dashboardHTML is the self-contained admin dashboard served at the stats port root.

@@ -14,6 +14,8 @@ import (
 	"io"
 	"sync"
 	"time"
+
+	"github.com/MuyleangIng/MekongTunnel/internal/config"
 )
 
 const maxPathDisplay = 50
@@ -25,15 +27,24 @@ type RequestLogger struct {
 	ch        chan string
 	done      chan struct{}
 	closeOnce sync.Once
+
+	mu          sync.Mutex
+	history     []string
+	historySize int
+	nextIndex   int
+	subscribers map[chan string]struct{}
 }
 
 // NewRequestLogger creates a RequestLogger that writes to w with the given buffer size.
 // A background goroutine is started immediately to drain the channel.
 func NewRequestLogger(w io.Writer, bufSize int) *RequestLogger {
 	l := &RequestLogger{
-		w:    w,
-		ch:   make(chan string, bufSize),
-		done: make(chan struct{}),
+		w:           w,
+		ch:          make(chan string, bufSize),
+		done:        make(chan struct{}),
+		history:     make([]string, 0, maxInt(config.LogHistorySize, maxInt(1, bufSize))),
+		historySize: maxInt(config.LogHistorySize, maxInt(1, bufSize)),
+		subscribers: make(map[chan string]struct{}),
 	}
 	go l.drain()
 	return l
@@ -53,6 +64,7 @@ func (l *RequestLogger) drain() {
 // Drops silently if the buffer is full.
 func (l *RequestLogger) LogRequest(method, path string, status int, latency time.Duration) {
 	line := formatRequestLog(method, path, status, latency)
+	l.record(line)
 	select {
 	case l.ch <- line:
 	default:
@@ -63,6 +75,7 @@ func (l *RequestLogger) LogRequest(method, path string, status int, latency time
 // Drops silently if the buffer is full.
 func (l *RequestLogger) LogWebSocketOpen(path string) {
 	line := formatWSOpen(path)
+	l.record(line)
 	select {
 	case l.ch <- line:
 	default:
@@ -74,10 +87,51 @@ func (l *RequestLogger) LogWebSocketOpen(path string) {
 // Drops silently if the buffer is full.
 func (l *RequestLogger) LogWebSocketClose(path string, duration time.Duration, bytes int64) {
 	line := formatWSClose(path, duration, bytes)
+	l.record(line)
 	select {
 	case l.ch <- line:
 	default:
 	}
+}
+
+// Snapshot returns the currently retained log lines in oldest-first order.
+func (l *RequestLogger) Snapshot() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if len(l.history) == 0 {
+		return nil
+	}
+	if len(l.history) < l.historySize || l.nextIndex == 0 {
+		out := make([]string, len(l.history))
+		copy(out, l.history)
+		return out
+	}
+
+	out := make([]string, 0, len(l.history))
+	out = append(out, l.history[l.nextIndex:]...)
+	out = append(out, l.history[:l.nextIndex]...)
+	return out
+}
+
+// Subscribe returns a non-blocking live feed channel and an unsubscribe function.
+func (l *RequestLogger) Subscribe() (<-chan string, func()) {
+	ch := make(chan string, 32)
+
+	l.mu.Lock()
+	l.subscribers[ch] = struct{}{}
+	l.mu.Unlock()
+
+	unsubscribe := func() {
+		l.mu.Lock()
+		if _, ok := l.subscribers[ch]; ok {
+			delete(l.subscribers, ch)
+			close(ch)
+		}
+		l.mu.Unlock()
+	}
+
+	return ch, unsubscribe
 }
 
 // Close stops the logger by closing the channel and waiting for the drain goroutine
@@ -87,6 +141,39 @@ func (l *RequestLogger) Close() {
 		close(l.ch)
 	})
 	<-l.done
+
+	l.mu.Lock()
+	for ch := range l.subscribers {
+		close(ch)
+		delete(l.subscribers, ch)
+	}
+	l.mu.Unlock()
+}
+
+func (l *RequestLogger) record(line string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if len(l.history) < l.historySize {
+		l.history = append(l.history, line)
+	} else {
+		l.history[l.nextIndex] = line
+		l.nextIndex = (l.nextIndex + 1) % l.historySize
+	}
+
+	for ch := range l.subscribers {
+		select {
+		case ch <- line:
+		default:
+		}
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // truncatePath shortens path to maxPathDisplay characters with "..." suffix if needed.

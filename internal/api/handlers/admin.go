@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -24,6 +25,98 @@ type AdminHandler struct {
 	Notify      *notify.Service
 	Mailer      *mailer.Mailer
 	FrontendURL string
+}
+
+type adminOrgMemberResponse struct {
+	ID         string         `json:"id"`
+	OrgID      string         `json:"org_id"`
+	UserID     string         `json:"user_id"`
+	Role       string         `json:"role"`
+	JoinedAt   time.Time      `json:"joined_at"`
+	Name       string         `json:"name"`
+	Email      string         `json:"email"`
+	AvatarURL  string         `json:"avatar_url,omitempty"`
+	Plan       string         `json:"plan"`
+	IsAdmin    bool           `json:"is_admin"`
+	Allocation map[string]any `json:"allocation,omitempty"`
+	User       map[string]any `json:"user,omitempty"`
+}
+
+func serializeAdminOrgMembers(members []*models.OrgMember) []adminOrgMemberResponse {
+	out := make([]adminOrgMemberResponse, 0, len(members))
+	for _, member := range members {
+		if member == nil {
+			continue
+		}
+		resp := adminOrgMemberResponse{
+			ID:       member.ID,
+			OrgID:    member.OrgID,
+			UserID:   member.UserID,
+			Role:     member.Role,
+			JoinedAt: member.JoinedAt,
+		}
+		if member.User != nil {
+			resp.Name = member.User.Name
+			resp.Email = member.User.Email
+			resp.AvatarURL = member.User.AvatarURL
+			resp.Plan = member.User.Plan
+			resp.IsAdmin = member.User.IsAdmin
+			resp.User = map[string]any{
+				"id":                    member.User.ID,
+				"email":                 member.User.Email,
+				"name":                  member.User.Name,
+				"avatar_url":            member.User.AvatarURL,
+				"plan":                  member.User.Plan,
+				"is_admin":              member.User.IsAdmin,
+				"provisioned_by_org_id": member.User.ProvisionedByOrgID,
+				"force_password_reset":  member.User.ForcePasswordReset,
+			}
+		}
+		if member.Allocation != nil {
+			resp.Allocation = map[string]any{
+				"tunnel_limit":          member.Allocation.TunnelLimit,
+				"team_limit":            member.Allocation.TeamLimit,
+				"subdomain_limit":       member.Allocation.SubdomainLimit,
+				"custom_domain_allowed": member.Allocation.CustomDomainAllowed,
+				"bandwidth_gb":          member.Allocation.BandwidthGB,
+			}
+		}
+		out = append(out, resp)
+	}
+	return out
+}
+
+func (h *AdminHandler) notifyUsers(ctx context.Context, userIDs []string, notifType, title, body, link string) {
+	if h.Notify == nil {
+		return
+	}
+	for _, userID := range dedupeUserIDs(userIDs) {
+		go h.Notify.Send(ctx, userID, notifType, title, body, link)
+	}
+}
+
+func (h *AdminHandler) emailUsers(ctx context.Context, userIDs []string, subject, title, body, link string) {
+	if h.Mailer == nil || !h.Mailer.Enabled() {
+		return
+	}
+	htmlBody := `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111827">` +
+		`<h2 style="margin:0 0 12px;">` + title + `</h2>` +
+		`<p style="line-height:1.6;margin:0 0 16px;">` + body + `</p>`
+	if link != "" {
+		htmlBody += `<p style="margin:0 0 16px;"><a href="` + strings.TrimRight(h.FrontendURL, "/") + link + `" style="display:inline-block;padding:10px 16px;background:#ca8a04;color:#111827;text-decoration:none;border-radius:10px;font-weight:700">Open Mekong Tunnel</a></p>`
+	}
+	htmlBody += `</div>`
+	for _, userID := range dedupeUserIDs(userIDs) {
+		user, err := h.DB.GetUserByID(ctx, userID)
+		if err != nil || user == nil || strings.TrimSpace(user.Email) == "" {
+			continue
+		}
+		go func(email string) {
+			if err := h.Mailer.Send(email, subject, htmlBody); err != nil {
+				log.Printf("[admin] email %s: %v", email, err)
+			}
+		}(user.Email)
+	}
 }
 
 // ─── Stats ────────────────────────────────────────────────────
@@ -346,13 +439,24 @@ func (h *AdminHandler) SetDomainTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reserved, err := h.DB.GetReservedSubdomainForUser(r.Context(), d.UserID, targetSubdomain)
+	scopeUserID := d.UserID
+	scopeTeamID := ""
+	if d.TeamID != nil {
+		scopeUserID = ""
+		scopeTeamID = *d.TeamID
+	}
+
+	reserved, err := h.DB.GetReservedSubdomainForScope(r.Context(), scopeUserID, scopeTeamID, targetSubdomain)
 	if err != nil {
 		response.InternalError(w, err)
 		return
 	}
 	if reserved == "" {
-		response.BadRequest(w, "target_subdomain must belong to the domain owner")
+		if scopeTeamID != "" {
+			response.BadRequest(w, "target_subdomain must belong to the domain's team")
+		} else {
+			response.BadRequest(w, "target_subdomain must belong to the domain owner")
+		}
 		return
 	}
 
@@ -507,7 +611,7 @@ func (h *AdminHandler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	org, err := h.DB.CreateOrganization(r.Context(), body.Name, body.Domain, body.Plan, ownerID)
+	org, err := h.DB.CreateOrganization(r.Context(), body.Name, body.Domain, body.Plan, ownerID, "school", 100, nil)
 	if err != nil {
 		response.InternalError(w, err)
 		return
@@ -529,8 +633,44 @@ func (h *AdminHandler) GetOrg(w http.ResponseWriter, r *http.Request) {
 		response.NotFound(w, "organization not found")
 		return
 	}
+	members, _ := h.DB.ListOrgMembers(r.Context(), id)
+	teams, _ := h.DB.ListTeamsByOrg(r.Context(), id)
+	managerCount, _ := h.DB.CountOrgManagers(r.Context(), id)
+	pendingRequestCount, _ := h.DB.CountPendingResourceRequests(r.Context(), id)
+	pendingFirstLoginCount, _ := h.DB.CountOrgPendingFirstLogin(r.Context(), id)
+	var owner any
+	if org.OwnerID != nil {
+		if ownerUser, err := h.DB.GetUserByID(r.Context(), *org.OwnerID); err == nil && ownerUser != nil {
+			if ownerUser.ForcePasswordReset {
+				pendingFirstLoginCount++
+			}
+			owner = sanitizeUser(ownerUser)
+		}
+	}
+	var createdBy any
+	if org.CreatedBy != nil {
+		if createdUser, err := h.DB.GetUserByID(r.Context(), *org.CreatedBy); err == nil && createdUser != nil {
+			createdBy = sanitizeUser(createdUser)
+		}
+	}
 
-	response.Success(w, org)
+	response.Success(w, map[string]any{
+		"org":             org,
+		"owner":           owner,
+		"created_by_user": createdBy,
+		"members":         serializeAdminOrgMembers(members),
+		"teams":           teams,
+		"summary": map[string]any{
+			"seat_usage":                org.MemberCount,
+			"seat_limit":                org.SeatLimit,
+			"manager_count":             managerCount,
+			"team_count":                len(teams),
+			"pending_request_count":     pendingRequestCount,
+			"pending_first_login_count": pendingFirstLoginCount,
+			"active_tunnels":            org.ActiveTunnels,
+			"status_changed_at":         org.StatusChangedAt,
+		},
+	})
 }
 
 // ListOrgMembers handles GET /api/admin/organizations/{id}/members.
@@ -547,7 +687,7 @@ func (h *AdminHandler) ListOrgMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.Success(w, map[string]any{"members": members})
+	response.Success(w, map[string]any{"members": serializeAdminOrgMembers(members)})
 }
 
 // UpdateOrg handles PATCH /api/admin/organizations/{id}.
@@ -559,26 +699,90 @@ func (h *AdminHandler) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Status *string `json:"status"`
-		Plan   *string `json:"plan"`
+		Status    *string `json:"status"`
+		Plan      *string `json:"plan"`
+		SeatLimit *int    `json:"seat_limit"`
+		AdminNote *string `json:"admin_note"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		response.BadRequest(w, "invalid JSON body")
 		return
 	}
 
+	if _, err := h.DB.GetOrganizationByID(r.Context(), id); err != nil {
+		response.NotFound(w, "organization not found")
+		return
+	}
+	changes := make([]string, 0, 4)
 	if body.Status != nil {
-		if err := h.DB.UpdateOrganizationStatus(r.Context(), id, *body.Status); err != nil {
+		status := strings.TrimSpace(*body.Status)
+		switch status {
+		case "pending", "active", "suspended", "archived":
+		default:
+			response.BadRequest(w, "status must be pending, active, suspended, or archived")
+			return
+		}
+		if err := h.DB.UpdateOrganizationStatus(r.Context(), id, status); err != nil {
 			response.InternalError(w, err)
 			return
 		}
+		changes = append(changes, fmt.Sprintf("status changed to %s", status))
+	}
+	if body.Plan != nil {
+		plan := strings.ToLower(strings.TrimSpace(*body.Plan))
+		switch plan {
+		case "free", "student", "pro", "org":
+		default:
+			response.BadRequest(w, "plan must be free, student, pro, or org")
+			return
+		}
+		if err := h.DB.UpdateOrgPlan(r.Context(), id, plan); err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		changes = append(changes, fmt.Sprintf("plan changed to %s", strings.ToUpper(plan)))
+	}
+	if body.SeatLimit != nil {
+		if *body.SeatLimit < 1 {
+			response.BadRequest(w, "seat_limit must be at least 1")
+			return
+		}
+		if err := h.DB.UpdateOrgSeatLimit(r.Context(), id, *body.SeatLimit); err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		changes = append(changes, fmt.Sprintf("seat limit set to %d", *body.SeatLimit))
+	}
+	if body.AdminNote != nil {
+		if err := h.DB.SetOrganizationAdminNote(r.Context(), id, strings.TrimSpace(*body.AdminNote)); err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		changes = append(changes, "admin note updated")
+	}
+	updatedOrg, err := h.DB.GetOrganizationByID(r.Context(), id)
+	if err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	if len(changes) > 0 {
+		recipients, _ := h.DB.ListOrgManagerUserIDs(r.Context(), id)
+		message := fmt.Sprintf("Organization %s was updated: %s.", updatedOrg.Name, strings.Join(changes, "; "))
+		h.notifyUsers(r.Context(), recipients, "org_lifecycle_updated", "Organization updated", message, "/dashboard/org")
+		h.emailUsers(r.Context(), recipients, "Organization updated", "Organization updated", message, "/dashboard/org")
 	}
 
-	response.Success(w, map[string]any{"message": "organization updated"})
+	response.Success(w, map[string]any{"message": "organization updated", "org": updatedOrg})
 }
 
 // DeleteOrg handles DELETE /api/admin/organizations/{id}.
 func (h *AdminHandler) DeleteOrg(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r)
+	if claims == nil || !claims.IsAdmin {
+		response.Forbidden(w, "admin only")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		response.BadRequest(w, "org id required")
@@ -708,12 +912,23 @@ func (h *AdminHandler) UpdateVerifyRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	var body struct {
-		Status        string `json:"status"`
-		RejectReason  string `json:"reject_reason"`
-		ForceOverride bool   `json:"force_override"` // set true to downgrade even paid subscribers
+		Status                  string `json:"status"`
+		RejectReason            string `json:"reject_reason"`
+		ApprovalNote            string `json:"approval_note"`
+		ApprovedDiscountPercent int    `json:"approved_discount_percent"`
+		OrgDomain               string `json:"org_domain"`
+		OrgSeatLimit            int    `json:"org_seat_limit"`
+		OrgName                 string `json:"org_name"`
+		ForceOverride           bool   `json:"force_override"` // set true to downgrade even paid subscribers
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		response.BadRequest(w, "invalid JSON body")
+		return
+	}
+
+	current, err := h.DB.GetVerifyRequestByID(r.Context(), id)
+	if err != nil {
+		response.NotFound(w, "verify request not found")
 		return
 	}
 
@@ -722,45 +937,176 @@ func (h *AdminHandler) UpdateVerifyRequest(w http.ResponseWriter, r *http.Reques
 		response.BadRequest(w, "status must be one of: reviewing, approved, rejected")
 		return
 	}
+	if body.ApprovedDiscountPercent < 0 || body.ApprovedDiscountPercent > 100 {
+		response.BadRequest(w, "approved_discount_percent must be between 0 and 100")
+		return
+	}
 
-	vr, planSkipped, err := h.DB.UpdateVerifyRequest(r.Context(), id, body.Status, body.RejectReason, body.ForceOverride)
+	vr, planSkipped, err := h.DB.UpdateVerifyRequest(
+		r.Context(),
+		id,
+		body.Status,
+		body.RejectReason,
+		body.ApprovalNote,
+		body.ApprovedDiscountPercent,
+		body.ForceOverride,
+	)
 	if err != nil {
 		response.InternalError(w, err)
 		return
 	}
 
+	var approvedOrg *models.Organization
+	if body.Status == "approved" && current.Type == "org" {
+		user, err := h.DB.GetUserByID(r.Context(), current.UserID)
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		orgName := strings.TrimSpace(body.OrgName)
+		if orgName == "" {
+			orgName = strings.TrimSpace(current.OrgName)
+		}
+		if orgName == "" {
+			orgName = strings.TrimSpace(user.Name)
+		}
+		if orgName == "" {
+			orgName = "Organization"
+		}
+		orgDomain := strings.ToLower(strings.TrimSpace(body.OrgDomain))
+		if orgDomain == "" {
+			orgDomain = strings.ToLower(strings.TrimSpace(current.RequestedOrgDomain))
+		}
+		orgSeatLimit := body.OrgSeatLimit
+		if orgSeatLimit < 1 {
+			orgSeatLimit = current.RequestedOrgSeatLimit
+		}
+		if orgSeatLimit < 1 {
+			orgSeatLimit = 25
+		}
+
+		switch {
+		case current.ApprovedOrgID != nil:
+			approvedOrg, err = h.DB.GetOrganizationByID(r.Context(), *current.ApprovedOrgID)
+		default:
+			existingOrg, _, getErr := h.DB.GetMyOrg(r.Context(), current.UserID)
+			if getErr == nil && existingOrg != nil && existingOrg.OwnerID != nil && *existingOrg.OwnerID == current.UserID {
+				approvedOrg = existingOrg
+			} else {
+				createdBy := current.UserID
+				approvedOrg, err = h.DB.CreateOrganization(r.Context(), orgName, orgDomain, "org", current.UserID, "organization", orgSeatLimit, &createdBy)
+			}
+		}
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		if approvedOrg.OwnerID == nil || *approvedOrg.OwnerID != current.UserID {
+			if err := h.DB.SetOrganizationOwner(r.Context(), approvedOrg.ID, current.UserID); err != nil {
+				response.InternalError(w, err)
+				return
+			}
+		}
+		if orgDomain != "" && approvedOrg.Domain != orgDomain {
+			if err := h.DB.SetOrganizationDomain(r.Context(), approvedOrg.ID, orgDomain); err != nil {
+				response.InternalError(w, err)
+				return
+			}
+		}
+		if approvedOrg.Plan != "org" {
+			if err := h.DB.UpdateOrgPlan(r.Context(), approvedOrg.ID, "org"); err != nil {
+				response.InternalError(w, err)
+				return
+			}
+		}
+		if approvedOrg.SeatLimit != orgSeatLimit {
+			if err := h.DB.UpdateOrgSeatLimit(r.Context(), approvedOrg.ID, orgSeatLimit); err != nil {
+				response.InternalError(w, err)
+				return
+			}
+		}
+		if err := h.DB.SetOrganizationApprovedVerifyRequest(r.Context(), approvedOrg.ID, current.ID); err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		if err := h.DB.SetOrganizationBillingDiscount(r.Context(), approvedOrg.ID, body.ApprovedDiscountPercent, strings.TrimSpace(body.ApprovalNote)); err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		orgStatus := "pending"
+		if user.SubscriptionPlan == "org" || user.Plan == "org" {
+			orgStatus = "active"
+			if user.Plan != "org" {
+				if _, err := h.DB.UpdateUser(r.Context(), user.ID, map[string]any{"plan": "org"}); err != nil {
+					response.InternalError(w, err)
+					return
+				}
+				planSkipped = false
+			}
+		}
+		if err := h.DB.UpdateOrganizationStatus(r.Context(), approvedOrg.ID, orgStatus); err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		vr, err = h.DB.SetVerifyRequestApprovedOrg(r.Context(), current.ID, approvedOrg.ID, body.ApprovalNote, body.ApprovedDiscountPercent)
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		approvedOrg, _ = h.DB.GetOrganizationByID(r.Context(), approvedOrg.ID)
+	}
+
 	// Notify user about status change.
-	if h.Notify != nil {
-		switch body.Status {
-		case "reviewing":
-			go h.Notify.Send(context.Background(), vr.UserID, "verify_reviewing",
-				"Your verification is being reviewed",
-				"An admin is reviewing your "+vr.Type+" verification request.",
-				"/dashboard/billing")
-		case "approved":
-			title := "Verification approved!"
-			approvedMsg := "Your " + vr.Type + " verification was approved. Your plan has been updated."
-			if vr.Type == "org" {
-				title = "Organization application approved!"
-				approvedMsg = "Your organization application has been approved. Proceed to payment to activate your Org plan."
+	link := "/dashboard/billing"
+	title := "Verification updated"
+	message := ""
+	notifType := "verify_reviewing"
+	switch body.Status {
+	case "reviewing":
+		title = "Your verification is being reviewed"
+		message = "An admin is reviewing your " + vr.Type + " verification request."
+		notifType = "verify_reviewing"
+	case "approved":
+		notifType = "verify_approved"
+		if vr.Type == "org" {
+			title = "Organization application approved"
+			if approvedOrg != nil && approvedOrg.Status == "active" {
+				message = "Your organization application was approved and your Organization workspace is active."
+				link = "/dashboard/org"
+			} else {
+				message = "Your organization application was approved. Your workspace is prepared and will activate when your ORG plan is active."
+				link = "/dashboard/org"
 			}
-			go h.Notify.Send(context.Background(), vr.UserID, "verify_approved",
-				title, approvedMsg, "/dashboard/billing")
-		case "rejected":
-			msg := "Your " + vr.Type + " verification request was rejected."
-			if body.RejectReason != "" {
-				msg += " Reason: " + body.RejectReason
+			if body.ApprovalNote != "" {
+				message += " Note: " + strings.TrimSpace(body.ApprovalNote)
 			}
-			go h.Notify.Send(context.Background(), vr.UserID, "verify_rejected",
-				"Verification rejected",
-				msg,
-				"/dashboard/billing")
+			if body.ApprovedDiscountPercent > 0 {
+				message += fmt.Sprintf(" Approved contract discount: %d%%.", body.ApprovedDiscountPercent)
+			}
+		} else {
+			title = "Verification approved"
+			message = "Your " + vr.Type + " verification was approved."
+			if !planSkipped {
+				message += " Your plan has been updated."
+			} else {
+				message += " Your higher plan was kept unchanged."
+			}
+		}
+	case "rejected":
+		notifType = "verify_rejected"
+		title = "Verification rejected"
+		message = "Your " + vr.Type + " verification request was rejected."
+		if body.RejectReason != "" {
+			message += " Reason: " + body.RejectReason
 		}
 	}
+	h.notifyUsers(context.Background(), []string{vr.UserID}, notifType, title, message, link)
+	h.emailUsers(context.Background(), []string{vr.UserID}, title, title, message, link)
 
 	response.Success(w, map[string]any{
 		"verify_request": vr,
 		"plan_skipped":   planSkipped,
+		"organization":   approvedOrg,
 	})
 }
 

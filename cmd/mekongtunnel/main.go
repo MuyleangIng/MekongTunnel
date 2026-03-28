@@ -130,6 +130,19 @@ func main() {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
+	apiURL := strings.TrimSpace(os.Getenv("API_URL"))
+	if apiURL == "" {
+		apiURL = deriveAPIBaseURL(cfg.Domain)
+	}
+	if apiURL != "" {
+		srv.SetAPIBaseURL(apiURL)
+		log.Printf("Tunnel API sync enabled via %s", apiURL)
+	}
+	if tunnelSecret := strings.TrimSpace(os.Getenv("TUNNEL_EDGE_SECRET")); tunnelSecret != "" {
+		srv.SetAPISecret(tunnelSecret)
+		log.Println("Tunnel edge secret configured")
+	}
+
 	// Wire token validation when DATABASE_URL is available.
 	// Without a DB the server still works — users just get random subdomains.
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
@@ -273,4 +286,27 @@ func main() {
 	// Stop background goroutines (abuse-tracker cleanup).
 	srv.Stop()
 	log.Println("Shutdown complete")
+}
+
+func deriveAPIBaseURL(domain string) string {
+	host := strings.TrimSpace(domain)
+	host = strings.TrimPrefix(host, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.Trim(host, "/")
+	if host == "" {
+		return ""
+	}
+	if strings.HasPrefix(host, "api.") {
+		return "https://" + host
+	}
+
+	parts := strings.Split(host, ".")
+	base := host
+	if len(parts) > 2 {
+		switch parts[0] {
+		case "proxy", "tunnel", "edge":
+			base = strings.Join(parts[1:], ".")
+		}
+	}
+	return "https://api." + base
 }

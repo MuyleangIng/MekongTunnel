@@ -40,7 +40,9 @@ func main() {
 	stripeSecretKey := getEnv("STRIPE_SECRET_KEY", "")
 	stripeWebhookSecret := getEnv("STRIPE_WEBHOOK_SECRET", "")
 
+
 	tunnelServerURL := getEnv("TUNNEL_SERVER_URL", "http://localhost:9090")
+	tunnelEdgeSecret := getEnv("TUNNEL_EDGE_SECRET", "")
 	frontendURL := getEnv("FRONTEND_URL", "http://localhost:3000")
 
 	allowedOriginsRaw := getEnv("ALLOWED_ORIGINS", "http://localhost:3000")
@@ -130,6 +132,7 @@ func main() {
 		StripeSecretKey:     stripeSecretKey,
 		StripeWebhookSecret: stripeWebhookSecret,
 		TunnelServerURL:     tunnelServerURL,
+		TunnelEdgeSecret:    tunnelEdgeSecret,
 		AllowedOrigins:      allowedOrigins,
 		FrontendURL:         frontendURL,
 		PlanPrices:          planPrices,

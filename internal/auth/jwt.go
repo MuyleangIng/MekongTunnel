@@ -18,16 +18,19 @@ type JWTClaims struct {
 	IsAdmin bool   `json:"admin"`
 	// temp_2fa marks a short-lived token used only to complete 2FA verification.
 	Temp2FA bool `json:"temp_2fa,omitempty"`
+	// MustReset is true for provisioned accounts that must change their password before using the API.
+	MustReset bool `json:"must_reset,omitempty"`
 	jwt.RegisteredClaims
 }
 
 // GenerateAccessToken creates a 15-minute signed JWT for the given user.
 func GenerateAccessToken(user *models.User, secret string) (string, error) {
 	claims := JWTClaims{
-		UserID:  user.ID,
-		Email:   user.Email,
-		Plan:    user.Plan,
-		IsAdmin: user.IsAdmin,
+		UserID:    user.ID,
+		Email:     user.Email,
+		Plan:      user.Plan,
+		IsAdmin:   user.IsAdmin,
+		MustReset: user.ForcePasswordReset,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID,
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

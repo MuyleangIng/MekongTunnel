@@ -3164,11 +3164,202 @@ func mustSeedInvitation(t *testing.T, teamID, email, role string) (string, *mode
 
 func mustSeedOrganization(t *testing.T, name, domain, plan, ownerID string) *models.Organization {
 	t.Helper()
-	org, err := testDB.CreateOrganization(context.Background(), name, domain, plan, ownerID)
+	org, err := testDB.CreateOrganization(context.Background(), name, domain, plan, ownerID, "school", 100, nil)
 	if err != nil {
 		t.Fatalf("seed organization: %v", err)
 	}
 	return org
+}
+
+func TestReportTunnelStopsOlderActiveDuplicateAndListDedupes(t *testing.T) {
+	cleanDB()
+
+	user := seedUser("free")
+	jwtToken, err := auth.GenerateAccessToken(&user, testJWTSecret)
+	if err != nil {
+		t.Fatalf("generate access token: %v", err)
+	}
+
+	uid := user.ID
+	if err := testDB.UpsertTunnel(context.Background(), &models.Tunnel{
+		ID:        "old-dup",
+		UserID:    &uid,
+		Subdomain: "dup-sub",
+		LocalPort: 3000,
+		RemoteIP:  "127.0.0.1",
+		Status:    "active",
+		StartedAt: time.Now().Add(-2 * time.Minute).UTC(),
+	}); err != nil {
+		t.Fatalf("seed old duplicate tunnel: %v", err)
+	}
+
+	resp := makeRequest(http.MethodPost, "/api/tunnels", map[string]any{
+		"id":         "new-dup",
+		"user_id":    user.ID,
+		"subdomain":  "dup-sub",
+		"local_port": 3000,
+		"remote_ip":  "127.0.0.1",
+		"status":     "active",
+		"started_at": time.Now().UTC().Format(time.RFC3339),
+	}, "")
+	defer closeResponse(resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/tunnels status = %d, body = %s", resp.StatusCode, strings.TrimSpace(string(mustReadBody(resp))))
+	}
+
+	var oldStatus string
+	var oldEndedAt *time.Time
+	if err := testDB.Pool.QueryRow(context.Background(),
+		`SELECT status, ended_at FROM tunnels WHERE id = $1`, "old-dup").
+		Scan(&oldStatus, &oldEndedAt); err != nil {
+		t.Fatalf("load old duplicate tunnel: %v", err)
+	}
+	if oldStatus != "stopped" {
+		t.Fatalf("old duplicate tunnel status = %q, want stopped", oldStatus)
+	}
+	if oldEndedAt == nil {
+		t.Fatal("old duplicate tunnel ended_at = nil, want timestamp")
+	}
+
+	listResp := makeRequest(http.MethodGet, "/api/tunnels?status=active", nil, jwtToken)
+	defer closeResponse(listResp)
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/tunnels?status=active status = %d, body = %s", listResp.StatusCode, strings.TrimSpace(string(mustReadBody(listResp))))
+	}
+
+	var listed []*models.Tunnel
+	decodeResponseData(listResp, &listed)
+	if len(listed) != 1 {
+		t.Fatalf("active tunnel count = %d, want 1", len(listed))
+	}
+	if listed[0].ID != "new-dup" {
+		t.Fatalf("active tunnel id = %q, want new-dup", listed[0].ID)
+	}
+}
+
+func TestTeamSubdomainAssignmentControlsWhoCanClaimRoute(t *testing.T) {
+	cleanDB()
+
+	owner := seedUserWithOptions("owner", map[string]any{
+		"plan":              "pro",
+		"subscription_plan": "pro",
+	})
+	member := seedUser("member")
+	other := seedUser("other")
+
+	ownerJWT, err := auth.GenerateAccessToken(&owner, testJWTSecret)
+	if err != nil {
+		t.Fatalf("generate owner token: %v", err)
+	}
+
+	team := mustSeedTeam(t, owner.ID, "Assignments", "custom", "pro")
+	if err := testDB.AddTeamMember(context.Background(), team.ID, member.ID, "member"); err != nil {
+		t.Fatalf("add team member: %v", err)
+	}
+	if err := testDB.AddTeamMember(context.Background(), team.ID, other.ID, "member"); err != nil {
+		t.Fatalf("add other member: %v", err)
+	}
+
+	sub, err := testDB.CreateReservedSubdomainByScope(context.Background(), "", team.ID, uniqueSubdomain("teamapp"))
+	if err != nil {
+		t.Fatalf("create team subdomain: %v", err)
+	}
+
+	assignResp := makeRequest(http.MethodPatch, "/api/subdomains/"+sub.ID+"/assignment?team_id="+url.QueryEscape(team.ID), map[string]any{
+		"assigned_user_id": member.ID,
+	}, ownerJWT)
+	defer closeResponse(assignResp)
+	if assignResp.StatusCode != http.StatusOK {
+		t.Fatalf("assign subdomain status = %d, body = %s", assignResp.StatusCode, strings.TrimSpace(string(mustReadBody(assignResp))))
+	}
+
+	var assigned models.ReservedSubdomain
+	decodeResponseData(assignResp, &assigned)
+	if assigned.AssignedUserID == nil || *assigned.AssignedUserID != member.ID {
+		t.Fatalf("assigned_user_id = %v, want %q", assigned.AssignedUserID, member.ID)
+	}
+
+	listResp := makeRequest(http.MethodGet, "/api/subdomains?team_id="+url.QueryEscape(team.ID), nil, ownerJWT)
+	defer closeResponse(listResp)
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("list subdomains status = %d, body = %s", listResp.StatusCode, strings.TrimSpace(string(mustReadBody(listResp))))
+	}
+
+	var listed struct {
+		Subdomains []*models.ReservedSubdomain `json:"subdomains"`
+	}
+	decodeResponseData(listResp, &listed)
+	if len(listed.Subdomains) != 1 {
+		t.Fatalf("team subdomain count = %d, want 1", len(listed.Subdomains))
+	}
+	if listed.Subdomains[0].AssignedUserID == nil || *listed.Subdomains[0].AssignedUserID != member.ID {
+		t.Fatalf("listed assigned_user_id = %v, want %q", listed.Subdomains[0].AssignedUserID, member.ID)
+	}
+
+	got, err := testDB.GetReservedSubdomainForUser(context.Background(), member.ID, sub.Subdomain)
+	if err != nil {
+		t.Fatalf("assigned member lookup: %v", err)
+	}
+	if got != sub.Subdomain {
+		t.Fatalf("assigned member lookup = %q, want %q", got, sub.Subdomain)
+	}
+
+	got, err = testDB.GetReservedSubdomainForUser(context.Background(), other.ID, sub.Subdomain)
+	if err != nil {
+		t.Fatalf("other member lookup: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("other member lookup = %q, want empty when route is assigned away", got)
+	}
+
+	clearResp := makeRequest(http.MethodPatch, "/api/subdomains/"+sub.ID+"/assignment?team_id="+url.QueryEscape(team.ID), map[string]any{
+		"assigned_user_id": nil,
+	}, ownerJWT)
+	defer closeResponse(clearResp)
+	if clearResp.StatusCode != http.StatusOK {
+		t.Fatalf("clear assignment status = %d, body = %s", clearResp.StatusCode, strings.TrimSpace(string(mustReadBody(clearResp))))
+	}
+
+	got, err = testDB.GetReservedSubdomainForUser(context.Background(), other.ID, sub.Subdomain)
+	if err != nil {
+		t.Fatalf("other member lookup after clear: %v", err)
+	}
+	if got != sub.Subdomain {
+		t.Fatalf("other member lookup after clear = %q, want %q", got, sub.Subdomain)
+	}
+}
+
+func TestCreateTeamScopedSubdomainUsesTeamOwnershipOnly(t *testing.T) {
+	cleanDB()
+
+	owner := seedUserWithOptions("owner", map[string]any{
+		"plan":              "student",
+		"subscription_plan": "student",
+	})
+	ownerJWT, err := auth.GenerateAccessToken(&owner, testJWTSecret)
+	if err != nil {
+		t.Fatalf("generate owner token: %v", err)
+	}
+
+	team := mustSeedTeam(t, owner.ID, "Student Team", "custom", "student")
+	subdomain := uniqueSubdomain("team-owned")
+
+	resp := makeRequest(http.MethodPost, "/api/subdomains?team_id="+url.QueryEscape(team.ID), map[string]any{
+		"subdomain": subdomain,
+	}, ownerJWT)
+	defer closeResponse(resp)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create team subdomain status = %d, body = %s", resp.StatusCode, strings.TrimSpace(string(mustReadBody(resp))))
+	}
+
+	var created models.ReservedSubdomain
+	decodeResponseData(resp, &created)
+	if created.TeamID == nil || *created.TeamID != team.ID {
+		t.Fatalf("team_id = %v, want %q", created.TeamID, team.ID)
+	}
+	if created.UserID != "" {
+		t.Fatalf("user_id = %q, want empty for team-owned route", created.UserID)
+	}
 }
 
 func mustPlanConfigPayload() []map[string]any {

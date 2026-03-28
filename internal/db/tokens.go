@@ -103,7 +103,11 @@ func (db *DB) ValidateToken(ctx context.Context, rawToken string) (string, error
 func (db *DB) GetFirstReservedSubdomain(ctx context.Context, userID string) (string, error) {
 	var sub string
 	err := db.Pool.QueryRow(ctx,
-		`SELECT subdomain FROM reserved_subdomains WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1`,
+		`SELECT subdomain
+		 FROM reserved_subdomains
+		 WHERE user_id = $1 AND team_id IS NULL
+		 ORDER BY created_at ASC
+		 LIMIT 1`,
 		userID,
 	).Scan(&sub)
 	if err != nil {
@@ -116,7 +120,21 @@ func (db *DB) GetFirstReservedSubdomain(ctx context.Context, userID string) (str
 func (db *DB) GetReservedSubdomainForUser(ctx context.Context, userID, subdomain string) (string, error) {
 	var reserved string
 	err := db.Pool.QueryRow(ctx,
-		`SELECT subdomain FROM reserved_subdomains WHERE user_id = $1 AND subdomain = $2 LIMIT 1`,
+		`SELECT rs.subdomain
+		 FROM reserved_subdomains rs
+		 LEFT JOIN teams t
+		   ON t.id = rs.team_id
+		 LEFT JOIN team_members tm
+		   ON tm.team_id = rs.team_id AND tm.user_id = $1
+		 WHERE rs.subdomain = $2
+		   AND (
+		     (rs.user_id = $1 AND rs.team_id IS NULL) OR
+		     (rs.team_id IS NOT NULL AND (
+		       (rs.assigned_user_id IS NULL AND (t.owner_id = $1 OR tm.user_id IS NOT NULL)) OR
+		       rs.assigned_user_id = $1
+		     ))
+		   )
+		 LIMIT 1`,
 		userID, subdomain,
 	).Scan(&reserved)
 	if err != nil {

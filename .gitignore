@@ -39,33 +39,33 @@ data/
 data-dev/
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  VS CODE EXTENSION  (mekong-tunnel-vscode/)
+#  VS CODE EXTENSION  (mekong-vscode-extension/)
 # ══════════════════════════════════════════════════════════════════════════════
-mekong-tunnel-vscode/node_modules/
-mekong-tunnel-vscode/out/
-mekong-tunnel-vscode/*.vsix
-mekong-tunnel-vscode/.vscode-test/
+mekong-vscode-extension/node_modules/
+mekong-vscode-extension/out/
+mekong-vscode-extension/*.vsix
+mekong-vscode-extension/.vscode-test/
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  npm PACKAGE  (mekong-cli/)
+#  npm PACKAGE  (mekong-node-sdk/)
 # ══════════════════════════════════════════════════════════════════════════════
-mekong-cli/node_modules/
-mekong-cli/.npmrc
-mekong-cli/npm-debug.log*
+mekong-node-sdk/node_modules/
+mekong-node-sdk/.npmrc
+mekong-node-sdk/npm-debug.log*
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PYTHON PACKAGE  (mekong-tunnel/)
+#  PYTHON PACKAGE  (mekong-python-sdk/)
 # ══════════════════════════════════════════════════════════════════════════════
-mekong-tunnel/dist/
-mekong-tunnel/build/
-mekong-tunnel/*.egg-info/
-mekong-tunnel/src/*.egg-info/
-mekong-tunnel/__pycache__/
-mekong-tunnel/**/__pycache__/
-mekong-tunnel/**/*.pyc
-mekong-tunnel/.venv/
-mekong-tunnel/venv/
-mekong-tunnel/.pytest_cache/
+mekong-python-sdk/dist/
+mekong-python-sdk/build/
+mekong-python-sdk/*.egg-info/
+mekong-python-sdk/src/*.egg-info/
+mekong-python-sdk/__pycache__/
+mekong-python-sdk/**/__pycache__/
+mekong-python-sdk/**/*.pyc
+mekong-python-sdk/.venv/
+mekong-python-sdk/venv/
+mekong-python-sdk/.pytest_cache/
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  GITHUB ACTIONS  (allow workflows, ignore everything else)

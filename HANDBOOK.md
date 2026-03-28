@@ -1,7 +1,7 @@
 # MekongTunnel — Project Handbook
 
 > Author: **Ing Muyleang** (អុឹង មួយលៀង) · KhmerStack · [angkorsearch.dev](https://angkorsearch.dev)
-> Last updated: 2026-03-27 · Go v1.5.7 · npm v2.0.0 · PyPI v2.1.0 · VS Code v1.5.0
+> Last updated: 2026-03-28 · Go v1.5.8 · npm v2.0.0 · PyPI v2.1.0 · VS Code v1.5.0
 
 ---
 
@@ -148,9 +148,9 @@ tunnl.gg/                              ← Go monorepo root
 │
 ├── migrations/                        (17 PostgreSQL migration files)
 ├── api/                               (OpenAPI spec — if present)
-├── mekong-cli/                        ← npm package
-├── mekong-tunnel/                     ← Python package
-├── mekong-tunnel-vscode/              ← VS Code extension
+├── mekong-node-sdk/                   ← local folder for the npm package
+├── mekong-python-sdk/                 ← local folder for the Python package
+├── mekong-vscode-extension/           ← local folder for the VS Code extension
 ├── .github/workflows/                 (5 CI/CD pipelines)
 ├── Makefile
 ├── Dockerfile.api
@@ -374,7 +374,7 @@ GITHUB_CLIENT_SECRET=...
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 FRONTEND_URL=https://angkorsearch.dev
-ALLOWED_ORIGINS=https://angkorsearch.dev
+ALLOWED_ORIGINS=https://angkorsearch.dev,http://localhost:3000,http://localhost:3001
 PUBLIC_URL=https://api.angkorsearch.dev
 API_ADDR=:8080
 RESEND_API_KEY=re_...               # Resend HTTP API key (preferred over SMTP on cloud)
@@ -685,9 +685,9 @@ When Redis-backed rate limiting is enabled, protected public endpoints also retu
 | POST | `/api/auth/email-otp/verify` | — | `{code, temp_token}` | Complete email OTP login → `{access_token, user}` |
 | POST | `/api/auth/2fa/email/enable` | ✓ | — | Enable email OTP (sends 6-digit code at each login) |
 | POST | `/api/auth/2fa/email/disable` | ✓ | — | Disable email OTP |
-| GET | `/api/auth/github` | — | — | Start GitHub OAuth |
+| GET | `/api/auth/github` | — | `?redirect_to=<origin>` | Start GitHub OAuth. Pass `redirect_to` to redirect back to a specific origin (localhost allowed for dev) |
 | GET | `/api/auth/github/callback` | — | — | GitHub OAuth callback |
-| GET | `/api/auth/google` | — | — | Start Google OAuth |
+| GET | `/api/auth/google` | — | `?redirect_to=<origin>` | Start Google OAuth. Pass `redirect_to` to redirect back to a specific origin (localhost allowed for dev) |
 | GET | `/api/auth/google/callback` | — | — | Google OAuth callback |
 | POST | `/api/cli/device` | — | — | CLI device flow → `{session_id, login_url, expires_in, poll_interval}` |
 | GET | `/api/cli/device` | — | `?session_id=` | Poll for token → `{status, token?}` |
@@ -805,6 +805,25 @@ Notes:
 | POST | `/api/billing/checkout` | ✓ | `{plan}` | Create Stripe checkout → `{url}` |
 | POST | `/api/billing/portal` | ✓ | — | Create Stripe portal → `{url}` |
 | POST | `/api/billing/webhook` | — | Stripe event | Stripe webhook handler |
+
+### Manual Payment Receipts (PayPal / ABA Pay / Bakong)
+
+Receipts flow: user submits → admin reviews → approved/rejected/needs_resubmit.
+Duplicate prevention: only one pending/needs_resubmit receipt per user per plan is allowed.
+
+| Method | Path | Auth | Body | Description |
+|--------|------|------|------|-------------|
+| POST | `/api/billing/manual-payment` | ✓ | `{plan, method, receipt_url, note?, amount_usd?}` | Submit receipt (blocks duplicate pending) |
+| GET | `/api/billing/manual-payment` | ✓ | — | List own receipts |
+| GET | `/api/billing/manual-payment/count` | ✓ | — | Count of own pending/needs_resubmit receipts |
+| GET | `/api/admin/billing/receipts` | ✓ admin | — | List all receipts |
+| GET | `/api/admin/billing/receipts/count` | ✓ admin | — | Count of pending receipts |
+| POST | `/api/admin/billing/receipts/:id/review` | ✓ admin | `{status, admin_note?, allow_resubmit?, refund_bank?, refund_amount?, refund_note?}` | Approve / reject / request resubmit |
+| DELETE | `/api/admin/billing/receipts/:id` | ✓ admin | — | Delete receipt |
+
+Status values: `pending` → `approved` \| `rejected` \| `needs_resubmit`
+
+On approval: user plan is upgraded and a confirmation email is sent via Resend.
 
 ---
 
@@ -1295,14 +1314,14 @@ type WsEvent =
 
 ## 10. npm Package — mekong-cli
 
-**Location:** `mekong-cli/`
+**Location:** `mekong-node-sdk/`
 **npm:** [npmjs.com/package/mekong-cli](https://www.npmjs.com/package/mekong-cli)
 **Version:** v2.0.0
 
 ### Files
 
 ```
-mekong-cli/
+mekong-node-sdk/
 ├── package.json
 ├── bin/mekong-cli.js          ← CLI entry point
 ├── lib/
@@ -1337,7 +1356,7 @@ const mekong = require('mekong-cli/sdk')
 
 // Start tunnel
 const { url, stop } = await mekong.expose(3000)
-console.log(url)   // https://happy-tiger-a1b2.mekongtunnel.dev
+console.log(url)   // https://happy-tiger-a1b2.proxy.angkorsearch.dev
 stop()
 
 // With options
@@ -1378,21 +1397,21 @@ const token = mekong.getToken()        // from env or config
 ### Run tests
 
 ```bash
-cd mekong-cli && npm test     # 11 tests, 3 skipped (require live server)
+cd mekong-node-sdk && npm test     # 11 tests, 3 skipped (require live server)
 ```
 
 ---
 
 ## 11. Python Package — mekong-tunnel
 
-**Location:** `mekong-tunnel/`
+**Location:** `mekong-python-sdk/`
 **PyPI:** [pypi.org/project/mekong-tunnel](https://pypi.org/project/mekong-tunnel/)
 **Version:** v2.1.0
 
 ### Files
 
 ```
-mekong-tunnel/
+mekong-python-sdk/
 ├── pyproject.toml
 ├── src/mekong_tunnel/
 │   ├── __init__.py            ← public API: expose(), login(), logout(), whoami(), get_token()
@@ -1437,7 +1456,7 @@ import mekong_tunnel as mekong
 
 # Start tunnel (blocking until stopped)
 tunnel = mekong.expose(8000)
-print(tunnel.url)     # https://happy-tiger-a1b2.mekongtunnel.dev
+print(tunnel.url)     # https://happy-tiger-a1b2.proxy.angkorsearch.dev
 tunnel.stop()
 
 # Context manager (auto-stop)
@@ -1478,21 +1497,21 @@ def test_home(public_url):
 ### Run tests
 
 ```bash
-cd mekong-tunnel && python3 -m pytest     # 25 tests, 0 failed
+cd mekong-python-sdk && python3 -m pytest     # 25 tests, 0 failed
 ```
 
 ---
 
 ## 12. VS Code Extension
 
-**Location:** `mekong-tunnel-vscode/`
+**Location:** `mekong-vscode-extension/`
 **Marketplace:** [KhmerStack.mekong-tunnel](https://marketplace.visualstudio.com/items?itemName=KhmerStack.mekong-tunnel)
 **Version:** v1.5.0
 
 ### Files
 
 ```
-mekong-tunnel-vscode/
+mekong-vscode-extension/
 ├── package.json               ← extension manifest + commands + settings
 ├── tsconfig.json
 ├── src/
@@ -1509,7 +1528,7 @@ mekong-tunnel-vscode/
 ### Build & package
 
 ```bash
-cd mekong-tunnel-vscode
+cd mekong-vscode-extension
 npm run compile                      # tsc → out/
 npx vsce package --no-dependencies   # → mekong-tunnel-1.5.0.vsix
 code --install-extension mekong-tunnel-1.5.0.vsix --force
@@ -1620,20 +1639,20 @@ Go CLI + Server:
 [ ] GitHub Actions release.yml runs automatically
 
 npm:
-[ ] cd mekong-cli && npm test (11/11 pass)
-[ ] Bump version in mekong-cli/package.json
+[ ] cd mekong-node-sdk && npm test (11/11 pass)
+[ ] Bump version in mekong-node-sdk/package.json
 [ ] git tag npm-v2.x.x && git push --tags
 [ ] GitHub Actions publish-npm.yml runs automatically
 
 PyPI:
-[ ] cd mekong-tunnel && python3 -m pytest (25/25 pass)
-[ ] Bump version in mekong-tunnel/pyproject.toml
+[ ] cd mekong-python-sdk && python3 -m pytest (25/25 pass)
+[ ] Bump version in mekong-python-sdk/pyproject.toml
 [ ] git tag pypi-v2.x.x && git push --tags
 [ ] GitHub Actions publish-pypi.yml runs automatically
 
 VS Code:
-[ ] cd mekong-tunnel-vscode && npm run compile
-[ ] Bump version in mekong-tunnel-vscode/package.json
+[ ] cd mekong-vscode-extension && npm run compile
+[ ] Bump version in mekong-vscode-extension/package.json
 [ ] npx vsce package → test .vsix locally
 [ ] git tag vscode-v1.x.x && git push --tags
 [ ] GitHub Actions publish-vscode.yml runs automatically

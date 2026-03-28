@@ -42,7 +42,8 @@ const (
 	ShutdownTimeout   = 10 * time.Second
 
 	// Request logging
-	LogBufferSize = 128 // buffered channel size for SSH terminal request logs
+	LogBufferSize  = 128 // buffered channel size for SSH terminal request logs
+	LogHistorySize = 256 // in-memory log lines retained per active tunnel for API viewers
 
 	// Interstitial warning cookie
 	WarningCookieName   = "mekong_warned"

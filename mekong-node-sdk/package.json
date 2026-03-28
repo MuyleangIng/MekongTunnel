@@ -1,0 +1,32 @@
+{
+  "name": "mekong-cli",
+  "version": "2.0.0",
+  "description": "Run your dev server + Mekong tunnel in one command — includes SDK and auth",
+  "bin": {
+    "mekong-cli": "bin/mekong-cli.js"
+  },
+  "main": "lib/sdk.js",
+  "exports": {
+    ".": "./lib/sdk.js",
+    "./sdk": "./lib/sdk.js"
+  },
+  "license": "MIT",
+  "author": "Ing Muyleang",
+  "keywords": [
+    "tunnel",
+    "mekong",
+    "ngrok",
+    "devserver",
+    "nextjs",
+    "vite",
+    "nuxt",
+    "sdk",
+    "auth"
+  ],
+  "scripts": {
+    "test": "node test/sdk.test.mjs && node test/cli.test.mjs",
+    "test:sdk": "node test/sdk.test.mjs",
+    "test:cli": "node test/cli.test.mjs"
+  },
+  "dependencies": {}
+}

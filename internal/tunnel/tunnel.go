@@ -7,6 +7,9 @@ package tunnel
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -31,6 +34,7 @@ type SSHCloser interface {
 
 // Tunnel represents an active SSH tunnel
 type Tunnel struct {
+	ID                 string
 	Subdomain          string
 	Listener           net.Listener
 	CreatedAt          time.Time
@@ -51,6 +55,13 @@ type Tunnel struct {
 	apiToken           string // raw API token sent by the client via MEKONG_API_TOKEN env var
 	requestedSubdomain string // requested reserved subdomain sent via MEKONG_SUBDOMAIN
 	upstreamHost       string // local Host header override sent via MEKONG_UPSTREAM_HOST
+	userID             string // validated API-token owner for dashboard/live tunnel APIs
+
+	statsMu       sync.Mutex
+	totalBytes    uint64
+	todayKey      string
+	todayRequests uint64
+	todayBytes    uint64
 }
 
 // New creates a new tunnel with the given parameters
@@ -61,6 +72,7 @@ func New(subdomain string, listener net.Listener, bindAddr string, bindPort uint
 		maxLifetime = config.DefaultTunnelLifetime
 	}
 	return &Tunnel{
+		ID:          newTunnelID(),
 		Subdomain:   subdomain,
 		Listener:    listener,
 		CreatedAt:   now,
@@ -81,6 +93,19 @@ func New(subdomain string, listener net.Listener, bindAddr string, bindPort uint
 	}
 }
 
+func newTunnelID() string {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return fmt.Sprintf("tun_%d", time.Now().UTC().UnixNano())
+	}
+
+	// Format as a UUID-like string without adding a new dependency.
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	hexID := hex.EncodeToString(raw[:])
+	return fmt.Sprintf("%s-%s-%s-%s-%s", hexID[:8], hexID[8:12], hexID[12:16], hexID[16:20], hexID[20:])
+}
+
 // IncrementRequestCount atomically increments the per-tunnel HTTP request counter.
 func (t *Tunnel) IncrementRequestCount() {
 	atomic.AddUint64(&t.requestCount, 1)
@@ -91,11 +116,60 @@ func (t *Tunnel) RequestCount() uint64 {
 	return atomic.LoadUint64(&t.requestCount)
 }
 
+// RecordTraffic increments request and byte counters, including the UTC daily bucket.
+func (t *Tunnel) RecordTraffic(bytes int64) {
+	if bytes < 0 {
+		bytes = 0
+	}
+
+	t.IncrementRequestCount()
+
+	t.statsMu.Lock()
+	defer t.statsMu.Unlock()
+
+	nowKey := time.Now().UTC().Format("2006-01-02")
+	if t.todayKey != nowKey {
+		t.todayKey = nowKey
+		t.todayRequests = 0
+		t.todayBytes = 0
+	}
+
+	t.todayRequests++
+	t.todayBytes += uint64(bytes)
+	t.totalBytes += uint64(bytes)
+}
+
+// TotalBytes returns the total bytes recorded for this tunnel since it was opened.
+func (t *Tunnel) TotalBytes() uint64 {
+	t.statsMu.Lock()
+	defer t.statsMu.Unlock()
+	return t.totalBytes
+}
+
+// TodayStats returns the request and byte totals for the current UTC day.
+func (t *Tunnel) TodayStats() (uint64, uint64) {
+	t.statsMu.Lock()
+	defer t.statsMu.Unlock()
+
+	nowKey := time.Now().UTC().Format("2006-01-02")
+	if t.todayKey != nowKey {
+		return 0, 0
+	}
+	return t.todayRequests, t.todayBytes
+}
+
 // Touch updates the last active timestamp
 func (t *Tunnel) Touch() {
 	t.mu.Lock()
 	t.LastActive = time.Now()
 	t.mu.Unlock()
+}
+
+// LastActiveAt returns the most recent activity timestamp for the tunnel.
+func (t *Tunnel) LastActiveAt() time.Time {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.LastActive
 }
 
 // IsExpired returns true if the tunnel has been inactive for too long or exceeded max lifetime
@@ -228,6 +302,20 @@ func (t *Tunnel) GetAPIToken() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.apiToken
+}
+
+// SetUserID stores the validated tunnel owner ID.
+func (t *Tunnel) SetUserID(userID string) {
+	t.mu.Lock()
+	t.userID = userID
+	t.mu.Unlock()
+}
+
+// UserID returns the validated tunnel owner ID, or "" when unavailable.
+func (t *Tunnel) UserID() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.userID
 }
 
 // SetRequestedSubdomain stores the requested reserved subdomain sent by the client.

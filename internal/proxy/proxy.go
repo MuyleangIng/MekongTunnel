@@ -6,14 +6,19 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +42,10 @@ type TokenValidator interface {
 	// LookupVerifiedCustomDomainTarget returns the reserved subdomain routed by a
 	// verified custom domain, or found=false when the host is unknown.
 	LookupVerifiedCustomDomainTarget(ctx context.Context, host string) (targetSubdomain string, found bool, err error)
+	// ReservedSubdomainExists reports whether a reserved subdomain has been claimed.
+	ReservedSubdomainExists(ctx context.Context, subdomain string) (bool, error)
+	// GetTunnelLastSeen returns the most recent seen time for a subdomain.
+	GetTunnelLastSeen(ctx context.Context, subdomain string) (*time.Time, error)
 }
 
 // Server manages SSH tunnels and HTTP proxying.
@@ -63,12 +72,31 @@ type Server struct {
 	// Optional: validates API tokens and resolves reserved subdomains.
 	// Nil when DATABASE_URL is not configured (anonymous-only mode).
 	tokenValidator TokenValidator
+
+	apiBaseURL string
+	apiClient  *http.Client
+	apiSecret  string // X-Tunnel-Secret header value for internal tunnel-edge writes
 }
 
 // SetTokenValidator wires a DB-backed token validator into the proxy server.
 // Call this after New() when DATABASE_URL is available.
 func (s *Server) SetTokenValidator(v TokenValidator) {
 	s.tokenValidator = v
+}
+
+// SetAPIBaseURL enables tunnel lifecycle sync into the API service.
+func (s *Server) SetAPIBaseURL(raw string) {
+	s.apiBaseURL = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if s.apiBaseURL == "" {
+		s.apiClient = nil
+		return
+	}
+	s.apiClient = &http.Client{Timeout: 5 * time.Second}
+}
+
+// SetAPISecret sets the shared secret sent as X-Tunnel-Secret on internal API calls.
+func (s *Server) SetAPISecret(secret string) {
+	s.apiSecret = secret
 }
 
 // RenameTunnel moves an already-registered tunnel to a new subdomain key.
@@ -265,12 +293,21 @@ func (s *Server) RegisterTunnel(sub string, listener net.Listener, bindAddr stri
 
 // RemoveTunnel removes the tunnel identified by sub from the registry and closes it.
 func (s *Server) RemoveTunnel(sub string) {
+	var t *tunnel.Tunnel
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if t, ok := s.tunnels[sub]; ok {
-		t.Close()
+	if existing, ok := s.tunnels[sub]; ok {
+		t = existing
 		delete(s.tunnels, sub)
 	}
+	s.mu.Unlock()
+
+	if t == nil {
+		return
+	}
+
+	s.reportTunnelClosed(t)
+	t.Close()
 }
 
 // GetTunnel retrieves the active tunnel for a given subdomain.
@@ -338,4 +375,89 @@ func (s *Server) CloseAllForIP(ip string) int {
 // Call this during application shutdown after HTTP servers are already stopped.
 func (s *Server) Stop() {
 	s.abuseTracker.Stop()
+}
+
+func (s *Server) reportTunnelOpen(t *tunnel.Tunnel) {
+	if t == nil {
+		return
+	}
+	go func() {
+		if err := s.syncTunnelUpsert(context.Background(), t); err != nil {
+			log.Printf("Tunnel sync open failed for %s: %v", t.Subdomain, err)
+		}
+	}()
+}
+
+func (s *Server) reportTunnelClosed(t *tunnel.Tunnel) {
+	if t == nil {
+		return
+	}
+	go func() {
+		if err := s.syncTunnelStopped(context.Background(), t); err != nil {
+			log.Printf("Tunnel sync close failed for %s: %v", t.Subdomain, err)
+		}
+	}()
+}
+
+func (s *Server) syncTunnelUpsert(ctx context.Context, t *tunnel.Tunnel) error {
+	if s.apiBaseURL == "" || s.apiClient == nil || t == nil {
+		return nil
+	}
+
+	payload := map[string]any{
+		"id":             t.ID,
+		"subdomain":      t.Subdomain,
+		"local_port":     int(t.LocalPort()),
+		"remote_ip":      t.ClientIP,
+		"status":         "active",
+		"started_at":     t.CreatedAt.UTC(),
+		"total_requests": int64(t.RequestCount()),
+		"total_bytes":    int64(t.TotalBytes()),
+	}
+	if userID := strings.TrimSpace(t.UserID()); userID != "" {
+		payload["user_id"] = userID
+	}
+
+	return s.sendTunnelSync(ctx, http.MethodPost, "/api/tunnels", payload)
+}
+
+func (s *Server) syncTunnelStopped(ctx context.Context, t *tunnel.Tunnel) error {
+	if s.apiBaseURL == "" || s.apiClient == nil || t == nil {
+		return nil
+	}
+
+	return s.sendTunnelSync(ctx, http.MethodPatch, "/api/tunnels/"+t.ID, map[string]any{
+		"status":         "stopped",
+		"total_requests": int64(t.RequestCount()),
+		"total_bytes":    int64(t.TotalBytes()),
+	})
+}
+
+func (s *Server) sendTunnelSync(ctx context.Context, method, path string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, s.apiBaseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.apiSecret != "" {
+		req.Header.Set("X-Tunnel-Secret", s.apiSecret)
+	}
+
+	resp, err := s.apiClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("%s %s returned %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+
+	return nil
 }

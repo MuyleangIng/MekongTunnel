@@ -24,6 +24,7 @@ func scanUser(row interface {
 		&u.StripeCustomerID, &u.StripeSubscriptionID, &u.SubscriptionPlan,
 		&u.CreatedAt, &u.UpdatedAt, &u.LastSeenAt,
 		&u.TrialEndsAt, &u.NewsletterSubscribed, &u.NewsletterUnsubscribeToken,
+		&u.ProvisionedByOrgID, &u.ForcePasswordReset,
 	)
 	if err != nil {
 		return nil, err
@@ -38,7 +39,8 @@ const userColumns = `
 	github_id, github_login, google_id,
 	stripe_customer_id, stripe_subscription_id, subscription_plan,
 	created_at, updated_at, last_seen_at,
-	trial_ends_at, newsletter_subscribed, newsletter_unsubscribe_token`
+	trial_ends_at, newsletter_subscribed, newsletter_unsubscribe_token,
+	provisioned_by_org_id, force_password_reset`
 
 // ─── CRUD ────────────────────────────────────────────────────
 
@@ -52,6 +54,17 @@ func (db *DB) CreateUser(ctx context.Context, email, name, passwordHash string) 
 		VALUES ($1, $2, $3)
 		RETURNING `+userColumns,
 		email, name, ph)
+	return scanUser(row)
+}
+
+// CreateProvisionedUser creates a user account provisioned by an org admin.
+// The account has email_verified=true and force_password_reset=true.
+func (db *DB) CreateProvisionedUser(ctx context.Context, email, name, passwordHash, orgID string) (*models.User, error) {
+	row := db.Pool.QueryRow(ctx, `
+		INSERT INTO users (email, name, password_hash, email_verified, force_password_reset, provisioned_by_org_id)
+		VALUES ($1, $2, $3, true, true, $4)
+		RETURNING `+userColumns,
+		email, name, passwordHash, orgID)
 	return scanUser(row)
 }
 

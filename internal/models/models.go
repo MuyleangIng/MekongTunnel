@@ -53,19 +53,19 @@ const (
 // ─── User ─────────────────────────────────────────────────────
 
 type User struct {
-	ID            string      `json:"id"`
-	Email         string      `json:"email"`
-	Name          string      `json:"name"`
-	PasswordHash  *string     `json:"-"`
-	AvatarURL     string      `json:"avatar_url"`
-	Plan          string      `json:"plan"`
-	AccountType   string      `json:"account_type"`
-	EmailVerified bool        `json:"email_verified"`
-	TOTPSecret      *string     `json:"-"`
-	TOTPEnabled     bool        `json:"totp_enabled"`
-	EmailOTPEnabled bool        `json:"email_otp_enabled"`
-	IsAdmin       bool        `json:"is_admin"`
-	Suspended     bool        `json:"suspended"`
+	ID                   string     `json:"id"`
+	Email                string     `json:"email"`
+	Name                 string     `json:"name"`
+	PasswordHash         *string    `json:"-"`
+	AvatarURL            string     `json:"avatar_url"`
+	Plan                 string     `json:"plan"`
+	AccountType          string     `json:"account_type"`
+	EmailVerified        bool       `json:"email_verified"`
+	TOTPSecret           *string    `json:"-"`
+	TOTPEnabled          bool       `json:"totp_enabled"`
+	EmailOTPEnabled      bool       `json:"email_otp_enabled"`
+	IsAdmin              bool       `json:"is_admin"`
+	Suspended            bool       `json:"suspended"`
 	GithubID             *string    `json:"github_id,omitempty"`
 	GithubLogin          string     `json:"github_login,omitempty"`
 	GoogleID             *string    `json:"google_id,omitempty"`
@@ -79,6 +79,9 @@ type User struct {
 	TrialEndsAt                *time.Time `json:"trial_ends_at,omitempty"`
 	NewsletterSubscribed       bool       `json:"newsletter_subscribed"`
 	NewsletterUnsubscribeToken string     `json:"-"`
+	// Org provisioning fields
+	ProvisionedByOrgID *string `json:"provisioned_by_org_id,omitempty"`
+	ForcePasswordReset bool    `json:"force_password_reset,omitempty"`
 }
 
 // IsAdmin returns whether the user has admin privileges.
@@ -150,12 +153,18 @@ type Tunnel struct {
 // ─── Team ─────────────────────────────────────────────────────
 
 type Team struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Type      string    `json:"type"`
-	Plan      string    `json:"plan"`
-	OwnerID   string    `json:"owner_id"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Type        string    `json:"type"`
+	Plan        string    `json:"plan"`
+	OwnerID     string    `json:"owner_id"`
+	OrgID       *string   `json:"org_id,omitempty"`
+	CreatedBy   *string   `json:"created_by,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	MemberCount int       `json:"member_count,omitempty"`
+	Owner       *User     `json:"owner,omitempty"`
+	// Role is populated only for membership queries (non-owner view).
+	Role string `json:"role,omitempty"`
 }
 
 // ─── TeamMember ───────────────────────────────────────────────
@@ -181,20 +190,32 @@ type Invitation struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	ExpiresAt  time.Time  `json:"expires_at"`
 	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
+	// TeamName is populated only for my-invitations queries.
+	TeamName string `json:"team_name,omitempty"`
 }
 
 // ─── Organization ─────────────────────────────────────────────
 
 type Organization struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	Domain        string    `json:"domain"`
-	Plan          string    `json:"plan"`
-	OwnerID       *string   `json:"owner_id,omitempty"`
-	Status        string    `json:"status"`
-	MemberCount   int       `json:"member_count"`
-	ActiveTunnels int       `json:"active_tunnels"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID                      string     `json:"id"`
+	Name                    string     `json:"name"`
+	Domain                  string     `json:"domain"`
+	Plan                    string     `json:"plan"`
+	OwnerID                 *string    `json:"owner_id,omitempty"`
+	Status                  string     `json:"status"`
+	MemberCount             int        `json:"member_count"`
+	ActiveTunnels           int        `json:"active_tunnels"`
+	CreatedAt               time.Time  `json:"created_at"`
+	Slug                    string     `json:"slug,omitempty"`
+	Type                    string     `json:"type,omitempty"`
+	SeatLimit               int        `json:"seat_limit"`
+	CreatedBy               *string    `json:"created_by,omitempty"`
+	AdminNote               string     `json:"admin_note,omitempty"`
+	StatusChangedAt         time.Time  `json:"status_changed_at"`
+	ArchivedAt              *time.Time `json:"archived_at,omitempty"`
+	ApprovedVerifyRequestID *string    `json:"approved_verify_request_id,omitempty"`
+	BillingDiscountPercent  int        `json:"billing_discount_percent,omitempty"`
+	BillingDiscountNote     string     `json:"billing_discount_note,omitempty"`
 }
 
 // ─── BlockedIP ────────────────────────────────────────────────
@@ -254,17 +275,22 @@ type PlanConfig struct {
 // ─── VerifyRequest ────────────────────────────────────────────
 
 type VerifyRequest struct {
-	ID           string    `json:"id"`
-	UserID       string    `json:"user_id"`
-	Type         string    `json:"type"`
-	Status       string    `json:"status"`
-	OrgName      string    `json:"org_name,omitempty"`
-	RejectReason string    `json:"reject_reason,omitempty"`
-	Reason       string    `json:"reason,omitempty"`
-	DocumentURL  string    `json:"document_url,omitempty"`
-	AdminNote    string    `json:"admin_note,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                      string    `json:"id"`
+	UserID                  string    `json:"user_id"`
+	Type                    string    `json:"type"`
+	Status                  string    `json:"status"`
+	OrgName                 string    `json:"org_name,omitempty"`
+	RejectReason            string    `json:"reject_reason,omitempty"`
+	Reason                  string    `json:"reason,omitempty"`
+	DocumentURL             string    `json:"document_url,omitempty"`
+	AdminNote               string    `json:"admin_note,omitempty"`
+	RequestedOrgDomain      string    `json:"requested_org_domain,omitempty"`
+	RequestedOrgSeatLimit   int       `json:"requested_org_seat_limit,omitempty"`
+	ApprovedOrgID           *string   `json:"approved_org_id,omitempty"`
+	ApprovalNote            string    `json:"approval_note,omitempty"`
+	ApprovedDiscountPercent int       `json:"approved_discount_percent,omitempty"`
+	CreatedAt               time.Time `json:"created_at"`
+	UpdatedAt               time.Time `json:"updated_at"`
 	// Populated via JOIN for admin views
 	UserName            string `json:"user_name,omitempty"`
 	UserEmail           string `json:"user_email,omitempty"`
@@ -312,7 +338,8 @@ type Partner struct {
 
 type CustomDomain struct {
 	ID                string     `json:"id"`
-	UserID            string     `json:"user_id"`
+	UserID            string     `json:"user_id,omitempty"`
+	TeamID            *string    `json:"team_id,omitempty"`
 	Domain            string     `json:"domain"`
 	Status            string     `json:"status"` // pending | verified | failed
 	VerificationToken string     `json:"verification_token"`
@@ -328,11 +355,13 @@ type CustomDomain struct {
 // ─── ReservedSubdomain ────────────────────────────────────────
 
 type ReservedSubdomain struct {
-	ID        string       `json:"id"`
-	UserID    string       `json:"user_id"`
-	Subdomain string       `json:"subdomain"`
-	CreatedAt time.Time    `json:"created_at"`
-	Rule      *SubdomainRule `json:"rule,omitempty"`
+	ID             string         `json:"id"`
+	UserID         string         `json:"user_id,omitempty"`
+	TeamID         *string        `json:"team_id,omitempty"`
+	AssignedUserID *string        `json:"assigned_user_id,omitempty"`
+	Subdomain      string         `json:"subdomain"`
+	CreatedAt      time.Time      `json:"created_at"`
+	Rule           *SubdomainRule `json:"rule,omitempty"`
 }
 
 // ─── SubdomainRule ────────────────────────────────────────────
@@ -354,18 +383,18 @@ type SubdomainRule struct {
 // ─── AdminStats ───────────────────────────────────────────────
 
 type AdminStats struct {
-	TotalUsers        int `json:"total_users"`
-	VerifiedUsers     int `json:"verified_users"`
-	AdminUsers        int `json:"admin_users"`
-	SuspendedUsers    int `json:"suspended_users"`
-	TotalTunnels      int `json:"total_tunnels"`
-	ActiveTunnels     int `json:"active_tunnels"`
-	TotalOrgs         int `json:"total_orgs"`
-	TotalAPITokens    int `json:"total_api_tokens"`
-	TotalBlockedIPs   int `json:"total_blocked_ips"`
-	TotalAbuseEvents  int `json:"total_abuse_events"`
-	NewsletterSubs    int `json:"newsletter_subs"`
-	UsersByPlan       map[string]int `json:"users_by_plan"`
+	TotalUsers       int            `json:"total_users"`
+	VerifiedUsers    int            `json:"verified_users"`
+	AdminUsers       int            `json:"admin_users"`
+	SuspendedUsers   int            `json:"suspended_users"`
+	TotalTunnels     int            `json:"total_tunnels"`
+	ActiveTunnels    int            `json:"active_tunnels"`
+	TotalOrgs        int            `json:"total_orgs"`
+	TotalAPITokens   int            `json:"total_api_tokens"`
+	TotalBlockedIPs  int            `json:"total_blocked_ips"`
+	TotalAbuseEvents int            `json:"total_abuse_events"`
+	NewsletterSubs   int            `json:"newsletter_subs"`
+	UsersByPlan      map[string]int `json:"users_by_plan"`
 }
 
 // ─── Sponsor ──────────────────────────────────────────────────
@@ -407,11 +436,11 @@ type ServerConfig struct {
 	TrialDurationDays     int  `json:"trialDurationDays"`
 	BakongDiscountPercent int  `json:"bakongDiscountPercent"`
 	// Announcement banner
-	AnnouncementEnabled   bool   `json:"announcementEnabled"`
-	AnnouncementText      string `json:"announcementText"`
-	AnnouncementColor     string `json:"announcementColor"`   // gold | rose | blue | green
-	AnnouncementLink      string `json:"announcementLink"`
-	AnnouncementLinkLabel string `json:"announcementLinkLabel"`
+	AnnouncementEnabled   bool      `json:"announcementEnabled"`
+	AnnouncementText      string    `json:"announcementText"`
+	AnnouncementColor     string    `json:"announcementColor"` // gold | rose | blue | green
+	AnnouncementLink      string    `json:"announcementLink"`
+	AnnouncementLinkLabel string    `json:"announcementLinkLabel"`
 	UpdatedAt             time.Time `json:"updatedAt"`
 }
 
@@ -457,4 +486,121 @@ type CLIDeviceSession struct {
 	ApprovedAt  *time.Time `json:"approved_at,omitempty"`
 	ExpiresAt   time.Time  `json:"expires_at"`
 	CreatedAt   time.Time  `json:"created_at"`
+}
+
+// ─── OrgMember ────────────────────────────────────────────────
+
+type OrgMember struct {
+	ID       string    `json:"id"`
+	OrgID    string    `json:"org_id"`
+	UserID   string    `json:"user_id"`
+	Role     string    `json:"role"`
+	JoinedAt time.Time `json:"joined_at"`
+	// Populated via JOIN
+	User       *User          `json:"user,omitempty"`
+	Allocation *OrgAllocation `json:"allocation,omitempty"`
+}
+
+// ─── OrgAllocation ────────────────────────────────────────────
+
+type OrgAllocation struct {
+	ID                  string    `json:"id"`
+	OrgID               string    `json:"org_id"`
+	UserID              string    `json:"user_id"`
+	TunnelLimit         int       `json:"tunnel_limit"`
+	TeamLimit           int       `json:"team_limit"`
+	SubdomainLimit      int       `json:"subdomain_limit"`
+	CustomDomainAllowed bool      `json:"custom_domain_allowed"`
+	BandwidthGB         int       `json:"bandwidth_gb"`
+	UpdatedBy           *string   `json:"updated_by,omitempty"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+// ─── ResourceRequest ──────────────────────────────────────────
+
+type ResourceRequest struct {
+	ID              string     `json:"id"`
+	OrgID           string     `json:"org_id"`
+	UserID          string     `json:"user_id"`
+	Type            string     `json:"type"`
+	AmountRequested int        `json:"amount_requested"`
+	AmountApproved  int        `json:"amount_approved,omitempty"`
+	Reason          string     `json:"reason"`
+	Status          string     `json:"status"`
+	ReviewerNote    string     `json:"reviewer_note,omitempty"`
+	ReviewedBy      *string    `json:"reviewed_by,omitempty"`
+	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
+	ResolvedBy      *string    `json:"resolved_by,omitempty"`
+	ResolvedAt      *time.Time `json:"resolved_at,omitempty"`
+	LastCommentAt   *time.Time `json:"last_commented_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	// Populated via JOIN for admin views
+	UserName  string                    `json:"user_name,omitempty"`
+	UserEmail string                    `json:"user_email,omitempty"`
+	Comments  []*ResourceRequestComment `json:"comments,omitempty"`
+}
+
+type ResourceRequestComment struct {
+	ID          string    `json:"id"`
+	RequestID   string    `json:"request_id"`
+	UserID      *string   `json:"user_id,omitempty"`
+	AuthorRole  string    `json:"author_role"`
+	Kind        string    `json:"kind"`
+	Body        string    `json:"body"`
+	CreatedAt   time.Time `json:"created_at"`
+	AuthorName  string    `json:"author_name,omitempty"`
+	AuthorEmail string    `json:"author_email,omitempty"`
+}
+
+// ─── ImportResult ─────────────────────────────────────────────
+
+type ImportResult struct {
+	Total     int                   `json:"total"`
+	Created   int                   `json:"created"`
+	Added     int                   `json:"added"`
+	Skipped   int                   `json:"skipped"`
+	Errors    []string              `json:"errors"`
+	FailedCSV string                `json:"failed_csv,omitempty"`
+	Summary   *ImportPreviewSummary `json:"summary,omitempty"`
+}
+
+type ImportPreview struct {
+	FileName       string                `json:"file_name,omitempty"`
+	Format         string                `json:"format,omitempty"`
+	Headers        []string              `json:"headers,omitempty"`
+	MissingHeaders []string              `json:"missing_headers,omitempty"`
+	FileErrors     []string              `json:"file_errors,omitempty"`
+	Rows           []*ImportPreviewRow   `json:"rows"`
+	Summary        *ImportPreviewSummary `json:"summary,omitempty"`
+	FailedCSV      string                `json:"failed_csv,omitempty"`
+}
+
+type ImportPreviewSummary struct {
+	TotalRows       int `json:"total_rows"`
+	ValidRows       int `json:"valid_rows"`
+	WarningRows     int `json:"warning_rows"`
+	ErrorRows       int `json:"error_rows"`
+	CreateUsers     int `json:"create_users"`
+	AddMembers      int `json:"add_members"`
+	UpdateUsers     int `json:"update_users"`
+	ExistingMembers int `json:"existing_members"`
+	CurrentSeats    int `json:"current_seats"`
+	ProjectedSeats  int `json:"projected_seats"`
+	SeatLimit       int `json:"seat_limit"`
+}
+
+type ImportPreviewRow struct {
+	Row            int      `json:"row"`
+	Email          string   `json:"email"`
+	Name           string   `json:"name,omitempty"`
+	Role           string   `json:"role,omitempty"`
+	Plan           string   `json:"plan,omitempty"`
+	Status         string   `json:"status"`
+	Action         string   `json:"action"`
+	Message        string   `json:"message,omitempty"`
+	ExistingUser   bool     `json:"existing_user,omitempty"`
+	ExistingMember bool     `json:"existing_member,omitempty"`
+	ConsumesSeat   bool     `json:"consumes_seat,omitempty"`
+	Errors         []string `json:"errors,omitempty"`
+	Warnings       []string `json:"warnings,omitempty"`
 }

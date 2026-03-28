@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api/middleware"
@@ -15,6 +17,7 @@ import (
 	stripe "github.com/stripe/stripe-go/v76"
 	bpsession "github.com/stripe/stripe-go/v76/billingportal/session"
 	checksession "github.com/stripe/stripe-go/v76/checkout/session"
+	stripecoupon "github.com/stripe/stripe-go/v76/coupon"
 	stripeinvoice "github.com/stripe/stripe-go/v76/invoice"
 	stripeprice "github.com/stripe/stripe-go/v76/price"
 	striperefund "github.com/stripe/stripe-go/v76/refund"
@@ -51,10 +54,17 @@ func (h *BillingHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := map[string]any{
-		"plan":                  user.Plan,
-		"stripe_customer_id":    nil,
+		"plan":                   user.Plan,
+		"stripe_customer_id":     nil,
 		"stripe_subscription_id": nil,
-		"invoices":              []any{},
+		"invoices":               []any{},
+		"org_discount_percent":   0,
+		"org_discount_note":      "",
+	}
+
+	if org, member, err := h.DB.GetMyOrg(r.Context(), claims.UserID); err == nil && org != nil && org.OwnerID != nil && *org.OwnerID == claims.UserID && member != nil && member.Role == "owner" {
+		result["org_discount_percent"] = org.BillingDiscountPercent
+		result["org_discount_note"] = org.BillingDiscountNote
 	}
 
 	if user.StripeCustomerID != nil {
@@ -127,9 +137,20 @@ func (h *BillingHandler) CreateCheckout(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	orgDiscountPercent := 0
+	orgDiscountNote := ""
+	if body.Plan == "org" {
+		if org, member, err := h.DB.GetMyOrg(r.Context(), claims.UserID); err == nil && org != nil && org.OwnerID != nil && *org.OwnerID == claims.UserID && member != nil && member.Role == "owner" {
+			orgDiscountPercent = org.BillingDiscountPercent
+			orgDiscountNote = org.BillingDiscountNote
+		}
+	}
+
 	if h.StripeSecretKey == "" {
 		response.Success(w, map[string]any{
-			"url": h.FrontendURL + "/billing/demo?plan=" + body.Plan,
+			"url":                  h.FrontendURL + "/billing/demo?plan=" + body.Plan,
+			"org_discount_percent": orgDiscountPercent,
+			"org_discount_note":    orgDiscountNote,
 		})
 		return
 	}
@@ -160,6 +181,34 @@ func (h *BillingHandler) CreateCheckout(w http.ResponseWriter, r *http.Request) 
 			"user_id": claims.UserID,
 			"plan":    body.Plan,
 		},
+	}
+	if orgDiscountPercent > 0 {
+		couponParams := &stripe.CouponParams{
+			PercentOff: stripe.Float64(float64(orgDiscountPercent)),
+			Duration:   stripe.String(string(stripe.CouponDurationForever)),
+			Name:       stripe.String(fmt.Sprintf("Approved ORG discount %d%%", orgDiscountPercent)),
+		}
+		couponParams.AddMetadata("user_id", claims.UserID)
+		couponParams.AddMetadata("plan", body.Plan)
+		couponParams.AddMetadata("discount_percent", strconv.Itoa(orgDiscountPercent))
+		if orgDiscountNote != "" {
+			couponParams.AddMetadata("discount_note", orgDiscountNote)
+		}
+		coupon, err := stripecoupon.New(couponParams)
+		if err != nil {
+			response.InternalError(w, err)
+			return
+		}
+		params.Discounts = []*stripe.CheckoutSessionDiscountParams{
+			{Coupon: stripe.String(coupon.ID)},
+		}
+		params.Metadata["org_discount_percent"] = strconv.Itoa(orgDiscountPercent)
+		if orgDiscountNote != "" {
+			params.Metadata["org_discount_note"] = orgDiscountNote
+		}
+		if orgDiscountPercent >= 100 {
+			params.PaymentMethodCollection = stripe.String("if_required")
+		}
 	}
 	// Reuse existing Stripe customer if we have one
 	if user.StripeCustomerID != nil {
@@ -301,15 +350,15 @@ func (h *BillingHandler) GetSubscribers(w http.ResponseWriter, r *http.Request) 
 	}
 
 	type SubRecord struct {
-		UserID             string `json:"user_id"`
-		Email              string `json:"email"`
-		Name               string `json:"name"`
-		Plan               string `json:"plan"`
-		SubscriptionPlan   string `json:"subscription_plan"`
-		SubscriptionID     string `json:"subscription_id"`
-		Status             string `json:"status"`
-		CancelAtPeriodEnd  bool   `json:"cancel_at_period_end"`
-		CurrentPeriodEnd   string `json:"current_period_end"`
+		UserID            string `json:"user_id"`
+		Email             string `json:"email"`
+		Name              string `json:"name"`
+		Plan              string `json:"plan"`
+		SubscriptionPlan  string `json:"subscription_plan"`
+		SubscriptionID    string `json:"subscription_id"`
+		Status            string `json:"status"`
+		CancelAtPeriodEnd bool   `json:"cancel_at_period_end"`
+		CurrentPeriodEnd  string `json:"current_period_end"`
 	}
 
 	records := make([]SubRecord, 0, len(users))

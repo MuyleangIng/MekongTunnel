@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none">
+  <!-- Tower pole -->
+  <rect x="12.5" y="11" width="3" height="13" fill="currentColor" rx="1.5"/>
+  <!-- Tower base triangle -->
+  <path d="M7 24 L14 11 L21 24 Z" fill="currentColor" opacity="0.45"/>
+  <!-- Base bar -->
+  <rect x="7.5" y="23" width="13" height="2" fill="currentColor" rx="1"/>
+  <!-- Signal arc inner left -->
+  <path d="M10.5 9 A5.5 5.5 0 0 0 10.5 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <!-- Signal arc outer left -->
+  <path d="M7.5 6 A9 9 0 0 0 7.5 21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.5"/>
+  <!-- Signal arc inner right -->
+  <path d="M17.5 9 A5.5 5.5 0 0 1 17.5 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <!-- Signal arc outer right -->
+  <path d="M20.5 6 A9 9 0 0 1 20.5 21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.5"/>
+  <!-- Antenna top dot -->
+  <circle cx="14" cy="8.5" r="2.2" fill="currentColor"/>
+</svg>

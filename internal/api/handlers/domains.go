@@ -25,7 +25,8 @@ type DomainsHandler struct {
 
 type enrichedCustomDomain struct {
 	ID                string                   `json:"id"`
-	UserID            string                   `json:"user_id"`
+	UserID            string                   `json:"user_id,omitempty"`
+	TeamID            *string                  `json:"team_id,omitempty"`
 	Domain            string                   `json:"domain"`
 	Status            string                   `json:"status"`
 	VerificationToken string                   `json:"verification_token"`
@@ -96,6 +97,7 @@ func enrichCustomDomain(d *models.CustomDomain) enrichedCustomDomain {
 	return enrichedCustomDomain{
 		ID:                d.ID,
 		UserID:            d.UserID,
+		TeamID:            d.TeamID,
 		Domain:            d.Domain,
 		Status:            d.Status,
 		VerificationToken: d.VerificationToken,
@@ -166,7 +168,16 @@ func (h *DomainsHandler) List(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, "authentication required")
 		return
 	}
-	list, err := h.DB.ListCustomDomains(r.Context(), claims.UserID)
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	list, err := h.DB.ListCustomDomainsByScope(r.Context(), claims.UserID, scope.TeamID)
 	if err != nil {
 		response.InternalError(w, err)
 		return
@@ -181,7 +192,16 @@ func (h *DomainsHandler) ListCLI(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, err.Error())
 		return
 	}
-	list, err := h.DB.ListCustomDomains(r.Context(), user.ID)
+	scope, err := resolveResourceScope(r.Context(), h.DB, user.ID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	list, err := h.DB.ListCustomDomainsByScope(r.Context(), user.ID, scope.TeamID)
 	if err != nil {
 		response.InternalError(w, err)
 		return
@@ -196,6 +216,19 @@ func (h *DomainsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, "authentication required")
 		return
 	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !claims.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team custom domains")
+		return
+	}
 	domain, ok := h.decodeCreateBody(r)
 	if !ok {
 		response.BadRequest(w, "invalid request body")
@@ -206,7 +239,11 @@ func (h *DomainsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d, err := h.DB.CreateCustomDomain(r.Context(), claims.UserID, domain)
+	ownerUserID := claims.UserID
+	if scope.IsTeam() {
+		ownerUserID = ""
+	}
+	d, err := h.DB.CreateCustomDomainByScope(r.Context(), ownerUserID, scope.TeamID, domain)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			response.Conflict(w, "domain already added")
@@ -225,6 +262,19 @@ func (h *DomainsHandler) CreateCLI(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, err.Error())
 		return
 	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, user.ID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !user.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team custom domains")
+		return
+	}
 	domain, ok := h.decodeCreateBody(r)
 	if !ok {
 		response.BadRequest(w, "invalid request body")
@@ -234,7 +284,11 @@ func (h *DomainsHandler) CreateCLI(w http.ResponseWriter, r *http.Request) {
 		response.BadRequest(w, err.Error())
 		return
 	}
-	d, err := h.DB.CreateCustomDomain(r.Context(), user.ID, domain)
+	ownerUserID := user.ID
+	if scope.IsTeam() {
+		ownerUserID = ""
+	}
+	d, err := h.DB.CreateCustomDomainByScope(r.Context(), ownerUserID, scope.TeamID, domain)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			response.Conflict(w, "domain already added")
@@ -253,17 +307,30 @@ func (h *DomainsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, "authentication required")
 		return
 	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !claims.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team custom domains")
+		return
+	}
 	id := r.PathValue("id")
 	if id == "" {
 		response.BadRequest(w, "missing id")
 		return
 	}
-	d, err := h.DB.GetCustomDomain(r.Context(), id, claims.UserID)
+	d, err := h.DB.GetCustomDomainByScope(r.Context(), id, claims.UserID, scope.TeamID)
 	if err != nil {
 		response.NotFound(w, "domain not found")
 		return
 	}
-	if err := h.DB.DeleteCustomDomain(r.Context(), id, claims.UserID); err != nil {
+	if err := h.DB.DeleteCustomDomainByScope(r.Context(), id, claims.UserID, scope.TeamID); err != nil {
 		response.InternalError(w, err)
 		return
 	}
@@ -277,17 +344,30 @@ func (h *DomainsHandler) DeleteCLI(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, err.Error())
 		return
 	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, user.ID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !user.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team custom domains")
+		return
+	}
 	id := r.PathValue("id")
 	if id == "" {
 		response.BadRequest(w, "missing id")
 		return
 	}
-	d, err := h.DB.GetCustomDomain(r.Context(), id, user.ID)
+	d, err := h.DB.GetCustomDomainByScope(r.Context(), id, user.ID, scope.TeamID)
 	if err != nil {
 		response.NotFound(w, "domain not found")
 		return
 	}
-	if err := h.DB.DeleteCustomDomain(r.Context(), id, user.ID); err != nil {
+	if err := h.DB.DeleteCustomDomainByScope(r.Context(), id, user.ID, scope.TeamID); err != nil {
 		response.InternalError(w, err)
 		return
 	}
@@ -376,13 +456,26 @@ func (h *DomainsHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, "authentication required")
 		return
 	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !claims.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team custom domains")
+		return
+	}
 	id := r.PathValue("id")
 	if id == "" {
 		response.BadRequest(w, "missing id")
 		return
 	}
 
-	d, err := h.DB.GetCustomDomain(r.Context(), id, claims.UserID)
+	d, err := h.DB.GetCustomDomainByScope(r.Context(), id, claims.UserID, scope.TeamID)
 	if err != nil {
 		response.NotFound(w, "domain not found")
 		return
@@ -397,12 +490,25 @@ func (h *DomainsHandler) VerifyCLI(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, err.Error())
 		return
 	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, user.ID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !user.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team custom domains")
+		return
+	}
 	id := r.PathValue("id")
 	if id == "" {
 		response.BadRequest(w, "missing id")
 		return
 	}
-	d, err := h.DB.GetCustomDomain(r.Context(), id, user.ID)
+	d, err := h.DB.GetCustomDomainByScope(r.Context(), id, user.ID, scope.TeamID)
 	if err != nil {
 		response.NotFound(w, "domain not found")
 		return
@@ -417,6 +523,19 @@ func (h *DomainsHandler) SetTarget(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, "authentication required")
 		return
 	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !claims.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team custom domains")
+		return
+	}
 	id := r.PathValue("id")
 	var body struct {
 		TargetSubdomain string `json:"target_subdomain"`
@@ -431,17 +550,25 @@ func (h *DomainsHandler) SetTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reserved, err := h.DB.GetReservedSubdomainForUser(r.Context(), claims.UserID, targetSubdomain)
+	reserved, err := h.DB.GetReservedSubdomainForScope(r.Context(), claims.UserID, scope.TeamID, targetSubdomain)
 	if err != nil {
 		response.InternalError(w, err)
 		return
 	}
 	if reserved == "" {
-		response.BadRequest(w, "target_subdomain must be one of your reserved subdomains")
+		if scope.IsTeam() {
+			response.BadRequest(w, "target_subdomain must be one of this team's reserved subdomains")
+		} else {
+			response.BadRequest(w, "target_subdomain must be one of your reserved subdomains")
+		}
 		return
 	}
 
-	if err := h.DB.SetCustomDomainTarget(r.Context(), id, claims.UserID, targetSubdomain); err != nil {
+	if _, err := h.DB.GetCustomDomainByScope(r.Context(), id, claims.UserID, scope.TeamID); err != nil {
+		response.NotFound(w, "domain not found")
+		return
+	}
+	if err := h.DB.SetCustomDomainTargetByScope(r.Context(), id, claims.UserID, scope.TeamID, targetSubdomain); err != nil {
 		response.InternalError(w, err)
 		return
 	}
@@ -455,6 +582,19 @@ func (h *DomainsHandler) SetTargetCLI(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, err.Error())
 		return
 	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, user.ID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !user.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team custom domains")
+		return
+	}
 	id := r.PathValue("id")
 	var body struct {
 		TargetSubdomain string `json:"target_subdomain"`
@@ -468,16 +608,24 @@ func (h *DomainsHandler) SetTargetCLI(w http.ResponseWriter, r *http.Request) {
 		response.BadRequest(w, "target_subdomain is required")
 		return
 	}
-	reserved, err := h.DB.GetReservedSubdomainForUser(r.Context(), user.ID, targetSubdomain)
+	reserved, err := h.DB.GetReservedSubdomainForScope(r.Context(), user.ID, scope.TeamID, targetSubdomain)
 	if err != nil {
 		response.InternalError(w, err)
 		return
 	}
 	if reserved == "" {
-		response.BadRequest(w, "target_subdomain must be one of your reserved subdomains")
+		if scope.IsTeam() {
+			response.BadRequest(w, "target_subdomain must be one of this team's reserved subdomains")
+		} else {
+			response.BadRequest(w, "target_subdomain must be one of your reserved subdomains")
+		}
 		return
 	}
-	if err := h.DB.SetCustomDomainTarget(r.Context(), id, user.ID, targetSubdomain); err != nil {
+	if _, err := h.DB.GetCustomDomainByScope(r.Context(), id, user.ID, scope.TeamID); err != nil {
+		response.NotFound(w, "domain not found")
+		return
+	}
+	if err := h.DB.SetCustomDomainTargetByScope(r.Context(), id, user.ID, scope.TeamID, targetSubdomain); err != nil {
 		response.InternalError(w, err)
 		return
 	}

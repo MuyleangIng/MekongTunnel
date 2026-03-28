@@ -163,6 +163,12 @@ ssh -o SetEnv=MEKONG_EXPIRE=48h -t -R 80:localhost:3000 proxy.angkorsearch.dev
 | **mekong-tunnel** (PyPI) | `pip install mekong-tunnel` | FastAPI, Flask, Django, uvicorn, gunicorn, Granian, Hypercorn |
 | **VS Code Extension** | `ext install KhmerStack.mekong-tunnel` | Sidebar panel, Login UI, Live Server |
 
+Local repo folders:
+
+- `mekong-node-sdk/` → npm package source for `mekong-cli`
+- `mekong-python-sdk/` → PyPI package source for `mekong-tunnel`
+- `mekong-vscode-extension/` → VS Code extension source
+
 ```bash
 # Node.js
 mekong-cli --with "next dev" --port 3000

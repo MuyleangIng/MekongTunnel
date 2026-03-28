@@ -6,6 +6,7 @@ package tunnel
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -121,6 +122,44 @@ func TestCloseIdempotent(t *testing.T) {
 	l := NewRequestLogger(&buf, 16)
 	l.Close()
 	l.Close() // second call should not panic
+}
+
+func TestSnapshotKeepsRecentLines(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewRequestLogger(&buf, 2)
+
+	for i := 0; i < 300; i++ {
+		l.LogRequest("GET", fmt.Sprintf("/line-%03d", i), 200, time.Millisecond)
+	}
+
+	got := strings.Join(l.Snapshot(), "")
+	l.Close()
+
+	if strings.Contains(got, "/line-000") {
+		t.Fatalf("snapshot kept evicted line: %q", got)
+	}
+	if !strings.Contains(got, "/line-298") || !strings.Contains(got, "/line-299") {
+		t.Fatalf("snapshot missing recent lines: %q", got)
+	}
+}
+
+func TestSubscribeReceivesLiveLines(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewRequestLogger(&buf, 4)
+	ch, unsubscribe := l.Subscribe()
+	defer unsubscribe()
+	defer l.Close()
+
+	l.LogRequest("GET", "/live", 200, time.Millisecond)
+
+	select {
+	case line := <-ch:
+		if !strings.Contains(line, "/live") {
+			t.Fatalf("subscriber line = %q, want /live", line)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for subscriber line")
+	}
 }
 
 func TestFormatBytes(t *testing.T) {

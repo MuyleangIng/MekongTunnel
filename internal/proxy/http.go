@@ -9,6 +9,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"html/template"
@@ -79,7 +80,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Bad Request", http.StatusBadRequest)
 				return
 			}
-			s.serveTunnelOfflinePage(w, r, host, sub, false)
+			reserved, err := s.lookupReservedSubdomain(r.Context(), sub)
+			if err != nil {
+				log.Printf("Reserved subdomain lookup failed for %s: %v", sub, err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			if reserved {
+				lastSeen, err := s.lookupTunnelLastSeen(r.Context(), sub)
+				if err != nil {
+					log.Printf("Tunnel last-seen lookup failed for %s: %v", sub, err)
+				}
+				s.serveTunnelOfflinePage(w, r, host, sub, false, lastSeen)
+				return
+			}
+			s.serveTunnelNotFoundPage(w, r, host, "", false)
 			return
 		}
 	default:
@@ -91,10 +106,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if !found {
 			if wantsHTMLResponse(r) {
-				s.serveCustomDomainPendingPage(w, r, host)
+				s.serveTunnelNotFoundPage(w, r, host, "", true)
 				return
 			}
-			http.Error(w, "Bad Request", http.StatusBadRequest)
+			http.Error(w, "Not Found", http.StatusNotFound)
 			return
 		}
 		if targetSubdomain == "" {
@@ -105,7 +120,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sub = targetSubdomain
 		tun = s.GetTunnel(sub)
 		if tun == nil {
-			s.serveTunnelOfflinePage(w, r, host, sub, true)
+			lastSeen, err := s.lookupTunnelLastSeen(r.Context(), sub)
+			if err != nil {
+				log.Printf("Tunnel last-seen lookup failed for %s: %v", sub, err)
+			}
+			s.serveTunnelOfflinePage(w, r, host, sub, true, lastSeen)
 			return
 		}
 	}
@@ -125,7 +144,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tun.Touch()
 	s.IncrementRequests()
-	tun.IncrementRequestCount()
 
 	// Show a phishing-warning interstitial for first-time browser visits.
 	// The warning sets a cookie so the user only sees it once per day.
@@ -192,6 +210,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy.ServeHTTP(sw, r)
+	tun.RecordTraffic(sw.bytesWritten)
 
 	// Emit a log line to the SSH terminal for every proxied request.
 	if logger := tun.Logger(); logger != nil {
@@ -263,6 +282,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request, tun *tu
 	if logger != nil {
 		logger.LogWebSocketClose(wsPath, time.Since(wsStart), backendBytes+clientBytes)
 	}
+	tun.RecordTraffic(backendBytes + clientBytes)
 }
 
 // copyWithLimits copies from src to dst enforcing a maximum byte transfer limit
@@ -384,12 +404,11 @@ func (s *Server) confirmWarningPage(w http.ResponseWriter, sub string) {
 	})
 }
 
-func (s *Server) serveTunnelOfflinePage(w http.ResponseWriter, r *http.Request, publicHost, targetSub string, customDomain bool) {
+func (s *Server) serveTunnelOfflinePage(w http.ResponseWriter, r *http.Request, publicHost, targetSub string, customDomain bool, lastSeen *time.Time) {
 	command := ""
 	developerTip := "Restart Mekong from the machine sharing this app and keep the tunnel process running."
-	summary := "The link reached MekongTunnel, but there is no live tunnel behind it right now."
+	summary := "This tunnel is currently offline. The owner may have stopped it."
 	if customDomain {
-		summary = "This custom domain is reaching MekongTunnel, but it is not attached to a live tunnel right now."
 		if targetSub != "" {
 			developerTip = fmt.Sprintf("Reconnect the reserved subdomain %q from the sharing machine, then refresh this page.", targetSub)
 		} else {
@@ -401,29 +420,59 @@ func (s *Server) serveTunnelOfflinePage(w http.ResponseWriter, r *http.Request, 
 		command = fmt.Sprintf("mekong <port> --subdomain %s", targetSub)
 	}
 
-	s.renderHTMLPage(w, http.StatusNotFound, issuePageTemplate, tunnelIssuePageData{
-		Accent:         "#dd6b20",
-		AccentSoft:     "rgba(221,107,32,0.16)",
-		StatusLine:     "404 · Tunnel offline",
+	s.renderHTMLPage(w, http.StatusBadGateway, issuePageTemplate, tunnelIssuePageData{
+		Accent:         template.CSS("#dd6b20"),
+		AccentSoft:     template.CSS("rgba(221,107,32,0.16)"),
+		StatusLine:     "502 · Tunnel offline",
 		Code:           "ERR_MEKONG_TUNNEL_OFFLINE",
-		Title:          "This tunnel is not live right now",
+		Title:          "This tunnel is currently offline",
 		Summary:        summary,
 		PublicHost:     publicHost,
 		ReservedSub:    targetSub,
+		LastSeenLabel:  formatLastSeenLabel(lastSeen),
 		VisitorTip:     "If someone shared this link with you, ask them to reopen the app or reconnect Mekong, then refresh this page.",
 		DeveloperTip:   developerTip,
 		Command:        command,
-		PrimaryLabel:   "Try again",
+		PrimaryLabel:   "Refresh page",
 		PrimaryHref:    currentRequestURL(r),
 		SecondaryLabel: "Back to MekongTunnel",
 		SecondaryHref:  "https://angkorsearch.dev/",
 	}, "tunnel offline")
 }
 
+func (s *Server) serveTunnelNotFoundPage(w http.ResponseWriter, r *http.Request, publicHost, targetSub string, customDomain bool) {
+	developerTip := "Create or reconnect the expected reserved subdomain, then share the new link."
+	command := ""
+	if customDomain {
+		developerTip = fmt.Sprintf("Point %s at an existing reserved subdomain with `mekong domain connect %s <reserved-subdomain>`, then verify DNS and reopen the tunnel.", publicHost, publicHost)
+		command = fmt.Sprintf("mekong domain connect %s <reserved-subdomain>", publicHost)
+	} else if targetSub != "" {
+		developerTip = fmt.Sprintf("Reconnect the reserved subdomain %q from the sharing machine, or remove the old link if it is no longer used.", targetSub)
+	}
+
+	s.renderHTMLPage(w, http.StatusNotFound, issuePageTemplate, tunnelIssuePageData{
+		Accent:         template.CSS("#2b6cb0"),
+		AccentSoft:     template.CSS("rgba(43,108,176,0.14)"),
+		StatusLine:     "404 · Tunnel not found",
+		Code:           "ERR_MEKONG_TUNNEL_NOT_FOUND",
+		Title:          "No tunnel found for this address",
+		Summary:        "No tunnel found for this address. It may have been removed or never existed.",
+		PublicHost:     publicHost,
+		ReservedSub:    targetSub,
+		VisitorTip:     "If someone shared this link with you, they may have removed it or copied the wrong address.",
+		DeveloperTip:   developerTip,
+		Command:        command,
+		PrimaryLabel:   "Refresh page",
+		PrimaryHref:    currentRequestURL(r),
+		SecondaryLabel: "Open MekongTunnel",
+		SecondaryHref:  "https://angkorsearch.dev/",
+	}, "tunnel not found")
+}
+
 func (s *Server) serveCustomDomainPendingPage(w http.ResponseWriter, r *http.Request, publicHost string) {
 	s.renderHTMLPage(w, http.StatusNotFound, issuePageTemplate, tunnelIssuePageData{
-		Accent:         "#2b6cb0",
-		AccentSoft:     "rgba(43,108,176,0.14)",
+		Accent:         template.CSS("#2b6cb0"),
+		AccentSoft:     template.CSS("rgba(43,108,176,0.14)"),
 		StatusLine:     "404 · Custom domain not ready",
 		Code:           "ERR_MEKONG_DOMAIN_PENDING",
 		Title:          "This custom domain is not connected yet",
@@ -442,8 +491,8 @@ func (s *Server) serveCustomDomainPendingPage(w http.ResponseWriter, r *http.Req
 func (s *Server) serveUpstreamUnavailablePage(w http.ResponseWriter, r *http.Request, publicHost, targetSub string, tun *tunnel.Tunnel, summary, code string) {
 	showConnectionFlow := code == "ERR_MEKONG_UPSTREAM_UNREACHABLE"
 	s.renderHTMLPage(w, http.StatusBadGateway, issuePageTemplate, tunnelIssuePageData{
-		Accent:             "#c53030",
-		AccentSoft:         "rgba(197,48,48,0.14)",
+		Accent:             template.CSS("#c53030"),
+		AccentSoft:         template.CSS("rgba(197,48,48,0.14)"),
 		StatusLine:         "502 · Upstream unreachable",
 		Code:               code,
 		Title:              "The tunnel is live, but the local app is not reachable",
@@ -454,6 +503,7 @@ func (s *Server) serveUpstreamUnavailablePage(w http.ResponseWriter, r *http.Req
 		DashboardSubtext:   "Traffic reached MekongTunnel, but your local server did not respond.",
 		PublicHost:         publicHost,
 		ReservedSub:        targetSub,
+		LastSeenLabel:      "",
 		LocalTarget:        localTarget(tun),
 		HostHeader:         upstreamHostLabel(tun),
 		VisitorTip:         "Refresh the page in a few moments. If the app is still offline, contact the person who shared this link.",
@@ -539,8 +589,9 @@ func (l *limitedReadCloser) Close() error {
 // written by the reverse proxy so it can be included in the request log line.
 type statusCaptureWriter struct {
 	http.ResponseWriter
-	status      int
-	wroteHeader bool
+	status       int
+	wroteHeader  bool
+	bytesWritten int64
 }
 
 func (w *statusCaptureWriter) WriteHeader(code int) {
@@ -556,7 +607,9 @@ func (w *statusCaptureWriter) Write(b []byte) (int, error) {
 		w.status = http.StatusOK
 		w.wroteHeader = true
 	}
-	return w.ResponseWriter.Write(b)
+	n, err := w.ResponseWriter.Write(b)
+	w.bytesWritten += int64(n)
+	return n, err
 }
 
 // Unwrap returns the underlying ResponseWriter so that interface pass-throughs
@@ -574,8 +627,8 @@ type tunnelWarningPageData struct {
 }
 
 type tunnelIssuePageData struct {
-	Accent             string
-	AccentSoft         string
+	Accent             template.CSS
+	AccentSoft         template.CSS
 	StatusLine         string
 	Code               string
 	Title              string
@@ -586,6 +639,7 @@ type tunnelIssuePageData struct {
 	DashboardSubtext   string
 	PublicHost         string
 	ReservedSub        string
+	LastSeenLabel      string
 	LocalTarget        string
 	HostHeader         string
 	VisitorTip         string
@@ -605,6 +659,13 @@ func currentRequestURL(r *http.Request) string {
 		return uri
 	}
 	return "/"
+}
+
+func formatLastSeenLabel(lastSeen *time.Time) string {
+	if lastSeen == nil || lastSeen.IsZero() {
+		return ""
+	}
+	return lastSeen.UTC().Format("Jan 02, 2006 15:04 UTC")
 }
 
 func warningDestinationHost(raw string) string {
@@ -632,6 +693,20 @@ func warningDestinationPath(raw string) string {
 
 func warningContinueHref(redirect, sub string) string {
 	return fmt.Sprintf("/?continue=1&redirect=%s&subdomain=%s", url.QueryEscape(redirect), url.QueryEscape(sub))
+}
+
+func (s *Server) lookupReservedSubdomain(ctx context.Context, sub string) (bool, error) {
+	if s.tokenValidator == nil {
+		return false, nil
+	}
+	return s.tokenValidator.ReservedSubdomainExists(ctx, sub)
+}
+
+func (s *Server) lookupTunnelLastSeen(ctx context.Context, sub string) (*time.Time, error) {
+	if s.tokenValidator == nil {
+		return nil, nil
+	}
+	return s.tokenValidator.GetTunnelLastSeen(ctx, sub)
 }
 
 func reportedLocalPort(tun *tunnel.Tunnel) (uint32, bool) {
@@ -1431,6 +1506,12 @@ var issuePageTemplate = template.Must(template.New("issue-page").Parse(`<!DOCTYP
           <div>
             <dt>Reserved subdomain target</dt>
             <dd>{{.ReservedSub}}</dd>
+          </div>
+          {{end}}
+          {{if .LastSeenLabel}}
+          <div>
+            <dt>Last seen</dt>
+            <dd>{{.LastSeenLabel}}</dd>
           </div>
           {{end}}
           {{if .LocalTarget}}

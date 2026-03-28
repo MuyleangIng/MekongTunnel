@@ -1,6 +1,0 @@
-.vscode/**
-src/**
-out/maps/**
-node_modules/**
-tsconfig.json
-/tmp/**

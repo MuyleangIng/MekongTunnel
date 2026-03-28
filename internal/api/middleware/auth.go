@@ -16,6 +16,13 @@ type contextKey string
 // UserKey is the context key under which *auth.JWTClaims is stored.
 const UserKey contextKey = "user"
 
+// mustResetAllowedPaths lists the only paths accessible when MustReset is true.
+var mustResetAllowedPaths = map[string]bool{
+	"/api/user/password": true,
+	"/api/auth/me":       true,
+	"/api/auth/logout":   true,
+}
+
 // AuthMiddleware validates the Bearer JWT and rejects requests with no or invalid token.
 func AuthMiddleware(jwtSecret string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -29,8 +36,26 @@ func AuthMiddleware(jwtSecret string) func(next http.Handler) http.Handler {
 				response.Unauthorized(w, "2fa verification required")
 				return
 			}
+			if claims.MustReset && !mustResetAllowedPaths[r.URL.Path] {
+				response.Error(w, http.StatusForbidden, "password_reset_required")
+				return
+			}
 			ctx := context.WithValue(r.Context(), UserKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// InternalSecretMiddleware restricts an endpoint to callers that supply the correct
+// X-Tunnel-Secret header. If secret is empty the check is skipped (single-node dev mode).
+func InternalSecretMiddleware(secret string) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if secret != "" && r.Header.Get("X-Tunnel-Secret") != secret {
+				response.Forbidden(w, "internal endpoint")
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

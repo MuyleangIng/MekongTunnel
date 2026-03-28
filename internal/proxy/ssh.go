@@ -219,6 +219,8 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 		return
 	}
 
+	s.reportTunnelOpen(tun)
+
 	// Build the public URL and compose the terminal welcome message after
 	// processing env/exec requests so expiry overrides are reflected here.
 	url := fmt.Sprintf("https://%s.%s", sub, s.domain)
@@ -409,6 +411,7 @@ func (s *Server) claimReservedSubdomain(ctx context.Context, tun *tunnel.Tunnel,
 		log.Printf("Token validation failed for tunnel %s: %v", currentSub, err)
 		return currentSub, nil
 	}
+	tun.SetUserID(userID)
 
 	target := ""
 	if requested != "" {
@@ -417,7 +420,7 @@ func (s *Server) claimReservedSubdomain(ctx context.Context, tun *tunnel.Tunnel,
 			return currentSub, fmt.Errorf("could not verify reserved subdomain %q", requested)
 		}
 		if reserved == "" {
-			return currentSub, fmt.Errorf("reserved subdomain %q was not found in your account", requested)
+			return currentSub, fmt.Errorf("reserved subdomain %q was not found in your account or is assigned to another team member", requested)
 		}
 		target = reserved
 	} else {

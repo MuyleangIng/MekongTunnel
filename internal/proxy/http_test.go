@@ -20,6 +20,8 @@ import (
 
 type stubTokenValidator struct {
 	customTargets map[string]string
+	reservedSubs  map[string]bool
+	lastSeen      map[string]time.Time
 }
 
 func (s stubTokenValidator) ValidateToken(context.Context, string) (string, error) {
@@ -37,6 +39,17 @@ func (s stubTokenValidator) GetReservedSubdomainForUser(context.Context, string,
 func (s stubTokenValidator) LookupVerifiedCustomDomainTarget(_ context.Context, host string) (string, bool, error) {
 	target, ok := s.customTargets[host]
 	return target, ok, nil
+}
+
+func (s stubTokenValidator) ReservedSubdomainExists(_ context.Context, subdomain string) (bool, error) {
+	return s.reservedSubs[subdomain], nil
+}
+
+func (s stubTokenValidator) GetTunnelLastSeen(_ context.Context, subdomain string) (*time.Time, error) {
+	if ts, ok := s.lastSeen[subdomain]; ok {
+		return &ts, nil
+	}
+	return nil, nil
 }
 
 func TestStripPort(t *testing.T) {
@@ -539,6 +552,35 @@ func TestServeHTTPShowsOfflinePageForMissingTunnelInBrowser(t *testing.T) {
 	s := newTestServer(t)
 
 	sub := "happy-tiger-a1b2c3d4"
+	s.tokenValidator = stubTokenValidator{
+		reservedSubs: map[string]bool{sub: true},
+	}
+	r := httptest.NewRequest("GET", "https://"+sub+"."+config.DefaultDomain+"/", nil)
+	r.Host = sub + "." + config.DefaultDomain
+	r.Header.Set("User-Agent", "Mozilla/5.0")
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadGateway)
+	}
+	if got := w.Header().Get("Content-Type"); !strings.Contains(got, "text/html") {
+		t.Fatalf("Content-Type = %q, want text/html", got)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "ERR_MEKONG_TUNNEL_OFFLINE") {
+		t.Fatalf("body missing offline code: %q", body)
+	}
+	if !strings.Contains(body, "This tunnel is currently offline") {
+		t.Fatalf("body missing offline title: %q", body)
+	}
+}
+
+func TestServeHTTPShowsNotFoundPageForUnknownSubdomainInBrowser(t *testing.T) {
+	s := newTestServer(t)
+
+	sub := "happy-tiger-a1b2c3d4"
 	r := httptest.NewRequest("GET", "https://"+sub+"."+config.DefaultDomain+"/", nil)
 	r.Host = sub + "." + config.DefaultDomain
 	r.Header.Set("User-Agent", "Mozilla/5.0")
@@ -549,15 +591,12 @@ func TestServeHTTPShowsOfflinePageForMissingTunnelInBrowser(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
-	if got := w.Header().Get("Content-Type"); !strings.Contains(got, "text/html") {
-		t.Fatalf("Content-Type = %q, want text/html", got)
-	}
 	body := w.Body.String()
-	if !strings.Contains(body, "ERR_MEKONG_TUNNEL_OFFLINE") {
-		t.Fatalf("body missing offline code: %q", body)
+	if !strings.Contains(body, "ERR_MEKONG_TUNNEL_NOT_FOUND") {
+		t.Fatalf("body missing not-found code: %q", body)
 	}
-	if !strings.Contains(body, "This tunnel is not live right now") {
-		t.Fatalf("body missing offline title: %q", body)
+	if !strings.Contains(body, "No tunnel found for this address") {
+		t.Fatalf("body missing not-found title: %q", body)
 	}
 }
 

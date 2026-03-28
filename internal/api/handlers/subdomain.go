@@ -36,7 +36,17 @@ func (h *SubdomainHandler) List(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, "authentication required")
 		return
 	}
-	list, err := h.DB.ListReservedSubdomains(r.Context(), claims.UserID)
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+
+	list, err := h.DB.ListReservedSubdomainsByScope(r.Context(), claims.UserID, scope.TeamID)
 	if err != nil {
 		response.InternalError(w, err)
 		return
@@ -45,13 +55,17 @@ func (h *SubdomainHandler) List(w http.ResponseWriter, r *http.Request) {
 		list = []*models.ReservedSubdomain{}
 	}
 
-	// Attach plan limit info
-	limit, _ := h.DB.GetSubdomainLimit(r.Context(), claims.Plan)
+	limit := 0
+	if scope.IsTeam() {
+		limit = teamRouteLimit(scope.Team.Plan)
+	} else {
+		limit, _ = h.DB.GetSubdomainLimit(r.Context(), claims.Plan)
+	}
 	count := len(list)
 	response.Success(w, map[string]any{
 		"subdomains": list,
 		"count":      count,
-		"limit":      limit, // -1 = unlimited
+		"limit":      limit,
 	})
 }
 
@@ -63,7 +77,17 @@ func (h *SubdomainHandler) ListCLI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list, err := h.DB.ListReservedSubdomains(r.Context(), user.ID)
+	scope, err := resolveResourceScope(r.Context(), h.DB, user.ID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+
+	list, err := h.DB.ListReservedSubdomainsByScope(r.Context(), user.ID, scope.TeamID)
 	if err != nil {
 		response.InternalError(w, err)
 		return
@@ -72,7 +96,12 @@ func (h *SubdomainHandler) ListCLI(w http.ResponseWriter, r *http.Request) {
 		list = []*models.ReservedSubdomain{}
 	}
 
-	limit, _ := h.DB.GetSubdomainLimit(r.Context(), user.Plan)
+	limit := 0
+	if scope.IsTeam() {
+		limit = teamRouteLimit(scope.Team.Plan)
+	} else {
+		limit, _ = h.DB.GetSubdomainLimit(r.Context(), user.Plan)
+	}
 	response.Success(w, map[string]any{
 		"subdomains": list,
 		"count":      len(list),
@@ -88,20 +117,51 @@ func (h *SubdomainHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check plan limit
-	if !claims.IsAdmin {
-		limit, err := h.DB.GetSubdomainLimit(r.Context(), claims.Plan)
-		if err == nil && limit == 0 {
-			response.Error(w, http.StatusPaymentRequired,
-				"your plan does not include reserved subdomains — upgrade to Student, Pro, or Org")
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
 			return
 		}
-		if err == nil && limit > 0 {
-			count, _ := h.DB.GetSubdomainCount(r.Context(), claims.UserID)
-			if count >= limit {
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !claims.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team subdomains")
+		return
+	}
+
+	// Check plan limit
+	if !claims.IsAdmin {
+		if scope.IsTeam() {
+			limit := teamRouteLimit(scope.Team.Plan)
+			if limit == 0 {
 				response.Error(w, http.StatusPaymentRequired,
-					fmt.Sprintf("plan limit reached: your %s plan allows %d reserved subdomain(s)", claims.Plan, limit))
+					"this team plan does not include reserved subdomains")
 				return
+			}
+			if limit > 0 {
+				count, _ := h.DB.GetSubdomainCountByScope(r.Context(), claims.UserID, scope.TeamID)
+				if count >= limit {
+					response.Error(w, http.StatusPaymentRequired,
+						fmt.Sprintf("team plan limit reached: this %s team allows %d reserved subdomain(s)", scope.Team.Plan, limit))
+					return
+				}
+			}
+		} else {
+			limit, err := h.DB.GetSubdomainLimit(r.Context(), claims.Plan)
+			if err == nil && limit == 0 {
+				response.Error(w, http.StatusPaymentRequired,
+					"your plan does not include reserved subdomains — upgrade to Student, Pro, or Org")
+				return
+			}
+			if err == nil && limit > 0 {
+				count, _ := h.DB.GetSubdomainCountByScope(r.Context(), claims.UserID, "")
+				if count >= limit {
+					response.Error(w, http.StatusPaymentRequired,
+						fmt.Sprintf("plan limit reached: your %s plan allows %d reserved subdomain(s)", claims.Plan, limit))
+					return
+				}
 			}
 		}
 	}
@@ -125,7 +185,11 @@ func (h *SubdomainHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s, err := h.DB.CreateReservedSubdomain(r.Context(), claims.UserID, subdomain)
+	ownerUserID := claims.UserID
+	if scope.IsTeam() {
+		ownerUserID = ""
+	}
+	s, err := h.DB.CreateReservedSubdomainByScope(r.Context(), ownerUserID, scope.TeamID, subdomain)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			response.Conflict(w, "subdomain already reserved")
@@ -145,19 +209,50 @@ func (h *SubdomainHandler) CreateCLI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !user.IsAdmin {
-		limit, err := h.DB.GetSubdomainLimit(r.Context(), user.Plan)
-		if err == nil && limit == 0 {
-			response.Error(w, http.StatusPaymentRequired,
-				"your plan does not include reserved subdomains — upgrade to Student, Pro, or Org")
+	scope, err := resolveResourceScope(r.Context(), h.DB, user.ID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
 			return
 		}
-		if err == nil && limit > 0 {
-			count, _ := h.DB.GetSubdomainCount(r.Context(), user.ID)
-			if count >= limit {
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !user.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team subdomains")
+		return
+	}
+
+	if !user.IsAdmin {
+		if scope.IsTeam() {
+			limit := teamRouteLimit(scope.Team.Plan)
+			if limit == 0 {
 				response.Error(w, http.StatusPaymentRequired,
-					fmt.Sprintf("plan limit reached: your %s plan allows %d reserved subdomain(s)", user.Plan, limit))
+					"this team plan does not include reserved subdomains")
 				return
+			}
+			if limit > 0 {
+				count, _ := h.DB.GetSubdomainCountByScope(r.Context(), user.ID, scope.TeamID)
+				if count >= limit {
+					response.Error(w, http.StatusPaymentRequired,
+						fmt.Sprintf("team plan limit reached: this %s team allows %d reserved subdomain(s)", scope.Team.Plan, limit))
+					return
+				}
+			}
+		} else {
+			limit, err := h.DB.GetSubdomainLimit(r.Context(), user.Plan)
+			if err == nil && limit == 0 {
+				response.Error(w, http.StatusPaymentRequired,
+					"your plan does not include reserved subdomains — upgrade to Student, Pro, or Org")
+				return
+			}
+			if err == nil && limit > 0 {
+				count, _ := h.DB.GetSubdomainCountByScope(r.Context(), user.ID, "")
+				if count >= limit {
+					response.Error(w, http.StatusPaymentRequired,
+						fmt.Sprintf("plan limit reached: your %s plan allows %d reserved subdomain(s)", user.Plan, limit))
+					return
+				}
 			}
 		}
 	}
@@ -181,7 +276,11 @@ func (h *SubdomainHandler) CreateCLI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s, err := h.DB.CreateReservedSubdomain(r.Context(), user.ID, subdomain)
+	ownerUserID := user.ID
+	if scope.IsTeam() {
+		ownerUserID = ""
+	}
+	s, err := h.DB.CreateReservedSubdomainByScope(r.Context(), ownerUserID, scope.TeamID, subdomain)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			response.Conflict(w, "subdomain already reserved")
@@ -200,6 +299,19 @@ func (h *SubdomainHandler) DeleteCLI(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, err.Error())
 		return
 	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, user.ID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !user.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team subdomains")
+		return
+	}
 
 	id := r.PathValue("id")
 	if id == "" {
@@ -212,12 +324,17 @@ func (h *SubdomainHandler) DeleteCLI(w http.ResponseWriter, r *http.Request) {
 		response.NotFound(w, "subdomain not found")
 		return
 	}
-	if s.UserID != user.ID && !user.IsAdmin {
+	if scope.IsTeam() {
+		if s.TeamID == nil || *s.TeamID != scope.TeamID {
+			response.NotFound(w, "subdomain not found")
+			return
+		}
+	} else if s.TeamID != nil || (s.UserID != user.ID && !user.IsAdmin) {
 		response.Forbidden(w, "not your subdomain")
 		return
 	}
 
-	if err := h.DB.DeleteReservedSubdomain(r.Context(), id, user.ID); err != nil {
+	if err := h.DB.DeleteReservedSubdomainByScope(r.Context(), id, user.ID, scope.TeamID); err != nil {
 		response.InternalError(w, err)
 		return
 	}
@@ -231,16 +348,113 @@ func (h *SubdomainHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, "authentication required")
 		return
 	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !claims.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team subdomains")
+		return
+	}
 	id := r.PathValue("id")
 	if id == "" {
 		response.BadRequest(w, "missing id")
 		return
 	}
-	if err := h.DB.DeleteReservedSubdomain(r.Context(), id, claims.UserID); err != nil {
+	s, err := h.DB.GetReservedSubdomain(r.Context(), id)
+	if err != nil {
+		response.NotFound(w, "subdomain not found")
+		return
+	}
+	if scope.IsTeam() {
+		if s.TeamID == nil || *s.TeamID != scope.TeamID {
+			response.NotFound(w, "subdomain not found")
+			return
+		}
+	} else if s.TeamID != nil || s.UserID != claims.UserID {
+		response.Forbidden(w, "not your subdomain")
+		return
+	}
+	if err := h.DB.DeleteReservedSubdomainByScope(r.Context(), id, claims.UserID, scope.TeamID); err != nil {
 		response.InternalError(w, err)
 		return
 	}
 	response.NoContent(w)
+}
+
+// UpdateAssignment handles PATCH /api/subdomains/{id}/assignment.
+// Team-only endpoint for owner/admin/teacher to assign a reserved subdomain to one member.
+func (h *SubdomainHandler) UpdateAssignment(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r)
+	if claims == nil {
+		response.Unauthorized(w, "authentication required")
+		return
+	}
+
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if !scope.IsTeam() {
+		response.BadRequest(w, "team_id is required for subdomain assignment")
+		return
+	}
+	if !claims.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can assign team subdomains")
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		response.BadRequest(w, "missing id")
+		return
+	}
+
+	s, err := h.DB.GetReservedSubdomain(r.Context(), id)
+	if err != nil {
+		response.NotFound(w, "subdomain not found")
+		return
+	}
+	if s.TeamID == nil || *s.TeamID != scope.TeamID {
+		response.NotFound(w, "subdomain not found")
+		return
+	}
+
+	var body struct {
+		AssignedUserID *string `json:"assigned_user_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		response.BadRequest(w, "invalid request body")
+		return
+	}
+
+	assignedUserID := ""
+	if body.AssignedUserID != nil {
+		assignedUserID = strings.TrimSpace(*body.AssignedUserID)
+	}
+	if assignedUserID != "" && scope.Team.OwnerID != assignedUserID {
+		if _, err := h.DB.GetTeamMembership(r.Context(), scope.TeamID, assignedUserID); err != nil {
+			response.BadRequest(w, "assigned_user_id must belong to this team")
+			return
+		}
+	}
+
+	updated, err := h.DB.UpdateReservedSubdomainAssignment(r.Context(), id, scope.TeamID, assignedUserID)
+	if err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	response.Success(w, updated)
 }
 
 // UpsertRule handles PUT /api/subdomains/{id}/rule
@@ -248,6 +462,19 @@ func (h *SubdomainHandler) UpsertRule(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetClaims(r)
 	if claims == nil {
 		response.Unauthorized(w, "authentication required")
+		return
+	}
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	if scope.IsTeam() && !claims.IsAdmin && !scope.CanManage() {
+		response.Forbidden(w, "only owner, admin, or teacher can manage team subdomains")
 		return
 	}
 	id := r.PathValue("id")
@@ -261,7 +488,12 @@ func (h *SubdomainHandler) UpsertRule(w http.ResponseWriter, r *http.Request) {
 		response.NotFound(w, "subdomain not found")
 		return
 	}
-	if s.UserID != claims.UserID && !claims.IsAdmin {
+	if scope.IsTeam() {
+		if s.TeamID == nil || *s.TeamID != scope.TeamID {
+			response.NotFound(w, "subdomain not found")
+			return
+		}
+	} else if s.TeamID != nil || (s.UserID != claims.UserID && !claims.IsAdmin) {
 		response.Forbidden(w, "not your subdomain")
 		return
 	}
@@ -288,7 +520,16 @@ func (h *SubdomainHandler) Analytics(w http.ResponseWriter, r *http.Request) {
 		response.Unauthorized(w, "authentication required")
 		return
 	}
-	data, err := h.DB.GetSubdomainAnalytics(r.Context(), claims.UserID)
+	scope, err := resolveResourceScope(r.Context(), h.DB, claims.UserID, requestedTeamID(r))
+	if err != nil {
+		if err == errResourceTeamNotFound {
+			response.NotFound(w, "team not found")
+			return
+		}
+		response.Forbidden(w, "you are not a member of this team")
+		return
+	}
+	data, err := h.DB.GetSubdomainAnalyticsByScope(r.Context(), claims.UserID, scope.TeamID)
 	if err != nil {
 		response.InternalError(w, err)
 		return

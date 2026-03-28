@@ -33,7 +33,10 @@ func (db *DB) ListOrganizations(ctx context.Context, search, plan string, limit,
 	args = append(args, limit, offset)
 
 	rows, err := db.Pool.Query(ctx,
-		fmt.Sprintf(`SELECT id, name, domain, plan, owner_id, status, member_count, active_tunnels, created_at
+		fmt.Sprintf(`SELECT id, name, domain, plan, owner_id, status, member_count, active_tunnels, created_at,
+		COALESCE(slug,''), COALESCE(type,'school'), seat_limit, created_by,
+		COALESCE(admin_note,''), status_changed_at, archived_at, approved_verify_request_id,
+		COALESCE(billing_discount_percent, 0), COALESCE(billing_discount_note, '')
 		FROM organizations WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`,
 			where, i, i+1), args...)
 	if err != nil {
@@ -43,65 +46,56 @@ func (db *DB) ListOrganizations(ctx context.Context, search, plan string, limit,
 	return scanOrgRows(rows)
 }
 
-func (db *DB) CreateOrganization(ctx context.Context, name, domain, plan, ownerID string) (*models.Organization, error) {
+func (db *DB) CreateOrganization(ctx context.Context, name, domain, plan, ownerID, orgType string, seatLimit int, createdBy *string) (*models.Organization, error) {
 	var oid *string
 	if ownerID != "" {
 		oid = &ownerID
 	}
+	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+	initialMembers := 0
+	if ownerID != "" {
+		initialMembers = 1
+	}
 	row := db.Pool.QueryRow(ctx, `
-		INSERT INTO organizations (name, domain, plan, owner_id)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, name, domain, plan, owner_id, status, member_count, active_tunnels, created_at`,
-		name, domain, plan, oid)
+		INSERT INTO organizations (name, domain, plan, owner_id, type, seat_limit, created_by, slug, member_count)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, name, domain, plan, owner_id, status, member_count, active_tunnels, created_at, slug, type, seat_limit, created_by,
+		          COALESCE(admin_note,''), status_changed_at, archived_at, approved_verify_request_id,
+		          COALESCE(billing_discount_percent, 0), COALESCE(billing_discount_note, '')`,
+		name, domain, plan, oid, orgType, seatLimit, createdBy, slug, initialMembers)
 	return scanOrg(row)
 }
 
 func (db *DB) GetOrganizationByID(ctx context.Context, id string) (*models.Organization, error) {
 	row := db.Pool.QueryRow(ctx, `
-		SELECT id, name, domain, plan, owner_id, status, member_count, active_tunnels, created_at
+		SELECT id, name, domain, plan, owner_id, status, member_count, active_tunnels, created_at,
+		       COALESCE(slug,''), COALESCE(type,'school'), seat_limit, created_by,
+		       COALESCE(admin_note,''), status_changed_at, archived_at, approved_verify_request_id,
+		       COALESCE(billing_discount_percent, 0), COALESCE(billing_discount_note, '')
 		FROM organizations WHERE id = $1`, id)
 	return scanOrg(row)
 }
 
 func (db *DB) UpdateOrganizationStatus(ctx context.Context, id, status string) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE organizations SET status = $1 WHERE id = $2`, status, id)
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE organizations
+		SET status = $1,
+		    status_changed_at = now(),
+		    archived_at = CASE WHEN $1 = 'archived' THEN now() ELSE NULL END
+		WHERE id = $2`, status, id)
 	return err
 }
 
 func (db *DB) DeleteOrganization(ctx context.Context, id string) error {
+	if _, err := db.Pool.Exec(ctx, `UPDATE users SET provisioned_by_org_id = NULL WHERE provisioned_by_org_id = $1`, id); err != nil {
+		return err
+	}
 	_, err := db.Pool.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, id)
 	return err
 }
 
-func (db *DB) GetOrgMembers(ctx context.Context, orgID string) ([]*models.User, error) {
-	org, err := db.GetOrganizationByID(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-	if org.OwnerID == nil {
-		return []*models.User{}, nil
-	}
-	rows, err := db.Pool.Query(ctx, `
-		SELECT DISTINCT u.id, u.email, u.name, u.avatar_url, u.plan, u.is_admin
-		FROM users u
-		JOIN team_members tm ON tm.user_id = u.id
-		JOIN teams t ON t.id = tm.team_id
-		WHERE t.owner_id = $1
-		ORDER BY u.name ASC`, *org.OwnerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var users []*models.User
-	for rows.Next() {
-		u := &models.User{}
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.AvatarURL, &u.Plan, &u.IsAdmin); err != nil {
-			return nil, err
-		}
-		users = append(users, u)
-	}
-	return users, rows.Err()
+func (db *DB) GetOrgMembers(ctx context.Context, orgID string) ([]*models.OrgMember, error) {
+	return db.ListOrgMembers(ctx, orgID)
 }
 
 // ─── Blocked IPs ──────────────────────────────────────────────
@@ -252,11 +246,51 @@ func (db *DB) UpsertPlanConfig(ctx context.Context, planID string, config map[st
 func scanOrg(row interface{ Scan(...any) error }) (*models.Organization, error) {
 	o := &models.Organization{}
 	err := row.Scan(&o.ID, &o.Name, &o.Domain, &o.Plan, &o.OwnerID,
-		&o.Status, &o.MemberCount, &o.ActiveTunnels, &o.CreatedAt)
+		&o.Status, &o.MemberCount, &o.ActiveTunnels, &o.CreatedAt,
+		&o.Slug, &o.Type, &o.SeatLimit, &o.CreatedBy,
+		&o.AdminNote, &o.StatusChangedAt, &o.ArchivedAt, &o.ApprovedVerifyRequestID,
+		&o.BillingDiscountPercent, &o.BillingDiscountNote)
 	if err != nil {
 		return nil, err
 	}
 	return o, nil
+}
+
+func (db *DB) UpdateOrgSeatLimit(ctx context.Context, id string, seatLimit int) error {
+	_, err := db.Pool.Exec(ctx, `UPDATE organizations SET seat_limit = $1 WHERE id = $2`, seatLimit, id)
+	return err
+}
+
+func (db *DB) UpdateOrgPlan(ctx context.Context, id, plan string) error {
+	_, err := db.Pool.Exec(ctx, `UPDATE organizations SET plan = $1 WHERE id = $2`, plan, id)
+	return err
+}
+
+func (db *DB) SetOrganizationAdminNote(ctx context.Context, id, adminNote string) error {
+	_, err := db.Pool.Exec(ctx, `UPDATE organizations SET admin_note = $1 WHERE id = $2`, adminNote, id)
+	return err
+}
+
+func (db *DB) SetOrganizationDomain(ctx context.Context, id, domain string) error {
+	_, err := db.Pool.Exec(ctx, `UPDATE organizations SET domain = $1 WHERE id = $2`, domain, id)
+	return err
+}
+
+func (db *DB) SetOrganizationOwner(ctx context.Context, id, ownerID string) error {
+	_, err := db.Pool.Exec(ctx, `UPDATE organizations SET owner_id = $1 WHERE id = $2`, ownerID, id)
+	return err
+}
+
+func (db *DB) SetOrganizationApprovedVerifyRequest(ctx context.Context, id, verifyRequestID string) error {
+	_, err := db.Pool.Exec(ctx, `UPDATE organizations SET approved_verify_request_id = $1 WHERE id = $2`, verifyRequestID, id)
+	return err
+}
+
+func (db *DB) SetOrganizationBillingDiscount(ctx context.Context, id string, percent int, note string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE organizations SET billing_discount_percent = $1, billing_discount_note = $2 WHERE id = $3`,
+		percent, note, id)
+	return err
 }
 
 func scanOrgRows(rows interface {

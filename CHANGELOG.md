@@ -2,8 +2,18 @@
 
 ## Unreleased
 
+## v1.5.8 - 2026-03-28
+
 Highlights:
 
+- Added manual payment receipt system for PayPal, ABA Pay, and Bakong so users can upload proof of payment and admins can approve, reject, or request resubmission from the admin billing page
+- Added duplicate receipt prevention so a user cannot submit a second receipt for the same plan while one is already pending or awaiting resubmission
+- Added refund tracking fields on receipt rejection so admins can record the bank account, refund amount, and notes for the user
+- Sent admin in-app notification when a new receipt is submitted, and sent approval confirmation email to the user via Resend when a receipt is approved
+- Added seven new API endpoints for receipt management: submit, list, count (user + admin), review, delete
+- Fixed Google and GitHub OAuth to accept `?redirect_to=<origin>` so the callback token is delivered to the correct frontend origin, enabling `localhost:3000` dev servers to receive the OAuth token without landing on production
+- Fixed CORS middleware to always allow `localhost:*` and `127.0.0.1:*` origins regardless of the `ALLOWED_ORIGINS` env var, removing the need for developers to change server config when running locally
+- Updated HANDBOOK.md with Manual Payment Receipts API table, updated OAuth endpoint docs with `?redirect_to` param, and corrected `ALLOWED_ORIGINS` example
 - Split browser error handling for reserved subdomains and custom domains so known-but-offline routes now return a branded `502` tunnel-offline page, while unknown routes return a branded `404` not-found page
 - Added last-seen timestamps to offline tunnel pages when the tunnel has historical activity in PostgreSQL
 - Added in-memory tunnel log history plus live subscribers on the tunnel edge so active tunnels can expose recent request logs and SSE follow streams
@@ -37,19 +47,6 @@ Highlights:
 - Added the ORG verification approval flow end-to-end: requested org domain and seat limits, approval notes, waiting-state UI, admin review details, and org creation/linking/activation when an ORG request is approved
 - Added approved ORG contract discount support so admins can set `0`-`100%` during org approval, the billing page surfaces the approved discount, and ORG checkout applies it to Stripe checkout sessions
 - Extended organization billing requests so members can request a discount percentage and org managers can approve a specific percentage with notes on the org dashboard
-
-## v1.5.8 - 2026-03-28
-
-Highlights:
-
-- Added manual payment receipt system for PayPal, ABA Pay, and Bakong so users can upload proof of payment and admins can approve, reject, or request resubmission from the admin billing page
-- Added duplicate receipt prevention so a user cannot submit a second receipt for the same plan while one is already pending or awaiting resubmission
-- Added refund tracking fields on receipt rejection so admins can record the bank account, refund amount, and notes for the user
-- Sent admin in-app notification when a new receipt is submitted, and sent approval confirmation email to the user via Resend when a receipt is approved
-- Added seven new API endpoints for receipt management: submit, list, count (user + admin), review, delete
-- Fixed Google and GitHub OAuth to accept `?redirect_to=<origin>` so the callback token is delivered to the correct frontend origin, enabling `localhost:3000` dev servers to receive the OAuth token without landing on production
-- Fixed CORS middleware to always allow `localhost:*` and `127.0.0.1:*` origins regardless of the `ALLOWED_ORIGINS` env var, removing the need for developers to change server config when running locally
-- Updated HANDBOOK.md with Manual Payment Receipts API table, updated OAuth endpoint docs with `?redirect_to` param, and corrected `ALLOWED_ORIGINS` example
 
 ## v1.5.7 - 2026-03-27
 

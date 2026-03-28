@@ -5,6 +5,7 @@ package handlers
 import (
 	"context"
 	cryptorand "crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -28,18 +29,18 @@ var emailRE = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{
 
 // AuthHandler handles all /api/auth/* endpoints.
 type AuthHandler struct {
-	DB                  *db.DB
-	JWTSecret           string
-	RefreshSecret       string
-	GitHubClientID      string
-	GitHubClientSecret  string
-	GitHubCallbackURL   string
-	GoogleClientID      string
-	GoogleClientSecret  string
-	GoogleCallbackURL   string
-	FrontendURL         string
-	Notify              *notify.Service
-	Mailer              *mailer.Mailer
+	DB                 *db.DB
+	JWTSecret          string
+	RefreshSecret      string
+	GitHubClientID     string
+	GitHubClientSecret string
+	GitHubCallbackURL  string
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleCallbackURL  string
+	FrontendURL        string
+	Notify             *notify.Service
+	Mailer             *mailer.Mailer
 }
 
 // ─── helpers ─────────────────────────────────────────────────
@@ -52,31 +53,32 @@ func sanitizeUser(u *models.User) map[string]any {
 		effectivePlan = "pro"
 	}
 	return map[string]any{
-		"id":                       u.ID,
-		"email":                    u.Email,
-		"name":                     u.Name,
-		"avatar_url":               u.AvatarURL,
-		"plan":                     effectivePlan,
-		"base_plan":                u.Plan,
-		"subscription_plan":        u.SubscriptionPlan,
-		"account_type":             u.AccountType,
-		"email_verified":           u.EmailVerified,
-		"totp_enabled":             u.TOTPEnabled,
-		"email_otp_enabled":        u.EmailOTPEnabled,
-		"is_admin":                 u.IsAdmin,
-		"suspended":                u.Suspended,
-		"github_login":             u.GithubLogin,
-		"google_id":                u.GoogleID,
-		"trial_ends_at":            u.TrialEndsAt,
-		"on_trial":                 onTrial,
-		"newsletter_subscribed":    u.NewsletterSubscribed,
+		"id":                           u.ID,
+		"email":                        u.Email,
+		"name":                         u.Name,
+		"avatar_url":                   u.AvatarURL,
+		"plan":                         effectivePlan,
+		"base_plan":                    u.Plan,
+		"subscription_plan":            u.SubscriptionPlan,
+		"account_type":                 u.AccountType,
+		"email_verified":               u.EmailVerified,
+		"totp_enabled":                 u.TOTPEnabled,
+		"email_otp_enabled":            u.EmailOTPEnabled,
+		"is_admin":                     u.IsAdmin,
+		"suspended":                    u.Suspended,
+		"github_login":                 u.GithubLogin,
+		"google_id":                    u.GoogleID,
+		"trial_ends_at":                u.TrialEndsAt,
+		"on_trial":                     onTrial,
+		"newsletter_subscribed":        u.NewsletterSubscribed,
 		"newsletter_unsubscribe_token": u.NewsletterUnsubscribeToken,
-		"created_at":               u.CreatedAt,
-		"updated_at":               u.UpdatedAt,
-		"last_seen_at":             u.LastSeenAt,
+		"created_at":                   u.CreatedAt,
+		"updated_at":                   u.UpdatedAt,
+		"last_seen_at":                 u.LastSeenAt,
+		"provisioned_by_org_id":        u.ProvisionedByOrgID,
+		"force_password_reset":         u.ForcePasswordReset,
 	}
 }
-
 
 // ─── Register ─────────────────────────────────────────────────
 
@@ -304,8 +306,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 
 	response.Success(w, map[string]any{
-		"access_token": accessToken,
-		"user":         sanitizeUser(user),
+		"access_token":        accessToken,
+		"user":                sanitizeUser(user),
+		"must_reset_password": user.ForcePasswordReset,
 	})
 }
 
@@ -535,6 +538,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		response.InternalError(w, err)
 		return
 	}
+	_ = h.DB.SetForcePasswordReset(r.Context(), rt.UserID, false)
 
 	_ = h.DB.MarkPasswordResetTokenUsed(r.Context(), hash)
 
@@ -722,8 +726,9 @@ func (h *AuthHandler) VerifyEmailOTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	response.Success(w, map[string]any{
-		"access_token": accessToken,
-		"user":         sanitizeUser(user),
+		"access_token":        accessToken,
+		"user":                sanitizeUser(user),
+		"must_reset_password": user.ForcePasswordReset,
 	})
 }
 
@@ -760,13 +765,52 @@ func (h *AuthHandler) DisableEmailOTP(w http.ResponseWriter, r *http.Request) {
 // ─── GitHub OAuth ─────────────────────────────────────────────
 
 // GitHubOAuth handles GET /api/auth/github — redirects to GitHub.
+// oauthAllowedRedirect validates a redirect_to origin and returns it if allowed,
+// otherwise returns h.FrontendURL. Localhost origins are always permitted for dev.
+func (h *AuthHandler) oauthAllowedRedirect(redirectTo string) string {
+	if redirectTo == "" {
+		return h.FrontendURL
+	}
+	if redirectTo == h.FrontendURL {
+		return h.FrontendURL
+	}
+	if strings.HasPrefix(redirectTo, "http://localhost:") ||
+		strings.HasPrefix(redirectTo, "http://127.0.0.1:") ||
+		redirectTo == "http://localhost" ||
+		redirectTo == "http://127.0.0.1" {
+		return redirectTo
+	}
+	return h.FrontendURL
+}
+
+// oauthEncodeState encodes a CSRF token and frontend origin into the OAuth state param.
+// Format: <csrfToken>.<base64url(origin)>
+func oauthEncodeState(csrfToken, origin string) string {
+	return csrfToken + "." + base64.RawURLEncoding.EncodeToString([]byte(origin))
+}
+
+// oauthDecodeState splits the state param and returns the embedded origin (or "").
+func oauthDecodeState(state string) (csrfToken, origin string) {
+	idx := strings.LastIndex(state, ".")
+	if idx < 0 {
+		return state, ""
+	}
+	b, err := base64.RawURLEncoding.DecodeString(state[idx+1:])
+	if err != nil {
+		return state[:idx], ""
+	}
+	return state[:idx], string(b)
+}
+
 func (h *AuthHandler) GitHubOAuth(w http.ResponseWriter, r *http.Request) {
-	state, _ := auth.GenerateSecureToken()
+	redirectTo := h.oauthAllowedRedirect(r.URL.Query().Get("redirect_to"))
+	csrfToken, _ := auth.GenerateSecureToken()
+	state := oauthEncodeState(csrfToken, redirectTo)
 	authURL := fmt.Sprintf(
 		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=user:email&state=%s",
 		h.GitHubClientID,
 		url.QueryEscape(h.GitHubCallbackURL),
-		state,
+		url.QueryEscape(state),
 	)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -778,6 +822,9 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 		response.BadRequest(w, "missing code")
 		return
 	}
+
+	_, frontendOrigin := oauthDecodeState(r.URL.Query().Get("state"))
+	frontendBase := h.oauthAllowedRedirect(frontendOrigin)
 
 	accessToken, err := auth.GetGitHubAccessToken(code, h.GitHubClientID, h.GitHubClientSecret, h.GitHubCallbackURL)
 	if err != nil {
@@ -824,7 +871,7 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if user.Suspended {
-		http.Redirect(w, r, h.FrontendURL+"/auth/suspended", http.StatusFound)
+		http.Redirect(w, r, frontendBase+"/auth/suspended", http.StatusFound)
 		return
 	}
 
@@ -837,7 +884,7 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 			response.InternalError(w, err)
 			return
 		}
-		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_2fa=totp&temp_token=%s", h.FrontendURL, url.QueryEscape(tempToken)), http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_2fa=totp&temp_token=%s", frontendBase, url.QueryEscape(tempToken)), http.StatusFound)
 		return
 	}
 	if user.EmailOTPEnabled {
@@ -850,7 +897,7 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 		code := fmt.Sprintf("%06d", n.Int64())
 		h.DB.CreateEmailOTPCode(r.Context(), user.ID, auth.HashToken(code), time.Now().Add(5*time.Minute))
 		go h.Mailer.SendLoginOTP(user.Email, user.Name, code)
-		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_email_otp=1&temp_token=%s&email=%s", h.FrontendURL, url.QueryEscape(tempToken), url.QueryEscape(user.Email)), http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_email_otp=1&temp_token=%s&email=%s", frontendBase, url.QueryEscape(tempToken), url.QueryEscape(user.Email)), http.StatusFound)
 		return
 	}
 
@@ -879,7 +926,7 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   30 * 24 * 60 * 60,
 	})
 
-	redirectURL := h.FrontendURL + "/auth/callback?token=" + url.QueryEscape(jwtToken)
+	redirectURL := frontendBase + "/auth/callback?token=" + url.QueryEscape(jwtToken)
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
@@ -887,12 +934,14 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 
 // GoogleOAuth handles GET /api/auth/google.
 func (h *AuthHandler) GoogleOAuth(w http.ResponseWriter, r *http.Request) {
-	state, _ := auth.GenerateSecureToken()
+	redirectTo := h.oauthAllowedRedirect(r.URL.Query().Get("redirect_to"))
+	csrfToken, _ := auth.GenerateSecureToken()
+	state := oauthEncodeState(csrfToken, redirectTo)
 	authURL := fmt.Sprintf(
 		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid+email+profile&state=%s",
 		h.GoogleClientID,
 		url.QueryEscape(h.GoogleCallbackURL),
-		state,
+		url.QueryEscape(state),
 	)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -904,6 +953,9 @@ func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		response.BadRequest(w, "missing code")
 		return
 	}
+
+	_, frontendOrigin := oauthDecodeState(r.URL.Query().Get("state"))
+	frontendBase := h.oauthAllowedRedirect(frontendOrigin)
 
 	accessToken, err := auth.GetGoogleAccessToken(code, h.GoogleClientID, h.GoogleClientSecret, h.GoogleCallbackURL)
 	if err != nil {
@@ -942,7 +994,7 @@ func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if user.Suspended {
-		http.Redirect(w, r, h.FrontendURL+"/auth/suspended", http.StatusFound)
+		http.Redirect(w, r, frontendBase+"/auth/suspended", http.StatusFound)
 		return
 	}
 
@@ -955,7 +1007,7 @@ func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 			response.InternalError(w, err)
 			return
 		}
-		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_2fa=totp&temp_token=%s", h.FrontendURL, url.QueryEscape(tempToken)), http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_2fa=totp&temp_token=%s", frontendBase, url.QueryEscape(tempToken)), http.StatusFound)
 		return
 	}
 	if user.EmailOTPEnabled {
@@ -968,7 +1020,7 @@ func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		code := fmt.Sprintf("%06d", n.Int64())
 		h.DB.CreateEmailOTPCode(r.Context(), user.ID, auth.HashToken(code), time.Now().Add(5*time.Minute))
 		go h.Mailer.SendLoginOTP(user.Email, user.Name, code)
-		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_email_otp=1&temp_token=%s&email=%s", h.FrontendURL, url.QueryEscape(tempToken), url.QueryEscape(user.Email)), http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("%s/auth/callback?requires_email_otp=1&temp_token=%s&email=%s", frontendBase, url.QueryEscape(tempToken), url.QueryEscape(user.Email)), http.StatusFound)
 		return
 	}
 
@@ -997,7 +1049,7 @@ func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   30 * 24 * 60 * 60,
 	})
 
-	redirectURL := h.FrontendURL + "/auth/callback?token=" + url.QueryEscape(jwtToken)
+	redirectURL := frontendBase + "/auth/callback?token=" + url.QueryEscape(jwtToken)
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
@@ -1215,7 +1267,8 @@ func (h *AuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 	})
 
 	response.Success(w, map[string]any{
-		"access_token": accessToken,
-		"user":         sanitizeUser(user),
+		"access_token":        accessToken,
+		"user":                sanitizeUser(user),
+		"must_reset_password": user.ForcePasswordReset,
 	})
 }

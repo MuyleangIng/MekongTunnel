@@ -3,590 +3,1164 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src __CSP_SOURCE__;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src __CSP_SOURCE__ https: data:; style-src 'unsafe-inline'; script-src __CSP_SOURCE__;">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --cyan:   #00d4ff;
-  --green:  #3fb950;
-  --amber:  #f0a500;
-  --red:    #f85149;
-  --border: rgba(255,255,255,0.07);
-  --card:   rgba(255,255,255,0.03);
-  --hover:  rgba(255,255,255,0.06);
+  --accent: var(--vscode-textLink-foreground, #3794ff);
+  --accent-strong: var(--vscode-button-background, #0e639c);
+  --accent-hover: var(--vscode-button-hoverBackground, #1177bb);
+  --success: #22c55e;
+  --success-soft: rgba(34, 197, 94, 0.12);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.12);
+  --page-bg: var(--vscode-sideBar-background, #1e1e1e);
+  --card-bg: var(--vscode-editorWidget-background, var(--page-bg));
+  --card-muted: var(--vscode-input-background, rgba(127, 127, 127, 0.1));
+  --card-hover: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.12));
+  --border: var(--vscode-panel-border, rgba(255, 255, 255, 0.14));
+  --input-border: var(--vscode-input-border, rgba(255, 255, 255, 0.18));
+  --fg: var(--vscode-foreground, #f3f4f6);
+  --fg-muted: var(--vscode-descriptionForeground, #c2cedd);
+  --fg-soft: color-mix(in srgb, var(--fg-muted) 82%, var(--page-bg) 18%);
 }
 
 body {
   font-family: var(--vscode-font-family);
   font-size: 12px;
-  color: var(--vscode-foreground);
-  background: var(--vscode-sideBar-background);
+  color: var(--fg);
+  background: var(--page-bg);
   overflow-x: hidden;
-  user-select: none;
-  line-height: 1.4;
 }
 
-/* ── Header ──────────────────────────────────────────────────────── */
+button,
+input,
+select {
+  font: inherit;
+}
+
+.panel-wrap {
+  padding: 8px;
+}
+
+.shell {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
 .header {
-  padding: 12px 14px 11px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: none;
+}
+
+.logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.brand {
+  min-width: 0;
+  flex: 1;
+}
+
+.h-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.h-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.head-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(55, 148, 255, 0.22);
+  background: rgba(55, 148, 255, 0.12);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.status-bar {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.status-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.status-copy {
+  min-width: 0;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dot.green {
+  background: var(--success);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+}
+
+.dot.amber {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(55, 148, 255, 0.14);
+}
+
+.s-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.s-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-btn {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  background: var(--vscode-button-secondaryBackground, var(--card-muted));
+  color: var(--vscode-button-secondaryForeground, var(--fg));
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.mini-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--card-hover));
+  color: var(--fg);
+}
+
+.mini-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.mini-btn.danger {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.26);
+}
+
+.mini-btn.danger:hover {
+  background: var(--danger-soft);
+  color: #fecaca;
+}
+
+.account-card,
+.notice-card,
+.sec,
+.status-card,
+.alog,
+.log-link {
+  margin: 10px 16px 0;
+}
+
+.account-card {
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.account-card.signed-in {
+  border-color: rgba(34, 197, 94, 0.22);
+  background: var(--success-soft);
+}
+
+.account-card.signing-in {
+  border-color: rgba(55, 148, 255, 0.22);
+  background: rgba(55, 148, 255, 0.08);
+}
+
+.acct-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.acct-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.acct-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.acct-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.notice-card {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card-muted);
+}
+
+.notice-card.warn {
+  border-color: rgba(239, 68, 68, 0.22);
+  background: rgba(239, 68, 68, 0.07);
+}
+
+.notice-card.amber {
+  border-color: rgba(55, 148, 255, 0.22);
+  background: rgba(55, 148, 255, 0.08);
+}
+
+.notice-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.notice-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.notice-body {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+.platform-badge {
+  margin-left: auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--fg-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.code-label {
+  margin-top: 9px;
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.code-block {
+  position: relative;
+  width: 100%;
+  padding: 9px 34px 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--vscode-textCodeBlock-background, var(--card-bg));
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1.5;
+  font-family: var(--vscode-editor-font-family, monospace);
+  word-break: break-word;
+  cursor: pointer;
+}
+
+.code-block:hover {
+  border-color: rgba(14, 165, 233, 0.22);
+}
+
+.code-copy {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.copied-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--success);
+  font-weight: 600;
+}
+
+.notice-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.notice-actions button {
+  flex: 1;
+}
+
+.mode-tabs {
+  margin: 14px 16px 0;
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--card-muted);
+}
+
+.mode-tab {
+  flex: 1;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-tab.active {
+  background: var(--card-bg);
+  color: var(--fg);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.mode-sep {
+  width: 1px;
+  background: var(--border);
+}
+
+.screen {
+  padding-bottom: 4px;
+}
+
+.sec {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card-muted);
+}
+
+.lbl {
+  margin-bottom: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.port-in,
+.sel {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: 10px;
+  border: 1px solid var(--input-border);
+  background: var(--vscode-input-background, rgba(255, 255, 255, 0.04));
+  color: var(--vscode-input-foreground, var(--fg));
+  outline: none;
+}
+
+.port-in:focus,
+.sel:focus {
+  border-color: rgba(14, 165, 233, 0.4);
+}
+
+.port-in.error {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.sm-btn {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--input-border);
+  background: var(--vscode-button-secondaryBackground, var(--card-bg));
+  color: var(--vscode-button-secondaryForeground, var(--fg));
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sm-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--card-hover));
+  color: var(--fg);
+}
+
+.note {
+  margin-top: 7px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  min-height: 16px;
+}
+
+.note.ok {
+  color: #86efac;
+}
+
+.note.err {
+  color: #fca5a5;
+}
+
+.info-card {
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: var(--card-muted);
+  border: 1px solid var(--border);
+}
+
+.info-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.info-text {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+.start-btn,
+.stop-btn,
+.sub-act,
+.url-act,
+.log-link,
+.primary-btn,
+.ghost-btn {
+  transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.start-btn,
+.primary-btn {
+  width: 100%;
+  height: 40px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--accent-strong);
+  color: var(--vscode-button-foreground, #ffffff);
+  cursor: pointer;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.start-btn:hover,
+.primary-btn:hover {
+  background: var(--accent-hover);
+}
+
+.success-btn {
+  background: var(--success);
+  color: #ffffff;
+}
+
+.success-btn:hover {
+  background: color-mix(in srgb, var(--success) 88%, black 12%);
+}
+
+.start-btn:disabled,
+.primary-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ghost-btn {
+  width: 100%;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--input-border);
+  background: var(--vscode-button-secondaryBackground, var(--card-bg));
+  color: var(--vscode-button-secondaryForeground, var(--fg));
+  cursor: pointer;
+}
+
+.ghost-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--card-hover));
+}
+
+.stop-btn {
+  width: 100%;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  background: var(--danger-soft);
+  color: #fca5a5;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.stop-btn:hover {
+  opacity: 0.9;
+}
+
+.connecting-card {
+  margin: 10px 16px 0;
+  padding: 14px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(55, 148, 255, 0.22);
+  background: rgba(55, 148, 255, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(55, 148, 255, 0.2);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.activity-pill {
+  margin: 10px 16px 0;
+  padding: 11px 12px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   gap: 9px;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(135deg, rgba(0,212,255,0.04) 0%, rgba(0,0,0,0) 60%);
-}
-.header-logo {
-  width: 28px; height: 28px;
-  border-radius: 7px;
-  background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(0,153,204,0.1));
-  border: 1px solid rgba(0,212,255,0.25);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 15px; flex-shrink: 0;
-}
-.header-info { flex: 1; min-width: 0; }
-.header-title { font-size: 12px; font-weight: 700; color: var(--vscode-foreground); letter-spacing: 0.1px; }
-.header-sub   { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 1px; }
-.header-pill  {
-  font-size: 9px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
-  padding: 2px 7px; border-radius: 20px; flex-shrink: 0;
-  background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.3); color: var(--green);
-  display: none; align-items: center; gap: 4px;
-}
-.pulse-dot {
-  width: 5px; height: 5px; border-radius: 50%; background: currentColor;
-  animation: pulse 1.6s infinite;
-}
-@keyframes pulse {
-  0%,100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.5; transform: scale(0.8); }
+  background: var(--success-soft);
+  border: 1px solid rgba(34, 197, 94, 0.22);
 }
 
-/* ── Status row ──────────────────────────────────────────────────── */
-.status-row {
-  margin: 10px 12px 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  display: flex; align-items: center; gap: 10px;
-  transition: border-color 0.25s, background 0.25s;
+.green-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  flex-shrink: 0;
 }
-.status-row.st-running { border-color: rgba(63,185,80,0.3);  background: rgba(63,185,80,0.04); }
-.status-row.st-starting{ border-color: rgba(240,165,0,0.3); background: rgba(240,165,0,0.04); }
 
-.st-dot {
-  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; transition: background 0.25s;
-  background: rgba(255,255,255,0.18);
+.pill-copy {
+  min-width: 0;
 }
-.st-dot.d-running  { background: var(--green); box-shadow: 0 0 0 3px rgba(63,185,80,0.2); animation: glow 2s infinite; }
-.st-dot.d-starting { background: var(--amber); animation: blink 0.9s infinite; }
-@keyframes glow  { 0%,100%{ box-shadow:0 0 0 3px rgba(63,185,80,0.2)} 50%{box-shadow:0 0 0 5px rgba(63,185,80,0.08)} }
-@keyframes blink { 0%,100%{ opacity:1 } 50%{ opacity:0.3 } }
 
-.st-text { flex: 1; min-width: 0; }
-.st-label { font-size: 11px; font-weight: 600; color: var(--vscode-foreground); }
-.st-sub   { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 1px;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #bbf7d0;
+}
 
-/* ── Connecting animation ────────────────────────────────────────── */
-.connecting {
-  margin: 8px 12px 0;
-  padding: 12px;
-  border-radius: 8px;
-  background: rgba(240,165,0,0.05);
-  border: 1px solid rgba(240,165,0,0.18);
-  display: none; text-align: center;
-}
-.conn-spinner {
-  display: flex; gap: 5px; justify-content: center; margin-bottom: 6px;
-}
-.conn-dot {
-  width: 6px; height: 6px; border-radius: 50%; background: var(--amber);
-  animation: connBounce 1.2s infinite ease-in-out;
-}
-.conn-dot:nth-child(1){ animation-delay: 0s; }
-.conn-dot:nth-child(2){ animation-delay: 0.15s; }
-.conn-dot:nth-child(3){ animation-delay: 0.3s; }
-@keyframes connBounce {
-  0%,80%,100%{ transform: scale(0.6); opacity: 0.4; }
-  40%        { transform: scale(1);   opacity: 1; }
-}
-.conn-label { font-size: 10px; color: var(--amber); font-weight: 600; }
-
-/* ── Form area ───────────────────────────────────────────────────── */
-.form-block { margin: 10px 12px 0; }
-.form-label {
-  font-size: 10px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.7px; color: var(--vscode-descriptionForeground);
-  margin-bottom: 5px;
-}
-.input-row { display: flex; gap: 5px; }
-
-input[type=number], select {
-  flex: 1; height: 27px; padding: 0 8px;
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, rgba(255,255,255,0.1));
-  border-radius: 5px;
-  color: var(--vscode-input-foreground);
-  font-size: 11px; outline: none; min-width: 0;
-  font-family: inherit;
-  transition: border-color 0.15s;
-}
-input[type=number]:focus, select:focus { border-color: var(--cyan); }
-input.error { border-color: var(--red) !important; }
-input[type=number]::-webkit-inner-spin-button { opacity: 0.4; }
-
-.hint { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 4px; min-height: 13px; }
-.hint.ok  { color: var(--green); }
-.hint.err { color: var(--red); font-weight: 600; }
-
-/* ── Buttons ─────────────────────────────────────────────────────── */
-button {
-  border: none; border-radius: 5px; cursor: pointer;
-  font-family: inherit; font-size: 11px; font-weight: 600;
-  transition: opacity 0.12s, transform 0.08s;
+.pill-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-muted);
   white-space: nowrap;
-}
-button:active { transform: scale(0.96); }
-button:disabled { opacity: 0.3; cursor: not-allowed; }
-
-.btn-detect {
-  height: 27px; padding: 0 9px; flex-shrink: 0;
-  background: var(--card);
-  border: 1px solid var(--border) !important;
-  color: var(--vscode-descriptionForeground);
-}
-.btn-detect:hover { background: var(--hover); color: var(--vscode-foreground); }
-
-.btn-primary {
-  width: 100%; height: 33px; border-radius: 7px; font-size: 12px; font-weight: 700;
-  background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
-  color: #0a0f14;
-  box-shadow: 0 1px 8px rgba(0,212,255,0.2);
-}
-.btn-primary:hover { opacity: 0.88; }
-
-.btn-danger {
-  width: 100%; height: 33px; border-radius: 7px; font-size: 12px; font-weight: 700;
-  background: linear-gradient(135deg, #f85149 0%, #c0392b 100%);
-  color: #fff;
-  box-shadow: 0 1px 8px rgba(248,81,73,0.2);
-}
-.btn-danger:hover { opacity: 0.88; }
-
-.btn-sm-danger {
-  width: 100%; height: 28px; border-radius: 6px; font-size: 11px; font-weight: 600;
-  background: rgba(248,81,73,0.1);
-  border: 1px solid rgba(248,81,73,0.3) !important;
-  color: var(--red);
-}
-.btn-sm-danger:hover { background: rgba(248,81,73,0.18); }
-
-.btn-amber {
-  width: 100%; height: 33px; border-radius: 7px; font-size: 12px; font-weight: 700;
-  background: linear-gradient(135deg, #f0a500 0%, #c78200 100%);
-  color: #0a0f14;
-  box-shadow: 0 1px 8px rgba(240,165,0,0.2);
-}
-.btn-amber:hover { opacity: 0.88; }
-
-.btn-outline-cyan {
-  width: 100%; height: 28px; border-radius: 6px; font-size: 11px;
-  background: rgba(0,212,255,0.07);
-  border: 1px solid rgba(0,212,255,0.25) !important;
-  color: var(--cyan);
-}
-.btn-outline-cyan:hover { background: rgba(0,212,255,0.13); }
-
-/* ── URL card ────────────────────────────────────────────────────── */
-.url-card {
-  border-radius: 8px; padding: 10px 11px;
-  background: rgba(63,185,80,0.04);
-  border: 1px solid rgba(63,185,80,0.22);
-}
-.url-card.amber {
-  background: rgba(240,165,0,0.04);
-  border-color: rgba(240,165,0,0.22);
-}
-.url-card-label {
-  font-size: 9px; font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase;
-  color: var(--green); margin-bottom: 5px;
-}
-.url-card.amber .url-card-label { color: var(--amber); }
-.url-card-text {
-  font-size: 11px; font-family: monospace; color: var(--cyan);
-  word-break: break-all; line-height: 1.5; margin-bottom: 8px;
-}
-.url-card.amber .url-card-text { color: var(--amber); }
-.url-btn-row { display: flex; gap: 5px; }
-.url-btn-row button { flex: 1; height: 25px; font-size: 10px; }
-
-.btn-copy-url {
-  background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.25) !important; color: var(--cyan);
-}
-.btn-copy-url:hover { background: rgba(0,212,255,0.15); }
-.btn-copy-url.flashed { background: rgba(63,185,80,0.1) !important; border-color: rgba(63,185,80,0.3) !important; color: var(--green) !important; }
-.btn-copy-amber {
-  background: rgba(240,165,0,0.08); border: 1px solid rgba(240,165,0,0.25) !important; color: var(--amber);
-}
-.btn-copy-amber:hover { background: rgba(240,165,0,0.15); }
-.btn-copy-amber.flashed { background: rgba(63,185,80,0.1) !important; border-color: rgba(63,185,80,0.3) !important; color: var(--green) !important; }
-.btn-open-url {
-  background: var(--card); border: 1px solid var(--border) !important; color: var(--vscode-descriptionForeground);
-}
-.btn-open-url:hover { background: var(--hover); color: var(--vscode-foreground); }
-
-/* ── Section divider ─────────────────────────────────────────────── */
-.section-divider {
-  margin: 12px 12px 0;
-  display: flex; align-items: center; gap: 8px;
-}
-.section-divider-line { flex: 1; height: 1px; background: var(--border); }
-.section-divider-text {
-  font-size: 9px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
-  color: var(--vscode-descriptionForeground); opacity: 0.6;
-  padding: 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* ── View Log button ─────────────────────────────────────────────── */
+.pub-url-card {
+  margin: 10px 16px 0;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card-muted);
+}
+
+.pub-url-card.amber {
+  border-color: var(--border);
+  background: var(--card-muted);
+}
+
+.pub-badge {
+  margin-bottom: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.pub-url {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #7dd3fc;
+  font-family: var(--vscode-editor-font-family, monospace);
+  word-break: break-word;
+}
+
+.pub-url-card.amber .pub-url {
+  color: var(--accent);
+}
+
+.url-acts,
+.stack-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.url-acts {
+  margin-top: 10px;
+}
+
+.url-act,
+.sub-act {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 10px;
+  border: 1px solid var(--input-border);
+  background: var(--vscode-button-secondaryBackground, var(--card-bg));
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.url-act:disabled,
+.sub-act:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.url-act:hover,
+.sub-act:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--card-hover));
+}
+
+.url-act.copied {
+  border-color: rgba(34, 197, 94, 0.26);
+  color: #bbf7d0;
+}
+
+.sub-act.copied {
+  border-color: rgba(34, 197, 94, 0.26);
+  color: #bbf7d0;
+}
+
+.stack-actions {
+  margin: 10px 16px 0;
+  flex-direction: column;
+}
+
+.sub-act-danger {
+  border-color: rgba(239, 68, 68, 0.26);
+  background: rgba(239, 68, 68, 0.08);
+  color: #fecaca;
+}
+
+.sub-act-danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.status-card {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-card.active {
+  border-color: rgba(34, 197, 94, 0.22);
+  background: var(--success-soft);
+}
+
+.state-pill {
+  margin-left: auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--fg-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .log-link {
-  display: flex; align-items: center; gap: 6px;
-  margin: 10px 12px 0; padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: transparent; cursor: pointer; width: calc(100% - 24px);
-  color: var(--vscode-descriptionForeground); font-size: 10px;
-  transition: border-color 0.15s, color 0.15s;
-  font-family: inherit;
+  width: calc(100% - 32px);
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--input-border);
+  background: var(--vscode-button-secondaryBackground, var(--card-bg));
+  color: var(--vscode-button-secondaryForeground, var(--fg));
+  cursor: pointer;
 }
-.log-link:hover { border-color: rgba(255,255,255,0.18); color: var(--vscode-foreground); }
-.log-link-icon { font-size: 12px; }
 
-/* ── Activity log ────────────────────────────────────────────────── */
+.log-link:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--card-hover));
+  color: var(--fg);
+}
+
 .alog {
-  margin: 10px 12px 0;
+  margin-bottom: 16px;
   border: 1px solid var(--border);
-  border-radius: 7px; overflow: hidden;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--card-muted);
 }
+
 .alog-header {
-  display: flex; align-items: center; gap: 6px;
-  padding: 5px 9px;
-  background: var(--card);
-  border-bottom: 1px solid var(--border);
-  cursor: pointer; user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--card-bg);
+  cursor: pointer;
 }
-.alog-header:hover { background: var(--hover); }
-.alog-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: var(--vscode-descriptionForeground); flex: 1; }
-.alog-arrow { font-size: 9px; color: var(--vscode-descriptionForeground); opacity: 0.6; }
-.alog-body  { max-height: 88px; overflow-y: auto; font-family: monospace; font-size: 10px; }
-.alog-empty { padding: 9px; color: rgba(255,255,255,0.2); font-style: italic; font-size: 10px; }
-.alog-row   {
-  display: flex; align-items: baseline; gap: 7px;
-  padding: 2px 9px; line-height: 1.55;
-}
-.alog-row:hover { background: var(--hover); }
-.alog-ts  { font-size: 9px; color: rgba(255,255,255,0.18); flex-shrink: 0; }
-.alog-msg { color: rgba(255,255,255,0.4); }
-.alog-row.ok   .alog-msg { color: var(--green); }
-.alog-row.warn .alog-msg { color: var(--amber); }
-.alog-row.err  .alog-msg { color: var(--red); }
 
-/* ── Spacer ──────────────────────────────────────────────────────── */
-.gap8  { height: 8px; }
-.gap10 { height: 10px; }
-.gap12 { height: 12px; }
+.alog-header:hover {
+  background: var(--card-hover);
+}
 
-/* ── Account card ────────────────────────────────────────────────── */
-.acct-card {
-  border-radius: 8px; padding: 9px 11px;
-  border: 1px solid var(--border); background: var(--card);
-  display: flex; align-items: center; gap: 9px;
-  transition: border-color 0.2s, background 0.2s;
+.alog-title {
+  flex: 1;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
 }
-.acct-card.signed-in  { border-color: rgba(63,185,80,0.25); background: rgba(63,185,80,0.03); }
-.acct-card.signing-in { border-color: rgba(240,165,0,0.25); background: rgba(240,165,0,0.03); }
-.acct-avatar {
-  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center; font-size: 13px;
-  background: var(--vscode-badge-background, rgba(255,255,255,0.08)); border: 1px solid var(--border);
+
+.alog-arrow {
+  color: var(--fg-muted);
 }
-.acct-info { flex: 1; min-width: 0; }
-.acct-name { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--vscode-foreground); }
-.acct-name.signed-in { color: var(--green); }
-.acct-sub  { font-size: 9px; color: var(--vscode-descriptionForeground); margin-top: 1px; }
-.plan-chip {
-  font-size: 9px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
-  padding: 1px 6px; border-radius: 20px; flex-shrink: 0;
-  background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.25); color: var(--cyan);
+
+.alog-body {
+  max-height: 132px;
+  overflow-y: auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
 }
-.btn-login  {
-  height: 25px; padding: 0 10px; flex-shrink: 0; border-radius: 5px;
-  background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.3) !important;
-  color: var(--cyan); font-size: 10px; font-weight: 700;
+
+.alog-empty {
+  padding: 12px;
+  color: var(--fg-soft);
+  font-style: italic;
 }
-.btn-login:hover { background: rgba(0,212,255,0.18); }
-.btn-logout {
-  height: 25px; padding: 0 10px; flex-shrink: 0; border-radius: 5px;
-  background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.25) !important;
-  color: var(--red); font-size: 10px; font-weight: 600;
+
+.alog-row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 12px;
+  line-height: 1.5;
 }
-.btn-logout:hover { background: rgba(248,81,73,0.15); }
+
+.alog-row:hover {
+  background: var(--card-hover);
+}
+
+.alog-ts {
+  color: rgba(255, 255, 255, 0.24);
+  flex-shrink: 0;
+}
+
+.alog-msg {
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.pub-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.pub-card-top .pub-badge {
+  margin-bottom: 0;
+}
+
+.pub-tag {
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pub-help {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+.pub-url-card.pending {
+  border-color: rgba(55, 148, 255, 0.22);
+  background: rgba(55, 148, 255, 0.08);
+}
+
+.pub-url-card.pending .pub-url {
+  color: var(--accent);
+}
+
+.pub-url-card.pending .pub-tag {
+  border-color: rgba(55, 148, 255, 0.24);
+  background: rgba(55, 148, 255, 0.12);
+  color: #c6e2ff;
+}
+
+.alog-row.ok .alog-msg {
+  color: #86efac;
+}
+
+.alog-row.warn .alog-msg {
+  color: #c6e2ff;
+}
+
+.alog-row.err .alog-msg {
+  color: #fca5a5;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.port-chip {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.1);
+  color: #86efac;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.port-chip.alt {
+  border-color: rgba(55, 148, 255, 0.28);
+  background: rgba(55, 148, 255, 0.1);
+  color: #c6e2ff;
+}
 </style>
 </head>
 <body>
-
-<!-- ── Header ──────────────────────────────────────────────── -->
-<div class="header">
-  <div class="header-logo">&#x1F4E1;</div>
-  <div class="header-info">
-    <div class="header-title">Mekong Tunnel</div>
-    <div class="header-sub">KhmerStack &middot; mekongtunnel.dev</div>
-  </div>
-  <div class="header-pill" id="live-badge">
-    <span class="pulse-dot"></span>LIVE
-  </div>
-</div>
-
-<!-- ── Account section ──────────────────────────────────────── -->
-<div class="gap8"></div>
-<div class="form-block">
-  <div class="acct-card" id="acct-card">
-    <div class="acct-avatar" id="acct-avatar">&#x1F464;</div>
-    <div class="acct-info">
-      <div class="acct-name" id="acct-name">Not logged in</div>
-      <div class="acct-sub"  id="acct-sub">Login for a reserved subdomain</div>
+<div class="panel-wrap">
+  <div class="shell">
+    <div class="header">
+      <div class="logo">
+        <img id="brand-logo" src="__LOGO_URI__" alt="Mekong Tunnel logo">
+      </div>
+      <div class="brand">
+        <div class="h-title">Mekong Tunnel</div>
+        <div class="h-sub">mekongtunnel.dev</div>
+      </div>
+      <div class="head-pill" id="acct-plan" style="display:none"></div>
     </div>
-    <span class="plan-chip" id="acct-plan" style="display:none"></span>
-    <button class="btn-login"  id="acct-login-btn">Login</button>
-    <button class="btn-logout" id="acct-logout-btn" style="display:none">Logout</button>
-  </div>
-</div>
 
-<!-- ── Mekong not installed banner ──────────────────────────── -->
-<div id="mekong-missing" style="display:none">
-  <div class="gap10"></div>
-  <div class="form-block">
-    <div style="border-radius:8px;border:1px solid var(--vscode-inputValidation-warningBorder,rgba(248,81,73,0.35));background:var(--vscode-inputValidation-warningBackground,rgba(248,81,73,0.06));padding:11px 12px;">
+    <div class="status-bar">
+      <div class="status-left">
+        <div class="dot" id="main-dot"></div>
+        <div class="status-copy">
+          <div class="s-label" id="main-label">No active tunnel</div>
+          <div class="s-sub" id="main-sub">Ready to connect</div>
+        </div>
+      </div>
+      <button class="mini-btn" id="acct-login-btn">Log in</button>
+      <button class="mini-btn danger" id="acct-logout-btn" style="display:none">Log out</button>
+    </div>
 
-      <!-- title row -->
-      <div style="display:flex;align-items:center;gap:7px;margin-bottom:5px;">
-        <span style="font-size:12px;">&#x26A0;</span>
-        <span style="font-size:11px;font-weight:700;color:var(--vscode-inputValidation-warningForeground,#f85149);">mekong not installed</span>
-        <span id="install-platform-badge" style="margin-left:auto;font-size:9px;font-weight:700;letter-spacing:0.5px;color:var(--vscode-descriptionForeground);background:var(--vscode-badge-background,rgba(255,255,255,0.08));border:1px solid var(--vscode-panel-border,rgba(255,255,255,0.1));border-radius:4px;padding:1px 6px;"></span>
+    <div class="account-card" id="acct-card">
+      <div class="acct-avatar" id="acct-avatar">MK</div>
+      <div class="acct-copy">
+        <div class="acct-name" id="acct-name">Not logged in</div>
+        <div class="acct-sub" id="acct-sub">Login for a reserved subdomain</div>
+      </div>
+    </div>
+
+    <div class="notice-card warn" id="mekong-missing" style="display:none">
+      <div class="notice-head">
+        <span>&#9888;</span>
+        <div class="notice-title">mekong CLI not installed</div>
+        <div class="platform-badge" id="install-platform-badge"></div>
+      </div>
+      <div class="notice-body">
+        Tunneling needs the <strong style="color:var(--fg)">mekong</strong> CLI. Run the install command on your own computer, then click <strong style="color:var(--fg)">Re-check</strong>. Live Server and preview still work without it.
       </div>
 
-      <!-- description -->
-      <div style="font-size:10px;color:var(--vscode-descriptionForeground);line-height:1.55;margin-bottom:8px;">
-        Tunneling requires the <strong style="color:var(--vscode-foreground);">mekong</strong> CLI. Live Server works without it.
-      </div>
-
-      <!-- unix: one-click copy command -->
-      <div id="install-unix" style="display:none;margin-bottom:9px;">
-        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--vscode-descriptionForeground);opacity:0.7;margin-bottom:5px;">Click to copy install command:</div>
-        <div id="install-cmd-block"
-          title="Click to copy"
-          style="position:relative;cursor:pointer;font-size:10px;font-family:var(--vscode-editor-font-family,monospace);background:var(--vscode-textCodeBlock-background,rgba(0,0,0,0.2));border:1px solid var(--vscode-panel-border,rgba(255,255,255,0.1));border-radius:6px;padding:8px 36px 8px 10px;color:var(--vscode-textPreformat-foreground,#00d4ff);word-break:break-all;line-height:1.6;transition:border-color 0.15s,background 0.15s;">
+      <div id="install-unix" style="display:none">
+        <div class="code-label">Click to copy install command</div>
+        <button class="code-block" id="install-cmd-block" title="Click to copy">
           <span id="install-cmd-text"></span>
-          <span id="install-copy-icon" style="position:absolute;top:6px;right:8px;font-size:12px;opacity:0.5;">&#x2398;</span>
+          <span class="code-copy" id="install-copy-icon">&#x2398;</span>
+        </button>
+        <div class="copied-hint" id="install-copied-hint" style="display:none">&#10003; Copied to clipboard</div>
+      </div>
+
+      <div id="install-windows" style="display:none; margin-top:10px" class="notice-body">
+        Run the PowerShell install command on your own computer, then come back and click <strong style="color:var(--fg)">Re-check</strong>.
+      </div>
+
+      <div class="notice-actions">
+        <button class="primary-btn" id="install-btn">Open Install Script</button>
+        <button class="ghost-btn" id="recheck-btn">Re-check</button>
+      </div>
+    </div>
+
+    <div class="notice-card amber" id="port-warning" style="display:none">
+      <div class="notice-head">
+        <span>&#128268;</span>
+        <div class="notice-title">Dev server not running</div>
+      </div>
+      <div class="notice-body">
+        Nothing is listening on <strong id="warn-port" style="color:var(--fg)"></strong>. Start your app first, or continue anyway.
+      </div>
+      <div class="code-label">Suggested command</div>
+      <div class="code-block" style="cursor:default; color:var(--fg)" id="warn-cmd"></div>
+      <div class="notice-actions">
+        <button class="primary-btn" id="warn-anyway-btn">Start anyway</button>
+        <button class="ghost-btn" id="warn-cancel-btn">Cancel</button>
+      </div>
+    </div>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="tab-tunnel">Tunnel</button>
+      <div class="mode-sep"></div>
+      <button class="mode-tab" id="tab-live">Live Server</button>
+    </div>
+
+    <section class="screen" id="tunnel-screen">
+      <div class="sec" id="config-section">
+        <div class="lbl">Local port</div>
+        <div class="row">
+          <input class="port-in" type="number" id="port-input" placeholder="3000" min="1" max="65535">
+          <button class="sm-btn" id="detect-btn">Detect</button>
         </div>
-        <div id="install-copied-hint" style="display:none;font-size:10px;color:var(--vscode-terminal-ansiGreen,#3fb950);margin-top:4px;font-weight:600;">&#x2713; Copied to clipboard!</div>
+        <div class="note" id="framework-hint"></div>
       </div>
 
-      <!-- windows: download only -->
-      <div id="install-windows" style="display:none;margin-bottom:9px;">
-        <div style="font-size:10px;color:var(--vscode-descriptionForeground);line-height:1.6;">
-          Download <code style="font-family:monospace;background:var(--vscode-textCodeBlock-background,rgba(0,0,0,0.2));padding:1px 5px;border-radius:3px;color:var(--vscode-textPreformat-foreground);">mekong-windows-amd64.exe</code>, rename to <code style="font-family:monospace;background:var(--vscode-textCodeBlock-background,rgba(0,0,0,0.2));padding:1px 5px;border-radius:3px;color:var(--vscode-textPreformat-foreground);">mekong.exe</code> and add to your PATH.
+      <div class="sec" id="expire-section">
+        <div class="lbl">Expiry</div>
+        <select class="sel" id="expire-select">
+          <option value="">No expiry (session only)</option>
+          <option value="1h">1 hour</option>
+          <option value="6h">6 hours</option>
+          <option value="24h">24 hours</option>
+          <option value="2d">2 days</option>
+          <option value="1w">1 week</option>
+        </select>
+      </div>
+
+      <div class="info-card" style="margin:10px 16px 0">
+        <div class="info-title">Public URL</div>
+        <div class="info-text" id="tunnel-note-text">A public URL is generated when the tunnel starts.</div>
+      </div>
+
+      <div class="sec" id="start-section">
+        <button class="start-btn" id="start-btn">Start tunnel</button>
+      </div>
+
+      <div class="connecting-card" id="connecting-box" style="display:none">
+        <div class="spinner"></div>
+        <div>
+          <div class="pill-title" style="color:var(--accent)">Connecting tunnel</div>
+          <div class="pill-sub">Waiting for Mekong to return the public URL</div>
         </div>
       </div>
 
-      <!-- buttons -->
-      <div style="display:flex;gap:6px;">
-        <button id="install-btn" style="flex:1;height:27px;border-radius:6px;background:var(--vscode-button-background,rgba(0,212,255,0.12));border:1px solid var(--vscode-button-border,rgba(0,212,255,0.3));color:var(--vscode-button-foreground,#00d4ff);font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;">&#x2B07; Download</button>
-        <button id="recheck-btn" style="flex:1;height:27px;border-radius:6px;background:var(--vscode-button-secondaryBackground,rgba(255,255,255,0.06));border:1px solid var(--vscode-panel-border,rgba(255,255,255,0.1));color:var(--vscode-button-secondaryForeground,var(--vscode-descriptionForeground));font-size:10px;font-weight:600;cursor:pointer;font-family:inherit;">&#x21BA; Re-check</button>
+      <div id="url-section" style="display:none">
+        <div class="activity-pill">
+          <div class="green-dot"></div>
+          <div class="pill-copy">
+            <div class="pill-title">Tunnel active</div>
+            <div class="pill-sub">Traffic is now being forwarded to your local app.</div>
+          </div>
+        </div>
+
+        <div class="pub-url-card">
+          <div class="pub-badge">Public URL</div>
+          <div class="pub-url" id="url-text"></div>
+          <div class="url-acts">
+            <button class="url-act" id="copy-btn">Copy</button>
+            <button class="url-act" id="open-btn">Open</button>
+          </div>
+        </div>
       </div>
 
-    </div>
-  </div>
-</div>
-
-<!-- ── Port warning card ─────────────────────────────────────── -->
-<div id="port-warning" style="display:none">
-  <div class="gap10"></div>
-  <div class="form-block">
-    <div style="border-radius:8px;border:1px solid rgba(240,165,0,0.3);background:rgba(240,165,0,0.05);padding:11px 12px;">
-      <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;">
-        <span style="font-size:14px;">&#x1F50C;</span>
-        <span style="font-size:11px;font-weight:700;color:#f0a500;">Dev server not running</span>
+      <div class="sec" id="stop-section" style="display:none">
+        <button class="stop-btn" id="stop-btn">Stop tunnel</button>
       </div>
-      <div style="font-size:10px;color:var(--vscode-descriptionForeground);line-height:1.55;margin-bottom:8px;">
-        Nothing is listening on port <strong id="warn-port" style="color:var(--vscode-foreground);font-family:monospace;"></strong>.
-        Start your dev server first:
+    </section>
+
+    <section class="screen" id="live-screen" style="display:none">
+      <div class="status-card" id="ls-status-card">
+        <div class="status-left">
+          <div class="dot" id="ls-dot"></div>
+          <div class="status-copy">
+            <div class="s-label" id="ls-label">Not running</div>
+            <div class="s-sub" id="ls-sub">Start to serve HTML files with live reload.</div>
+          </div>
+        </div>
+        <div class="state-pill" id="ls-off-label">Off</div>
       </div>
-      <div id="warn-cmd" style="font-size:10px;font-family:monospace;background:rgba(0,0,0,0.25);border-radius:5px;padding:5px 8px;margin-bottom:9px;color:#f0a500;"></div>
-      <div style="display:flex;gap:6px;">
-        <button id="warn-anyway-btn" style="flex:1;height:27px;border-radius:6px;background:rgba(240,165,0,0.1);border:1px solid rgba(240,165,0,0.3);color:#f0a500;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;">Start Anyway</button>
-        <button id="warn-cancel-btn" style="flex:1;height:27px;border-radius:6px;background:var(--card);border:1px solid var(--border);color:var(--vscode-descriptionForeground);font-size:10px;font-weight:600;cursor:pointer;font-family:inherit;">Cancel</button>
+
+      <div id="ls-start-section">
+        <div class="info-card" style="margin:10px 16px 0">
+          <div class="info-title">Preview modes</div>
+          <div class="info-text">Open your HTML project in a browser or inside a built-in VS Code preview panel.</div>
+        </div>
+
+        <div class="sec">
+          <button class="start-btn success-btn" id="ls-start-btn">Open with Live Server</button>
+        </div>
+
+        <div class="sec">
+          <button class="ghost-btn" id="ls-start-preview-btn">Open with Mekong Preview</button>
+        </div>
       </div>
-    </div>
-  </div>
-</div>
 
-<!-- ── Tunnel status ────────────────────────────────────────── -->
-<div class="gap10"></div>
-<div class="status-row" id="status-card">
-  <div class="st-dot" id="status-dot"></div>
-  <div class="st-text">
-    <div class="st-label" id="status-label">Ready</div>
-    <div class="st-sub"   id="status-sub">No active tunnel</div>
-  </div>
-</div>
+      <div id="ls-running-section" style="display:none">
+        <div class="activity-pill">
+          <div class="green-dot"></div>
+          <div class="pill-copy">
+            <div class="pill-title">Live reload active</div>
+            <div class="pill-sub">HTML, CSS, JS, and asset changes will refresh automatically.</div>
+          </div>
+        </div>
 
-<!-- ── Connecting indicator ─────────────────────────────────── -->
-<div class="connecting" id="connecting-box">
-  <div class="conn-spinner">
-    <div class="conn-dot"></div>
-    <div class="conn-dot"></div>
-    <div class="conn-dot"></div>
-  </div>
-  <div class="conn-label">Establishing tunnel&hellip;</div>
-</div>
+        <div class="pub-url-card amber">
+          <div class="pub-badge">Local URL</div>
+          <div class="pub-url" id="ls-url-text"></div>
+          <div class="url-acts">
+            <button class="url-act" id="ls-copy-btn">Copy</button>
+            <button class="url-act" id="ls-open-btn">Open</button>
+          </div>
+        </div>
 
-<!-- ── Config: port ─────────────────────────────────────────── -->
-<div id="config-section">
-  <div class="gap10"></div>
-  <div class="form-block">
-    <div class="form-label">Local Port</div>
-    <div class="input-row">
-      <input type="number" id="port-input" placeholder="e.g. 3000" min="1" max="65535"/>
-      <button class="btn-detect" id="detect-btn" title="Auto-detect from package.json">&#x26A1; Detect</button>
-    </div>
-    <div class="hint" id="framework-hint"></div>
-  </div>
-</div>
+        <div id="ls-public-section" style="display:none">
+          <div class="pub-url-card" id="ls-public-card">
+            <div class="pub-card-top">
+              <div class="pub-badge">Public URL</div>
+              <div class="pub-tag" id="ls-public-tag">Live Server Tunnel</div>
+            </div>
+            <div class="pub-url" id="ls-public-url-text"></div>
+            <div class="pub-help" id="ls-public-help">Auto-generated by Mekong Tunnel for this Live Server.</div>
+            <div class="url-acts">
+              <button class="url-act" id="ls-public-copy-btn">Copy</button>
+              <button class="url-act" id="ls-public-open-btn">Open</button>
+              <button class="url-act" id="ls-public-share-btn">Share</button>
+            </div>
+          </div>
+        </div>
 
-<!-- ── Config: expiry ───────────────────────────────────────── -->
-<div id="expire-section">
-  <div class="gap8"></div>
-  <div class="form-block">
-    <div class="form-label">Expiry</div>
-    <select id="expire-select">
-      <option value="">No expiry (session only)</option>
-      <option value="1h">1 hour</option>
-      <option value="6h">6 hours</option>
-      <option value="24h">24 hours</option>
-      <option value="2d">2 days</option>
-      <option value="1w">1 week</option>
-    </select>
-  </div>
-</div>
+        <div class="stack-actions">
+          <button class="sub-act" id="ls-preview-btn">Open preview panel</button>
+          <button class="sub-act" id="ls-tunnel-btn">Tunnel to public URL</button>
+          <button class="sub-act sub-act-danger" id="ls-stop-tunnel-btn" style="display:none">Stop public tunnel</button>
+        </div>
 
-<!-- ── Start button ─────────────────────────────────────────── -->
-<div id="start-section">
-  <div class="gap10"></div>
-  <div class="form-block">
-    <button class="btn-primary" id="start-btn">&#x25B6;&ensp;Start Tunnel</button>
-  </div>
-</div>
-
-<!-- ── Public URL card ──────────────────────────────────────── -->
-<div id="url-section" style="display:none">
-  <div class="gap10"></div>
-  <div class="form-block">
-    <div class="url-card">
-      <div class="url-card-label">&#x1F310;&ensp;Public URL</div>
-      <div class="url-card-text" id="url-text"></div>
-      <div class="url-btn-row">
-        <button class="btn-copy-url" id="copy-btn">Copy URL</button>
-        <button class="btn-open-url" id="open-btn">&#x2197;&ensp;Open</button>
+        <div class="sec">
+          <button class="stop-btn" id="ls-stop-btn">Stop live server</button>
+        </div>
       </div>
-    </div>
-  </div>
-</div>
+    </section>
 
-<!-- ── Stop tunnel ──────────────────────────────────────────── -->
-<div id="stop-section" style="display:none">
-  <div class="gap8"></div>
-  <div class="form-block">
-    <button class="btn-sm-danger" id="stop-btn">&#x25A0;&ensp;Stop Tunnel</button>
-  </div>
-</div>
+    <button class="log-link" id="log-btn">View output log</button>
 
-<!-- ── View log ─────────────────────────────────────────────── -->
-<div class="gap10"></div>
-<button class="log-link" id="log-btn">
-  <span class="log-link-icon">&#x1F4C4;</span>
-  View Output Log
-</button>
-
-<!-- ══════════════════════════════════════════════════════════ -->
-<!--  Live Server section                                       -->
-<!-- ══════════════════════════════════════════════════════════ -->
-<div class="section-divider">
-  <div class="section-divider-line"></div>
-  <div class="section-divider-text">&#x26A1;&ensp;HTML Live Server</div>
-  <div class="section-divider-line"></div>
-</div>
-
-<!-- Live Server status card -->
-<div class="gap8"></div>
-<div class="status-row" id="ls-status-card" style="opacity:0.5">
-  <div class="st-dot" id="ls-dot"></div>
-  <div class="st-text">
-    <div class="st-label" id="ls-label">Not running</div>
-    <div class="st-sub"   id="ls-sub">Start to serve HTML files with live reload</div>
-  </div>
-  <!-- OFF pill shown when stopped -->
-  <span id="ls-off-label" style="font-size:9px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:1px 6px;">OFF</span>
-</div>
-
-<!-- Start Live Server -->
-<div id="ls-start-section">
-  <div class="gap8"></div>
-  <div class="form-block">
-    <button class="btn-amber" id="ls-start-btn">&#x26A1;&ensp;Start Live Server</button>
-  </div>
-</div>
-
-<!-- Running: URL + actions -->
-<div id="ls-running-section" style="display:none">
-  <div class="gap8"></div>
-  <div class="form-block">
-    <div class="url-card amber">
-      <div class="url-card-label">&#x1F4C1;&ensp;Local URL</div>
-      <div class="url-card-text" id="ls-url-text"></div>
-      <div class="url-btn-row">
-        <button class="btn-copy-amber" id="ls-copy-btn">Copy</button>
-        <button class="btn-open-url"   id="ls-open-btn">&#x2197;&ensp;Open</button>
+    <div class="alog" id="activity-log">
+      <div class="alog-header" id="log-toggle">
+        <div class="alog-title">Activity Log</div>
+        <div class="alog-arrow" id="log-toggle-icon">&#9662;</div>
+      </div>
+      <div class="alog-body" id="log-entries">
+        <div class="alog-empty" id="log-empty">No activity yet</div>
       </div>
     </div>
   </div>
-  <div class="gap6"></div>
-  <div class="form-block" style="margin-top:6px">
-    <button class="btn-outline-cyan" id="ls-tunnel-btn">&#x1F310;&ensp;Tunnel to Public URL</button>
-  </div>
-  <div class="gap6"></div>
-  <div class="form-block" style="margin-top:6px">
-    <button class="btn-sm-danger" id="ls-stop-btn">&#x25A0;&ensp;Stop Live Server</button>
-  </div>
 </div>
 
-<!-- ── Activity log ─────────────────────────────────────────── -->
-<div class="gap10"></div>
-<div class="alog" id="activity-log">
-  <div class="alog-header" id="log-toggle">
-    <span class="alog-title">Activity Log</span>
-    <span class="alog-arrow" id="log-toggle-icon">&#x25BC;</span>
-  </div>
-  <div class="alog-body" id="log-entries">
-    <div class="alog-empty" id="log-empty">No activity yet</div>
-  </div>
-</div>
-
-<!-- hidden stop button for header close (kept for JS) -->
 <button id="ls-header-close-btn" style="display:none"></button>
-
-<div class="gap12"></div>
 
 <script src="__SCRIPT_URI__"></script>
 </body>

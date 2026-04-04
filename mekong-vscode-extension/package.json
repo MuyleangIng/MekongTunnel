@@ -2,7 +2,7 @@
   "name": "mekong-tunnel",
   "displayName": "Mekong Tunnel",
   "description": "Expose your local dev server to the internet with one click — auto-detects port and framework",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "publisher": "KhmerStack",
   "icon": "images/MekongNoBG.png",
   "galleryBanner": {
@@ -66,6 +66,16 @@
       {
         "command": "mekong.openLiveInBrowser",
         "title": "Mekong: Open Live Server in Browser"
+      },
+      {
+        "command": "mekong.openLivePreview",
+        "title": "Mekong: Open Live Preview Panel",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "mekong.openWithLiveServerPreview",
+        "title": "Open with Mekong Preview",
+        "icon": "$(open-preview)"
       }
     ],
     "menus": {
@@ -74,6 +84,11 @@
           "command": "mekong.openWithLiveServer",
           "when": "resourceExtname =~ /\\.html?$/i || explorerResourceIsFolder",
           "group": "navigation@1"
+        },
+        {
+          "command": "mekong.openWithLiveServerPreview",
+          "when": "resourceExtname =~ /\\.html?$/i || explorerResourceIsFolder",
+          "group": "navigation@2"
         }
       ],
       "editor/context": [
@@ -81,11 +96,21 @@
           "command": "mekong.openWithLiveServer",
           "when": "resourceExtname =~ /\\.html?$/i",
           "group": "navigation@1"
+        },
+        {
+          "command": "mekong.openWithLiveServerPreview",
+          "when": "resourceExtname =~ /\\.html?$/i",
+          "group": "navigation@2"
         }
       ],
       "editor/title/context": [
         {
           "command": "mekong.openWithLiveServer",
+          "when": "resourceExtname =~ /\\.html?$/i",
+          "group": "navigation"
+        },
+        {
+          "command": "mekong.openWithLiveServerPreview",
           "when": "resourceExtname =~ /\\.html?$/i",
           "group": "navigation"
         }

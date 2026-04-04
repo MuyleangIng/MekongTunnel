@@ -8,7 +8,7 @@ Expose your local dev server to the internet with one click, directly from VS Co
 
 > **Live Server works without any install.** Only tunneling (public URL) requires the `mekong` binary.
 
-Install `mekong` with one command:
+If the extension says **`mekong CLI not installed`**, run one of these commands in a terminal on your own computer, then click **Re-check** in the extension panel:
 
 **macOS / Linux**
 ```bash
@@ -20,7 +20,7 @@ curl -fsSL https://mekongtunnel.dev/install.sh | sh
 irm https://mekongtunnel.dev/install.ps1 | iex
 ```
 
-Both scripts auto-detect your OS and architecture, install the binary, and add it to your `PATH`. Once done, click **Re-check** in the extension panel — no VS Code reload needed.
+Both scripts auto-detect your OS and architecture, install the binary, and add it to your `PATH`. No VS Code reload is needed.
 
 ---
 

@@ -140,6 +140,15 @@ func writeState(s stateFile) {
 
 func removeState() { _ = os.Remove(stateFilePath()) }
 
+func readTunnelStateForPort(port int) (tunnelState, error) {
+	b, err := os.ReadFile(tunnelStatePath(port))
+	if err != nil {
+		return tunnelState{}, err
+	}
+	var ts tunnelState
+	return ts, json.Unmarshal(b, &ts)
+}
+
 func writeTunnelState(ts tunnelState) {
 	_ = os.MkdirAll(tunnelStateDir(), 0755)
 	b, _ := json.MarshalIndent(ts, "", "  ")
@@ -263,6 +272,7 @@ func reorderArgs(args []string) []string {
 		"--host-header":   true,
 		"-e":              true,
 		"-p":              true,
+		"-sd":             true,
 	}
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
@@ -280,10 +290,102 @@ func reorderArgs(args []string) []string {
 	return append(flags, positional...)
 }
 
+// ---- command prefix resolver + typo suggestions ----
+
+var knownCommands = []string{
+	"logs", "status", "ps", "stop", "update", "login", "logout", "whoami",
+	"subdomains", "subdomain", "domains", "domain", "help", "detect", "init",
+	"reserve", "delete", "unreserve", "test", "doctor", "version", "rm",
+	"completion", "sd", "dm",
+}
+
+// resolveCommand returns the full command name for the given input, supporting
+// unique prefix matching (e.g. "dom" → "domain", "sub" → "subdomain").
+// If the input matches exactly or is ambiguous / unknown, it is returned as-is.
+func resolveCommand(input string) string {
+	for _, cmd := range knownCommands {
+		if cmd == input {
+			return cmd
+		}
+	}
+	var matches []string
+	for _, cmd := range knownCommands {
+		if strings.HasPrefix(cmd, input) {
+			matches = append(matches, cmd)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0]
+	}
+	return input
+}
+
+// levenshtein returns the edit distance between two strings.
+func levenshtein(a, b string) int {
+	if len(a) == 0 {
+		return len(b)
+	}
+	if len(b) == 0 {
+		return len(a)
+	}
+	row := make([]int, len(b)+1)
+	for j := range row {
+		row[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		prev := row[0]
+		row[0] = i
+		for j := 1; j <= len(b); j++ {
+			tmp := row[j]
+			if a[i-1] == b[j-1] {
+				row[j] = prev
+			} else {
+				row[j] = 1 + minInt(prev, minInt(row[j], row[j-1]))
+			}
+			prev = tmp
+		}
+	}
+	return row[len(b)]
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// suggestCommand returns the closest known command if within edit distance 2.
+func suggestCommand(input string) string {
+	candidates := []string{
+		"logs", "status", "ps", "stop", "update", "login", "logout", "whoami",
+		"subdomain", "domain", "help", "detect", "init", "doctor", "version", "rm",
+	}
+	best, bestDist := "", 999
+	for _, cmd := range candidates {
+		if d := levenshtein(input, cmd); d < bestDist {
+			bestDist = d
+			best = cmd
+		}
+	}
+	if bestDist <= 2 {
+		return best
+	}
+	return ""
+}
+
+// isRandomSubdomain returns true for auto-generated adjective-noun-8hex names.
+var randomSubRe = regexp.MustCompile(`^[a-z]+-[a-z]+-[0-9a-f]{8}$`)
+
+func isRandomSubdomain(sub string) bool {
+	return randomSubRe.MatchString(sub)
+}
+
 // ---- main ----
 
 func main() {
 	if len(os.Args) > 1 {
+		os.Args[1] = resolveCommand(os.Args[1])
 		switch os.Args[1] {
 		case "logs":
 			if err := runLogsCommand(os.Args[2:]); err != nil {
@@ -292,14 +394,34 @@ func main() {
 			}
 			return
 		case "status":
-			// Optional port filter: mekong status 3000
+			// Optional filter: mekong status 3000  OR  mekong status onlyanime
 			portFilter := 0
 			if len(os.Args) > 2 {
-				if p, err := strconv.Atoi(os.Args[2]); err == nil {
+				arg := os.Args[2]
+				if p, err := strconv.Atoi(arg); err == nil {
 					portFilter = p
+				} else {
+					// Treat as subdomain name — resolve to port.
+					if states, _ := readActiveTunnelStates(); len(states) > 0 {
+						for _, t := range states {
+							if tunnelShortID(t.URL) == arg {
+								portFilter = t.LocalPort
+								break
+							}
+						}
+					}
 				}
 			}
 			runStatus(portFilter)
+			return
+		case "ps":
+			runPS()
+			return
+		case "rm":
+			if err := runRMCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+				os.Exit(1)
+			}
 			return
 		case "stop":
 			if err := runStopCommand(os.Args[2:]); err != nil {
@@ -322,7 +444,7 @@ func main() {
 		case "whoami":
 			runWhoami()
 			return
-		case "subdomains":
+		case "subdomains", "sd":
 			if err := runSubdomainsCommand(os.Args[2:]); err != nil {
 				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
 				os.Exit(1)
@@ -359,7 +481,7 @@ func main() {
 				os.Exit(1)
 			}
 			return
-		case "domain":
+		case "domain", "dm":
 			if err := runDomainCommand(os.Args[2:]); err != nil {
 				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
 				printDomainHelp()
@@ -392,6 +514,40 @@ func main() {
 		case "version", "--version", "-v":
 			fmt.Printf("mekong %s\n", version)
 			return
+		case "completion":
+			runCompletionCommand(os.Args[2:])
+			return
+		case "__tunnels":
+			// Hidden helper: prints active tunnel names for shell completion.
+			states, _ := readActiveTunnelStates()
+			for _, t := range states {
+				fmt.Println(tunnelShortID(t.URL))
+			}
+			return
+		case "__subdomains":
+			// Hidden helper: prints reserved subdomain names for shell completion.
+			tok := resolveAPIToken("")
+			if tok != "" {
+				if data, err := fetchReservedSubdomains(tok); err == nil {
+					for _, s := range data.Subdomains {
+						fmt.Println(s.Subdomain)
+					}
+				}
+			}
+			return
+		}
+
+		// Unknown command — but only if it looks like a word, not a flag or port.
+		arg := os.Args[1]
+		if !strings.HasPrefix(arg, "-") {
+			if _, err := strconv.Atoi(arg); err != nil {
+				msg := fmt.Sprintf("unknown command %q", arg)
+				if s := suggestCommand(arg); s != "" {
+					msg += fmt.Sprintf("\n\n  Did you mean:  mekong %s", s)
+				}
+				fmt.Fprintf(os.Stderr, "\n  error: %s\n\n", msg)
+				os.Exit(1)
+			}
 		}
 	}
 
@@ -407,10 +563,13 @@ func main() {
 		noQR             = flag.Bool("no-qr", false, "Disable QR code display")
 		noClip           = flag.Bool("no-clipboard", false, "Disable auto clipboard copy")
 		noReconnect      = flag.Bool("no-reconnect", false, "Disable auto-reconnect on disconnect")
+		skipWarningFlag  = flag.Bool("skip-browser-warning", false, "Skip the browser warning page for this tunnel")
 	)
 	flag.IntVar(localPortFlag, "p", 0, "Local port to expose (shorthand for --port)")
 	flag.StringVar(expireFlag, "e", "", "Shorthand for --expire")
 	flag.StringVar(upstreamHostFlag, "host-header", "", "Alias for --upstream-host")
+	flag.BoolVar(skipWarningFlag, "no-warning", false, "Alias for --skip-browser-warning")
+	flag.StringVar(subdomainFlag, "sd", "", "Shorthand for --subdomain")
 	flag.Usage = func() {
 		printMainHelp()
 	}
@@ -441,25 +600,40 @@ func main() {
 		}
 	}
 
-	requestedLifetime := config.DefaultTunnelLifetime
+	// Resolve subdomain early so we can apply the correct lifetime limits.
+	requestedSubdomain, err := normalizeRequestedSubdomain(*subdomainFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Determine lifetime limits: reserved-subdomain tunnels allow up to 1 month.
+	maxLifetime := config.MaxTunnelLifetime
+	defaultLifetime := config.DefaultTunnelLifetime
+	if requestedSubdomain != "" {
+		maxLifetime = config.ReservedMaxTunnelLifetime
+		defaultLifetime = config.ReservedDefaultTunnelLifetime
+	}
+
+	requestedLifetime := defaultLifetime
 	if strings.TrimSpace(*expireFlag) != "" {
 		d, err := expiry.Parse(*expireFlag)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  error: %v\n", err)
 			os.Exit(1)
 		}
-		if d > config.MaxTunnelLifetime {
-			fmt.Fprintf(os.Stderr, "  error: requested expiry %s exceeds max %s\n", expiry.Format(d), expiry.Format(config.MaxTunnelLifetime))
+		if d > maxLifetime {
+			fmt.Fprintf(os.Stderr, "  error: requested expiry %s exceeds max %s\n", expiry.Format(d), expiry.Format(maxLifetime))
+			if requestedSubdomain != "" {
+				fmt.Fprintf(os.Stderr, "  note: reserved subdomains allow up to %s\n", expiry.Format(config.ReservedMaxTunnelLifetime))
+			} else {
+				fmt.Fprintf(os.Stderr, "  note: use --subdomain to allow up to %s\n", expiry.Format(config.ReservedMaxTunnelLifetime))
+			}
 			os.Exit(1)
 		}
 		requestedLifetime = d
 	}
 
-	requestedSubdomain, err := normalizeRequestedSubdomain(*subdomainFlag)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "  error: %v\n", err)
-		os.Exit(1)
-	}
 	if requestedSubdomain != "" && apiToken == "" {
 		fmt.Fprintf(os.Stderr, "  error: --subdomain requires login or --token\n")
 		os.Exit(1)
@@ -546,35 +720,45 @@ func main() {
 					backoff = 2 * time.Second
 				}
 
-				_, err := connect(*serverFlag, *sshPortFlag, localPort, requestedLifetime, tunnelToken, requestedSubdomain, upstreamHost, !*noQR, !*noClip, func(u string) {
+				_, err := connect(*serverFlag, *sshPortFlag, localPort, requestedLifetime, tunnelToken, requestedSubdomain, upstreamHost, !*noQR, !*noClip, *skipWarningFlag, func(u string) {
+					// Preserve the original StartedAt across reconnects.
+					existing, readErr := readTunnelStateForPort(localPort)
+					startedAt := time.Now()
+					if readErr == nil && !existing.StartedAt.IsZero() {
+						startedAt = existing.StartedAt
+					}
 					ts := tunnelState{
 						PID:       os.Getpid(),
 						URL:       u,
 						LocalPort: localPort,
-						StartedAt: time.Now(),
+						StartedAt: startedAt,
 						ExpiresAt: time.Now().Add(requestedLifetime),
 					}
 					writeTunnelState(ts)
 					addTunnelState(ts)
 				})
-				// Tunnel disconnected — remove its entry so status stays accurate.
-				removeTunnelFromState(localPort, &state, &stateMu)
+				// Only remove state on permanent exit; keep it during reconnect
+				// so mekong ps stays accurate during brief disconnect windows.
 				if err != nil {
 					fmt.Printf("%s  ✖  [:%d] %v%s\n", red, localPort, err, reset)
 					if errors.Is(err, errBlocked) {
+						removeTunnelFromState(localPort, &state, &stateMu)
 						fmt.Printf("%s  ✖  [:%d] Reconnect aborted — wait for the block to expire.%s\n\n", red, localPort, reset)
 						return
 					}
 					if errors.Is(err, errExpired) {
+						removeTunnelFromState(localPort, &state, &stateMu)
 						fmt.Printf("%s  ✖  [:%d] Reconnect aborted — tunnel lifetime reached.%s\n\n", red, localPort, reset)
 						return
 					}
 					if errors.Is(err, errExpireUnsupported) {
+						removeTunnelFromState(localPort, &state, &stateMu)
 						fmt.Printf("%s  ✖  [:%d] Reconnect aborted — update the mekongtunnel server to v1.4.4 or newer.%s\n\n", red, localPort, reset)
 						return
 					}
 				}
 				if *noReconnect {
+					removeTunnelFromState(localPort, &state, &stateMu)
 					return
 				}
 			}
@@ -697,7 +881,7 @@ func printBanner(server string, ports []int, requestedLifetime time.Duration) {
 
 // connect establishes one SSH tunnel session. Returns the tunnel URL and any error.
 // onURL is called as soon as the tunnel URL is received from the server (while still connected).
-func connect(server string, sshPort, localPort int, requestedLifetime time.Duration, apiToken, requestedSubdomain, upstreamHost string, showQR, copyClip bool, onURL func(string)) (string, error) {
+func connect(server string, sshPort, localPort int, requestedLifetime time.Duration, apiToken, requestedSubdomain, upstreamHost string, showQR, copyClip, skipWarning bool, onURL func(string)) (string, error) {
 	var auths []ssh.AuthMethod
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		if agentConn, err := net.Dial("unix", sock); err == nil {
@@ -788,6 +972,9 @@ func connect(server string, sshPort, localPort int, requestedLifetime time.Durat
 	}
 	if upstreamHost != "" {
 		_ = sess.Setenv("MEKONG_UPSTREAM_HOST", upstreamHost)
+	}
+	if skipWarning {
+		_ = sess.Setenv("MEKONG_SKIP_WARNING", "1")
 	}
 	_ = sess.Setenv("MEKONG_LOCAL_PORT", strconv.Itoa(localPort))
 
@@ -1001,35 +1188,62 @@ func ensureLocalPortReady(port int) error {
 // ---- mekong logs / status / stop ----
 
 func runLogsCommand(args []string) error {
-	follow, portFilter, err := parseLogsArgs(args)
+	follow, portFilter, nameFilter, err := parseLogsArgs(args)
 	if err != nil {
 		return err
+	}
+	// Resolve subdomain name → port via active tunnel states.
+	if nameFilter != "" {
+		states, _ := readActiveTunnelStates()
+		for _, t := range states {
+			if tunnelShortID(t.URL) == nameFilter {
+				portFilter = t.LocalPort
+				nameFilter = ""
+				break
+			}
+		}
+		if nameFilter != "" {
+			// Not found — suggest close names.
+			states2, _ := readActiveTunnelStates()
+			var names []string
+			for _, t := range states2 {
+				names = append(names, tunnelShortID(t.URL))
+			}
+			msg := fmt.Sprintf("no active tunnel with subdomain %q", nameFilter)
+			if len(names) > 0 {
+				msg += fmt.Sprintf("\n\n  Active tunnels: %s", strings.Join(names, ", "))
+				msg += "\n  Run: mekong ps"
+			} else {
+				msg += "\n\n  No tunnels are running. Start one with: mekong 3000 -d"
+			}
+			return fmt.Errorf("%s", msg)
+		}
 	}
 	return runLogs(follow, portFilter)
 }
 
-func parseLogsArgs(args []string) (bool, int, error) {
-	follow := false
-	portFilter := 0
+func parseLogsArgs(args []string) (follow bool, portFilter int, nameFilter string, err error) {
 	for _, arg := range args {
 		switch arg {
 		case "-f", "--follow":
 			follow = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return false, 0, fmt.Errorf("usage: mekong logs [-f|--follow] [port]")
+				err = fmt.Errorf("usage: mekong logs [-f] [<port>|<subdomain>]")
+				return
 			}
-			if portFilter != 0 {
-				return false, 0, fmt.Errorf("usage: mekong logs [-f|--follow] [port]")
+			if portFilter != 0 || nameFilter != "" {
+				err = fmt.Errorf("usage: mekong logs [-f] [<port>|<subdomain>]")
+				return
 			}
-			p, err := strconv.Atoi(arg)
-			if err != nil || p < 1 || p > 65535 {
-				return false, 0, fmt.Errorf("invalid port %q", arg)
+			if p, e := strconv.Atoi(arg); e == nil && p >= 1 && p <= 65535 {
+				portFilter = p
+			} else {
+				nameFilter = arg
 			}
-			portFilter = p
 		}
 	}
-	return follow, portFilter, nil
+	return
 }
 
 func runLogs(follow bool, portFilter int) error {
@@ -1065,7 +1279,9 @@ func runLogs(follow bool, portFilter int) error {
 	if !follow {
 		if !matchedAny {
 			if portFilter > 0 {
-				fmt.Printf("\n%s  No log entries yet for port %d.%s\n\n", gray, portFilter, reset)
+				fmt.Printf("\n%s  No log entries for port %d.%s\n", gray, portFilter, reset)
+				fmt.Printf("%s  The tunnel must be running in background mode (%s-d%s) to write logs.\n", gray, cyan, gray)
+				fmt.Printf("%s  To see all logs:  %smekong logs%s\n\n", gray, cyan, reset)
 			} else {
 				fmt.Printf("\n%s  No log entries yet.%s\n\n", gray, reset)
 			}
@@ -1274,6 +1490,391 @@ func runStatus(portFilter int) {
 		fmt.Printf(gray + "  ─────────────────────────────────────────────────────" + reset + "\n")
 	}
 	fmt.Printf("\n")
+}
+
+// formatAgo formats a duration as a human-readable "X ago" string, matching docker ps style.
+func formatAgo(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%d minutes ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		h := int(d.Hours())
+		if h == 1 {
+			return "About an hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", h)
+	default:
+		days := int(d.Hours() / 24)
+		if days == 1 {
+			return "A day ago"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	}
+}
+
+// formatUptime formats a duration as "Up Xh" / "Up Xm" like docker ps STATUS.
+func formatUptime(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("Up %ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("Up %dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("Up %dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("Up %dd", int(d.Hours()/24))
+	}
+}
+
+// tunnelShortID extracts the subdomain part from a tunnel URL for the ID column.
+func tunnelShortID(rawURL string) string {
+	clean := ansiRe.ReplaceAllString(rawURL, "")
+	clean = strings.TrimPrefix(clean, "https://")
+	clean = strings.TrimPrefix(clean, "http://")
+	if idx := strings.Index(clean, "."); idx > 0 {
+		return clean[:idx]
+	}
+	return clean
+}
+
+// truncateURL shortens a URL to maxLen characters with an ellipsis.
+func truncateURL(u string, maxLen int) string {
+	if len(u) <= maxLen {
+		return u
+	}
+	return u[:maxLen-1] + "…"
+}
+
+// formatExpire formats a tunnel's expiry time as a compact remaining-time string.
+func formatExpire(expiresAt time.Time) string {
+	if expiresAt.IsZero() {
+		return "no limit"
+	}
+	remaining := time.Until(expiresAt)
+	if remaining <= 0 {
+		return "expired"
+	}
+	switch {
+	case remaining < time.Hour:
+		return fmt.Sprintf("%dm left", int(remaining.Minutes()))
+	case remaining < 24*time.Hour:
+		return fmt.Sprintf("%dh left", int(remaining.Hours()))
+	default:
+		days := int(remaining.Hours() / 24)
+		if days == 1 {
+			return "1d left"
+		}
+		return fmt.Sprintf("%dd left", days)
+	}
+}
+
+// runPS prints active tunnels in a Docker-style table (mekong ps).
+func runPS() {
+	states, err := readActiveTunnelStates()
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("\n%s  No active tunnels.%s\n\n", gray, reset)
+		} else {
+			fmt.Fprintf(os.Stderr, "  error reading state: %v\n", err)
+		}
+		return
+	}
+
+	alive := states[:0]
+	for _, state := range states {
+		if state.PID > 0 && isPIDAlive(state.PID) {
+			alive = append(alive, state)
+			continue
+		}
+		removeTunnelStateFile(state.LocalPort)
+	}
+	states = alive
+
+	if len(states) == 0 {
+		fmt.Printf("\n%s  No active tunnels.%s\n\n", gray, reset)
+		return
+	}
+
+	const (
+		colID     = 22
+		colURL    = 46
+		colPort   = 7
+		colStatus = 10
+		colCreate = 16
+	)
+
+	hdr := fmt.Sprintf("%-*s   %-*s   %-*s   %-*s   %-*s   %s",
+		colID, "TUNNEL ID",
+		colURL, "URL",
+		colPort, "PORT",
+		colStatus, "STATUS",
+		colCreate, "CREATED",
+		"EXPIRE",
+	)
+	fmt.Printf("\n%s%s%s\n", gray, hdr, reset)
+
+	for _, t := range states {
+		id := tunnelShortID(t.URL)
+		rawURL := ansiRe.ReplaceAllString(t.URL, "")
+		u := truncateURL(rawURL, colURL)
+		port := fmt.Sprintf(":%d", t.LocalPort)
+		status := formatUptime(time.Since(t.StartedAt))
+		created := formatAgo(time.Since(t.StartedAt))
+		expire := formatExpire(t.ExpiresAt)
+
+		row := fmt.Sprintf("%-*s   %-*s   %-*s   %-*s   %-*s   %s",
+			colID, id,
+			colURL, u,
+			colPort, port,
+			colStatus, status,
+			colCreate, created,
+			expire,
+		)
+		fmt.Printf("%s%s%s\n", cyan, row, reset)
+	}
+	fmt.Printf("\n")
+}
+
+// ---- shell completion ----
+
+func runCompletionCommand(args []string) {
+	shell := "zsh"
+	if len(args) > 0 {
+		shell = strings.ToLower(args[0])
+	}
+
+	switch shell {
+	case "zsh":
+		fmt.Print(zshCompletionScript)
+	case "bash":
+		fmt.Print(bashCompletionScript)
+	default:
+		fmt.Fprintf(os.Stderr, "  usage: mekong completion [zsh|bash]\n")
+		fmt.Fprintf(os.Stderr, "  example: mekong completion zsh >> ~/.zshrc && source ~/.zshrc\n")
+		os.Exit(1)
+	}
+}
+
+const zshCompletionScript = `
+# mekong zsh completion — generated by 'mekong completion zsh'
+# Add to ~/.zshrc:  mekong completion zsh >> ~/.zshrc && source ~/.zshrc
+
+# Initialize zsh completion system if not already done
+autoload -Uz compinit && compinit
+
+_mekong() {
+  local context state line
+  typeset -A opt_args
+
+  _arguments -C \
+    '(-v --version)'{-v,--version}'[Show version]' \
+    '1: :->command' \
+    '*: :->args'
+
+  case $state in
+    command)
+      local -a cmds
+      cmds=(
+        'ps:List active tunnels (table view)'
+        'status:List active tunnels (detailed view)'
+        'logs:Show or follow daemon logs'
+        'stop:Stop background tunnel(s)'
+        'rm:Clear daemon logs'
+        'update:Update mekong binary'
+        'version:Show current version'
+        'login:Authenticate to MekongTunnel'
+        'logout:Remove saved credentials'
+        'whoami:Show current account info'
+        'subdomain:Manage reserved subdomains'
+        'domain:Manage custom domains'
+        'detect:Detect local stack and port'
+        'init:Write .mekong.json'
+        'doctor:Check connectivity and auth'
+        'help:Show help for a topic'
+      )
+      _describe 'command' cmds
+      ;;
+    args)
+      case $words[2] in
+        logs|rm)
+          local -a tunnels
+          tunnels=(${(f)"$(mekong __tunnels 2>/dev/null)"})
+          _describe 'tunnel name' tunnels
+          ;;
+        stop)
+          local -a tunnels
+          tunnels=(${(f)"$(mekong __tunnels 2>/dev/null)"})
+          _describe 'tunnel name' tunnels
+          ;;
+        subdomain|sd)
+          case $words[3] in
+            delete|remove|rm)
+              local -a subs
+              subs=(${(f)"$(mekong __subdomains 2>/dev/null)"})
+              _describe 'subdomain' subs
+              ;;
+            *)
+              local -a subcmds
+              subcmds=('list:List subdomains' 'add:Reserve a subdomain' 'delete:Delete a subdomain')
+              _describe 'subcommand' subcmds
+              ;;
+          esac
+          ;;
+        domain|dm)
+          local -a subcmds
+          subcmds=(
+            'list:List custom domains'
+            'add:Add a custom domain'
+            'connect:Add+verify+target in one step'
+            'verify:Run verification check'
+            'wait:Poll until ready'
+            'target:Point domain to subdomain'
+            'delete:Remove a custom domain'
+          )
+          _describe 'subcommand' subcmds
+          ;;
+        help)
+          local -a topics
+          topics=('auth' 'subdomain' 'domain' 'config' 'php' 'health')
+          _describe 'topic' topics
+          ;;
+      esac
+      ;;
+  esac
+}
+
+compdef _mekong mekong
+`
+
+const bashCompletionScript = `
+# mekong bash completion — generated by 'mekong completion bash'
+# Add to ~/.bashrc or ~/.bash_profile:
+#   mekong completion bash >> ~/.bashrc && source ~/.bashrc
+
+_mekong_complete() {
+  local cur prev words
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    local cmds="ps status logs stop rm update version login logout whoami subdomain domain detect init doctor help"
+    COMPREPLY=($(compgen -W "$cmds" -- "$cur"))
+    return
+  fi
+
+  case "$prev" in
+    logs|rm|stop)
+      local tunnels
+      tunnels=$(mekong __tunnels 2>/dev/null)
+      COMPREPLY=($(compgen -W "$tunnels" -- "$cur"))
+      ;;
+    subdomain|sd)
+      COMPREPLY=($(compgen -W "list add delete" -- "$cur"))
+      ;;
+    delete|remove)
+      local subs
+      subs=$(mekong __subdomains 2>/dev/null)
+      COMPREPLY=($(compgen -W "$subs" -- "$cur"))
+      ;;
+    domain|dm)
+      COMPREPLY=($(compgen -W "list add connect verify wait target delete" -- "$cur"))
+      ;;
+    help)
+      COMPREPLY=($(compgen -W "auth subdomain domain config php health" -- "$cur"))
+      ;;
+  esac
+}
+
+complete -F _mekong_complete mekong
+`
+
+// runRMCommand clears mekong daemon logs with reserved-subdomain protection.
+//
+//	mekong rm              clear logs for random tunnels; reserved tunnels are protected
+//	mekong rm -f <name>    clear logs specifically for the named reserved tunnel
+//	mekong rm -f           clear ALL logs (no protection)
+func runRMCommand(args []string) error {
+	force := false
+	nameFilter := ""
+	for _, a := range args {
+		switch {
+		case a == "-f" || a == "--force" || a == "-rf" || a == "-fr":
+			force = true
+		case strings.HasPrefix(a, "-") && strings.Contains(a, "f"):
+			// handle -rf, -fr, --force etc.
+			force = true
+		case !strings.HasPrefix(a, "-"):
+			nameFilter = a
+		}
+	}
+
+	// ── Case 1: clear a specific named tunnel's logs ──────────────────────────
+	if nameFilter != "" {
+		states, _ := readActiveTunnelStates()
+		portFilter := 0
+		for _, t := range states {
+			if tunnelShortID(t.URL) == nameFilter {
+				portFilter = t.LocalPort
+				break
+			}
+		}
+		if portFilter == 0 {
+			return fmt.Errorf("no active tunnel with subdomain %q — run: mekong ps", nameFilter)
+		}
+		if err := pruneLogFile(portFilter, false); err != nil {
+			return fmt.Errorf("clear logs for %q: %w", nameFilter, err)
+		}
+		fmt.Printf("\n%s  ✔  Logs cleared for%s %s%s%s\n\n", green, reset, cyan, nameFilter, reset)
+		return nil
+	}
+
+	// ── Case 2: force-clear everything ────────────────────────────────────────
+	if force {
+		if err := os.WriteFile(logFilePath(), nil, 0644); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("clear log: %w", err)
+		}
+		fmt.Printf("\n%s  ✔  All logs cleared%s\n\n", green, reset)
+		return nil
+	}
+
+	// ── Case 3: safe clear — protect reserved tunnels ─────────────────────────
+	states, _ := readActiveTunnelStates()
+	var reservedNames []string
+	var randomPorts []int
+	for _, t := range states {
+		sub := tunnelShortID(t.URL)
+		if isRandomSubdomain(sub) {
+			randomPorts = append(randomPorts, t.LocalPort)
+		} else {
+			reservedNames = append(reservedNames, sub)
+		}
+	}
+
+	if len(reservedNames) > 0 {
+		fmt.Printf("\n%s  Protected (reserved):%s %s%s%s\n", yellow, reset, cyan, strings.Join(reservedNames, ", "), reset)
+		fmt.Printf("%s  To clear a reserved tunnel's logs:%s %smekong rm -f <name>%s\n", gray, reset, cyan, reset)
+		if len(randomPorts) == 0 {
+			fmt.Printf("%s  Nothing else to clear.%s\n\n", gray, reset)
+			return nil
+		}
+		fmt.Printf("%s  Clearing logs for random tunnels only...%s\n", gray, reset)
+		for _, port := range randomPorts {
+			_ = pruneLogFile(port, false)
+		}
+		fmt.Printf("%s  ✔  Done%s\n\n", green, reset)
+		return nil
+	}
+
+	// No reserved tunnels — clear everything.
+	if err := os.WriteFile(logFilePath(), nil, 0644); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("clear log: %w", err)
+	}
+	fmt.Printf("\n%s  ✔  Logs cleared%s\n\n", green, reset)
+	return nil
 }
 
 func runStopCommand(args []string) error {

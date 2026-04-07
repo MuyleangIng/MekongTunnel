@@ -9,10 +9,16 @@ import (
 
 const EnvName = "MEKONG_EXPIRE"
 
+const monthDuration = 30 * 24 * time.Hour
+
 var unitSuffixes = []struct {
 	suffix string
 	unit   time.Duration
 }{
+	{suffix: "months", unit: monthDuration},
+	{suffix: "month", unit: monthDuration},
+	{suffix: "mo", unit: monthDuration},
+	{suffix: "m", unit: monthDuration}, // 1m = 1 month (most useful in tunnel context)
 	{suffix: "weeks", unit: 7 * 24 * time.Hour},
 	{suffix: "week", unit: 7 * 24 * time.Hour},
 	{suffix: "wks", unit: 7 * 24 * time.Hour},
@@ -56,22 +62,22 @@ func Parse(value string) (time.Duration, error) {
 
 	d, err := time.ParseDuration(normalized)
 	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("invalid expiry %q (use 30m, 48h, 2d, 2day, or 1w)", original)
+		return 0, fmt.Errorf("invalid expiry %q (use 1d, 1w, 1mo — or 48h, 2d, 2w)", original)
 	}
 	return d, nil
 }
 
-// Format returns a compact human-friendly representation like "1w", "2d", or "48h".
+// Format returns a compact human-friendly representation like "1mo", "1w", "2d", or "48h".
 func Format(d time.Duration) string {
 	switch {
+	case d%monthDuration == 0:
+		return fmt.Sprintf("%dmo", d/monthDuration)
 	case d%(7*24*time.Hour) == 0:
 		return fmt.Sprintf("%dw", d/(7*24*time.Hour))
 	case d%(24*time.Hour) == 0:
 		return fmt.Sprintf("%dd", d/(24*time.Hour))
 	case d%time.Hour == 0:
 		return fmt.Sprintf("%dh", d/time.Hour)
-	case d%time.Minute == 0:
-		return fmt.Sprintf("%dm", d/time.Minute)
 	default:
 		return d.String()
 	}

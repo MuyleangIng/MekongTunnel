@@ -55,6 +55,7 @@ type Tunnel struct {
 	apiToken           string // raw API token sent by the client via MEKONG_API_TOKEN env var
 	requestedSubdomain string // requested reserved subdomain sent via MEKONG_SUBDOMAIN
 	upstreamHost       string // local Host header override sent via MEKONG_UPSTREAM_HOST
+	skipWarning        bool   // skip phishing-warning interstitial (set via MEKONG_SKIP_WARNING)
 	userID             string // validated API-token owner for dashboard/live tunnel APIs
 
 	statsMu       sync.Mutex
@@ -337,6 +338,20 @@ func (t *Tunnel) SetUpstreamHost(host string) {
 	t.mu.Lock()
 	t.upstreamHost = host
 	t.mu.Unlock()
+}
+
+// SetSkipWarning marks the tunnel to skip the phishing-warning interstitial.
+func (t *Tunnel) SetSkipWarning(v bool) {
+	t.mu.Lock()
+	t.skipWarning = v
+	t.mu.Unlock()
+}
+
+// SkipWarning returns true when the tunnel owner has opted out of the warning page.
+func (t *Tunnel) SkipWarning() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.skipWarning
 }
 
 // SetLocalPort stores the developer's actual local app port sent by the client.

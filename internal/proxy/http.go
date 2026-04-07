@@ -150,6 +150,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// API clients and curl are not affected.
 	if !customDomain &&
 		isBrowserRequest(r) &&
+		!tun.SkipWarning() &&
 		r.Header.Get("mekongtunnel-skip-warning") == "" &&
 		!hasWarningCookie(r, sub) {
 		s.redirectToWarningPage(w, r, sub)

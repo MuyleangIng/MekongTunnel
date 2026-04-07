@@ -20,6 +20,7 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/mailer"
 	"github.com/MuyleangIng/MekongTunnel/internal/models"
 	"github.com/MuyleangIng/MekongTunnel/internal/redisx"
+	"github.com/MuyleangIng/MekongTunnel/internal/telegrambot"
 )
 
 func main() {
@@ -39,7 +40,6 @@ func main() {
 
 	stripeSecretKey := getEnv("STRIPE_SECRET_KEY", "")
 	stripeWebhookSecret := getEnv("STRIPE_WEBHOOK_SECRET", "")
-
 
 	tunnelServerURL := getEnv("TUNNEL_SERVER_URL", "http://localhost:9090")
 	tunnelEdgeSecret := getEnv("TUNNEL_EDGE_SECRET", "")
@@ -61,6 +61,14 @@ func main() {
 
 	uploadDir := getEnv("UPLOAD_DIR", "./uploads")
 	publicURL := getEnv("PUBLIC_URL", "http://localhost:8080")
+
+	// Telegram bot
+	telegramBotToken := getEnv("TELEGRAM_BOT_TOKEN", "")
+	telegramWebhookSecret := getEnv("TELEGRAM_WEBHOOK_SECRET", "")
+	telegramBotUsername := getEnv("TELEGRAM_BOT_USERNAME", "MekongTunnelBot")
+	telegramBotName := getEnv("TELEGRAM_BOT_NAME", "Mekong Tunnel")
+	telegramBotEnabled := getEnvBool("TELEGRAM_BOT_ENABLED", false) && telegramBotToken != ""
+	telegramApprovePath := getEnv("TELEGRAM_APPROVE_PATH", "/telegram-link")
 
 	// Resend (preferred on cloud — no SMTP port restrictions)
 	resendKey := getEnv("RESEND_API_KEY", "")
@@ -148,6 +156,16 @@ func main() {
 			From:       smtpFrom,
 		},
 		Redis: redisClient,
+		Telegram: telegrambot.Config{
+			BotToken:        telegramBotToken,
+			WebhookSecret:   telegramWebhookSecret,
+			BotUsername:     telegramBotUsername,
+			BotName:         telegramBotName,
+			FrontendURL:     strings.TrimRight(frontendURL, "/"),
+			ApprovePath:     telegramApprovePath,
+			TunnelServerURL: tunnelServerURL,
+			Enabled:         telegramBotEnabled,
+		},
 	}
 
 	srv := api.New(database, cfg)

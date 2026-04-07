@@ -589,6 +589,40 @@ type ImportPreviewSummary struct {
 	SeatLimit       int `json:"seat_limit"`
 }
 
+// ─── Telegram ─────────────────────────────────────────────────
+
+// TelegramLink is a durable mapping between a Telegram private chat and a Mekong user.
+type TelegramLink struct {
+	ID                string     `json:"id"`
+	UserID            string     `json:"user_id"`
+	TelegramChatID    int64      `json:"telegram_chat_id"`
+	TelegramUserID    int64      `json:"telegram_user_id"`
+	TelegramUsername  string     `json:"telegram_username,omitempty"`
+	TelegramFirstName string     `json:"telegram_first_name,omitempty"`
+	TelegramLastName  string     `json:"telegram_last_name,omitempty"`
+	Status            string     `json:"status"`
+	LinkedAt          time.Time  `json:"linked_at"`
+	LastSeenAt        *time.Time `json:"last_seen_at,omitempty"`
+	UnlinkedAt        *time.Time `json:"unlinked_at,omitempty"`
+}
+
+// TelegramLinkSession is a short-lived browser approval session for linking Telegram.
+type TelegramLinkSession struct {
+	ID                string     `json:"id"`
+	Code              string     `json:"code"`
+	TelegramChatID    int64      `json:"telegram_chat_id"`
+	TelegramUserID    int64      `json:"telegram_user_id"`
+	TelegramUsername  string     `json:"telegram_username,omitempty"`
+	TelegramFirstName string     `json:"telegram_first_name,omitempty"`
+	TelegramLastName  string     `json:"telegram_last_name,omitempty"`
+	Status            string     `json:"status"`
+	ApprovedUserID    *string    `json:"approved_user_id,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	ApprovedAt        *time.Time `json:"approved_at,omitempty"`
+	CancelledAt       *time.Time `json:"cancelled_at,omitempty"`
+}
+
 type ImportPreviewRow struct {
 	Row            int      `json:"row"`
 	Email          string   `json:"email"`

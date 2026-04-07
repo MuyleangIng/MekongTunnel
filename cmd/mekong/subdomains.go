@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -218,9 +220,32 @@ func runReserveCommand(args []string) error {
 	return nil
 }
 
+// parseYesFlag extracts --yes / -y from args, returning the flag and remaining args.
+func parseYesFlag(args []string) (yes bool, rest []string) {
+	for _, a := range args {
+		if a == "--yes" || a == "-y" {
+			yes = true
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	return yes, rest
+}
+
+// confirmPrompt asks the user to confirm a destructive action.
+// Returns true if the user confirmed (or --yes was passed).
+func confirmPrompt(msg string) bool {
+	fmt.Printf("\n  %s\n  Confirm? [y/N] ", msg)
+	reader := bufio.NewReader(os.Stdin)
+	reply, _ := reader.ReadString('\n')
+	reply = strings.TrimSpace(strings.ToLower(reply))
+	return reply == "y" || reply == "yes"
+}
+
 func runDeleteCommand(args []string) error {
+	yes, args := parseYesFlag(args)
 	if len(args) != 1 {
-		return fmt.Errorf("usage: mekong subdomain delete <name>")
+		return fmt.Errorf("usage: mekong subdomain delete <name> [--yes]")
 	}
 
 	subdomain, err := normalizeRequestedSubdomain(args[0])
@@ -244,6 +269,13 @@ func runDeleteCommand(args []string) error {
 	target, ok := findReservedSubdomain(data.Subdomains, subdomain)
 	if !ok {
 		return fmt.Errorf("reserved subdomain %q not found", subdomain)
+	}
+
+	if !yes {
+		if !confirmPrompt(fmt.Sprintf("Delete reserved subdomain %q?", target.Subdomain)) {
+			fmt.Printf("  Aborted.\n\n")
+			return nil
+		}
 	}
 
 	_, status, err := apiRequest(http.MethodDelete, "/api/cli/subdomains/"+url.PathEscape(target.ID), nil, token)

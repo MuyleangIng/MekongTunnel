@@ -50,9 +50,21 @@ TMP_REMOTE_MIGRATIONS="/tmp/${BINARY_NAME}.migrations.tar.gz.$$"
 TMP_UPLOAD_DIR=""
 SSH_OPTS=(-p "${REMOTE_SSH_PORT}")
 REMOTE_SERVICE_UNIT_NAME="${REMOTE_SERVICE_NAME}"
+TELEGRAM_ENABLED_IN_ENV="false"
 
 if [[ "${REMOTE_SERVICE_UNIT_NAME}" != *.service ]]; then
   REMOTE_SERVICE_UNIT_NAME="${REMOTE_SERVICE_UNIT_NAME}.service"
+fi
+
+if [[ -z "${LOCAL_ENV_FILE}" ]]; then
+  echo "  !  LOCAL_ENV_FILE is unset; this deploy will not upload the API env file or refresh the systemd unit"
+  echo "  !  If you changed TELEGRAM_*, OAuth, mail, Redis, or other env values, redeploy with LOCAL_ENV_FILE=.env.prod"
+else
+  if [[ -f "${LOCAL_ENV_FILE}" ]] && \
+     grep -Eq '^TELEGRAM_BOT_ENABLED=(1|true|yes|on)$' "${LOCAL_ENV_FILE}" && \
+     grep -Eq '^TELEGRAM_BOT_TOKEN=.+$' "${LOCAL_ENV_FILE}"; then
+    TELEGRAM_ENABLED_IN_ENV="true"
+  fi
 fi
 
 mkdir -p "${LOG_DIR}"
@@ -236,6 +248,18 @@ if [ "${PUBLIC_DOMAINS_CODE}" != "401" ]; then
   exit 1
 fi
 echo "  ✓  Public custom-domain route exists (401 without auth is expected)"
+
+if [[ "${TELEGRAM_ENABLED_IN_ENV}" == "true" ]]; then
+  echo "  ▶  Verifying public route /api/telegram/webhook ..."
+  TELEGRAM_WEBHOOK_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${PUBLIC_API_BASE}/api/telegram/webhook")
+  if [ "${TELEGRAM_WEBHOOK_CODE}" = "404" ]; then
+    echo "  ❌  Telegram webhook route check failed: ${PUBLIC_API_BASE}/api/telegram/webhook returned 404"
+    echo "      This usually means the API env was not uploaded, TELEGRAM_BOT_ENABLED is false at runtime, or the old binary is still running."
+    echo ""
+    exit 1
+  fi
+  echo "  ✓  Telegram webhook route exists (${TELEGRAM_WEBHOOK_CODE})"
+fi
 
 echo "  ✅  API deploy complete — ${PUBLIC_API_BASE}"
 echo ""

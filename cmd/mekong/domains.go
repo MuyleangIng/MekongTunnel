@@ -729,8 +729,9 @@ func runDomainTargetCommand(args []string) error {
 }
 
 func runDomainDeleteCommand(args []string) error {
+	yes, args := parseYesFlag(args)
 	if len(args) != 1 {
-		return fmt.Errorf("usage: mekong domain delete <domain>")
+		return fmt.Errorf("usage: mekong domain delete <domain> [--yes]")
 	}
 
 	domain, err := normalizeCustomDomain(args[0])
@@ -748,6 +749,13 @@ func runDomainDeleteCommand(args []string) error {
 	target, ok := findCustomDomain(list, domain)
 	if !ok {
 		return fmt.Errorf("custom domain %q not found", domain)
+	}
+
+	if !yes {
+		if !confirmPrompt(fmt.Sprintf("Delete custom domain %q?", domain)) {
+			fmt.Printf("  Aborted.\n\n")
+			return nil
+		}
 	}
 
 	_, status, err := apiRequest(http.MethodDelete, "/api/cli/domains/"+url.PathEscape(target.ID), nil, token)

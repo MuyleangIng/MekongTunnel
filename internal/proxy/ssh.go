@@ -387,6 +387,7 @@ const (
 	requestedSubdomainEnvName = "MEKONG_SUBDOMAIN"
 	upstreamHostEnvName       = "MEKONG_UPSTREAM_HOST"
 	localPortEnvName          = "MEKONG_LOCAL_PORT"
+	skipWarningEnvName        = "MEKONG_SKIP_WARNING"
 )
 
 func (s *Server) claimReservedSubdomain(ctx context.Context, tun *tunnel.Tunnel, currentSub string) (string, error) {
@@ -473,6 +474,8 @@ func applyEnvRequest(req *ssh.Request, tun *tunnel.Tunnel) error {
 			return err
 		}
 		tun.SetLocalPort(port)
+	case skipWarningEnvName:
+		tun.SetSkipWarning(payload.Value == "1" || strings.ToLower(payload.Value) == "true")
 	}
 	return nil
 }

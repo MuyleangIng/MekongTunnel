@@ -17,6 +17,7 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/mailer"
 	"github.com/MuyleangIng/MekongTunnel/internal/notify"
 	"github.com/MuyleangIng/MekongTunnel/internal/redisx"
+	"github.com/MuyleangIng/MekongTunnel/internal/telegrambot"
 )
 
 // Config holds all environment-driven configuration for the API server.
@@ -42,6 +43,7 @@ type Config struct {
 	PublicURL        string
 	MailConfig       mailer.Config
 	Redis            *redisx.Client
+	Telegram         telegrambot.Config
 }
 
 // Server is the MekongTunnel REST API HTTP server.
@@ -454,6 +456,20 @@ func (s *Server) registerRoutes() {
 	// ── File uploads ─────────────────────────────────────────────
 	s.mux.HandleFunc("POST /api/upload", chain(uploadH.Upload, authRequired))
 	s.mux.HandleFunc("GET /api/uploads/{filename}", uploadH.ServeFile)
+
+	// ── Telegram bot ─────────────────────────────────────────────
+	if s.cfg.Telegram.Enabled {
+		telegramRate := middleware.RateLimitIP(s.cfg.Redis, "telegram-link", 10, time.Minute)
+		botSvc := telegrambot.New(s.cfg.Telegram, s.db)
+		telegramH := &handlers.TelegramHandler{DB: s.db, Bot: botSvc}
+		log.Printf("[api] telegram bot enabled (@%s)", s.cfg.Telegram.BotUsername)
+		s.mux.HandleFunc("POST /api/telegram/webhook", telegramH.Webhook)
+		s.mux.HandleFunc("GET /api/telegram/link", chain(telegramH.GetMyLink, authRequired))
+		s.mux.HandleFunc("GET /api/telegram/link/session", chain(telegramH.GetLinkSession, authRequired, telegramRate))
+		s.mux.HandleFunc("POST /api/telegram/link/approve", chain(telegramH.ApproveLink, authRequired))
+		s.mux.HandleFunc("POST /api/telegram/link/cancel", chain(telegramH.CancelLink, authRequired))
+		s.mux.HandleFunc("POST /api/telegram/unlink", chain(telegramH.Unlink, authRequired))
+	}
 }
 
 func (s *Server) startNotificationRelay() {

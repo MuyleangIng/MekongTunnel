@@ -187,6 +187,44 @@ else
   warn "Binary installed but verification failed — try: ${DEST} version"
 fi
 
+# ── Shell completion ───────────────────────────────────────────────────────────
+install_completion() {
+  local rc_file="$1"
+  local shell_type="$2"
+
+  # Skip if not a real file or if completion already installed
+  [ -f "$rc_file" ] || touch "$rc_file"
+  if grep -q "mekong completion" "$rc_file" 2>/dev/null; then
+    ok "Tab completion already set up in ${rc_file}"
+    return
+  fi
+
+  # Append completion block guarded so it won't break non-interactive shells
+  {
+    printf '\n# mekong tab completion (added by installer)\n'
+    printf 'if command -v mekong >/dev/null 2>&1; then\n'
+    printf '  eval "$(mekong completion %s 2>/dev/null)"\n' "$shell_type"
+    printf 'fi\n'
+  } >> "$rc_file"
+  ok "Tab completion added to ${rc_file}"
+  info "Run: source ${rc_file}  (or open a new terminal)"
+}
+
+case "$SHELL_NAME" in
+  zsh)  install_completion "$HOME/.zshrc" "zsh" ;;
+  bash)
+    if [ "$OS_NAME" = "darwin" ]; then
+      install_completion "$HOME/.bash_profile" "bash"
+    else
+      install_completion "$HOME/.bashrc" "bash"
+    fi
+    ;;
+  fish)
+    info "Fish completion: run  mekong completion fish  (not yet supported, use zsh/bash)" ;;
+  *)
+    info "Tab completion: run  mekong completion zsh >> ~/.zshrc && source ~/.zshrc" ;;
+esac
+
 # ── Done ─────────────────────────────────────────────────────────────────────
 printf "\n${BOLD}  Ready!${RESET} Run:\n\n"
 printf "  ${CYAN}mekong login${RESET}       — sign in for a reserved subdomain\n"

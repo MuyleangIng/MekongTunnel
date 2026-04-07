@@ -500,18 +500,44 @@ func (db *DB) GetUserByNewsletterToken(ctx context.Context, token string) (*mode
 	return scanUser(row)
 }
 
+// EnsureNewsletterUnsubscribeToken returns the existing unsubscribe token or creates one.
+func (db *DB) EnsureNewsletterUnsubscribeToken(ctx context.Context, userID string) (string, error) {
+	var token string
+	err := db.Pool.QueryRow(ctx, `
+		UPDATE users
+		SET newsletter_unsubscribe_token = COALESCE(newsletter_unsubscribe_token, gen_random_uuid()),
+		    updated_at = now()
+		WHERE id = $1
+		RETURNING newsletter_unsubscribe_token::text`,
+		userID,
+	).Scan(&token)
+	return token, err
+}
+
 // GetNewsletterRecipients returns emails of subscribed users (for sending campaigns).
-func (db *DB) GetNewsletterRecipients(ctx context.Context) ([]struct{ Email, Name string }, error) {
+func (db *DB) GetNewsletterRecipients(ctx context.Context) ([]models.NewsletterRecipient, error) {
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE users
+		SET newsletter_unsubscribe_token = gen_random_uuid(),
+		    updated_at = now()
+		WHERE newsletter_subscribed = TRUE
+		  AND email_verified = TRUE
+		  AND newsletter_unsubscribe_token IS NULL`); err != nil {
+		return nil, err
+	}
+
 	rows, err := db.Pool.Query(ctx,
-		`SELECT email, name FROM users WHERE newsletter_subscribed = TRUE AND email_verified = TRUE`)
+		`SELECT email, name, newsletter_unsubscribe_token::text
+		 FROM users
+		 WHERE newsletter_subscribed = TRUE AND email_verified = TRUE`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []struct{ Email, Name string }
+	var out []models.NewsletterRecipient
 	for rows.Next() {
-		var r struct{ Email, Name string }
-		if err := rows.Scan(&r.Email, &r.Name); err == nil {
+		var r models.NewsletterRecipient
+		if err := rows.Scan(&r.Email, &r.Name, &r.UnsubscribeToken); err == nil {
 			out = append(out, r)
 		}
 	}

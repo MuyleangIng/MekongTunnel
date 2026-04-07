@@ -169,7 +169,7 @@ func (s *Server) registerRoutes() {
 
 	teamH := &handlers.TeamHandler{DB: s.db, Mailer: mailSvc, Notify: notifySvc, FrontendURL: s.cfg.FrontendURL}
 	adminH := &handlers.AdminHandler{DB: s.db, Notify: notifySvc, Mailer: mailSvc, FrontendURL: s.cfg.FrontendURL}
-	newsletterH := &handlers.NewsletterHandler{DB: s.db, Mailer: mailSvc}
+	newsletterH := &handlers.NewsletterHandler{DB: s.db, Mailer: mailSvc, FrontendURL: s.cfg.FrontendURL}
 	partnersH := &handlers.PartnersHandler{DB: s.db}
 	sponsorsH := &handlers.SponsorsHandler{DB: s.db}
 	notifH := &handlers.NotificationsHandler{DB: s.db, Hub: s.hub, JWTSecret: s.cfg.JWTSecret}
@@ -251,7 +251,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/tunnels/history", chain(tunnelsH.ClearHistory, authRequired))
 	s.mux.HandleFunc("POST /api/tunnels/{id}/log-token", chain(tunnelsH.CreateLogToken, authRequired))
 	s.mux.HandleFunc("GET /api/tunnels/{id}/logs", tunnelsH.GetLogs)
-	s.mux.HandleFunc("POST /api/tunnels", chain(tunnelsH.ReportTunnel, internalOnly))   // tunnel edge only
+	s.mux.HandleFunc("POST /api/tunnels", chain(tunnelsH.ReportTunnel, internalOnly))             // tunnel edge only
 	s.mux.HandleFunc("PATCH /api/tunnels/{id}", chain(tunnelsH.UpdateTunnelStatus, internalOnly)) // tunnel edge only
 
 	// ── User ────────────────────────────────────────────────────
@@ -438,6 +438,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/newsletter/unsubscribe", newsletterH.Unsubscribe)
 	s.mux.HandleFunc("POST /api/newsletter/resubscribe", newsletterH.ResubscribeByToken)
 	s.mux.HandleFunc("POST /api/newsletter/toggle", chain(newsletterH.Toggle, authRequired))
+	s.mux.HandleFunc("POST /api/admin/newsletter/preview", chain(newsletterH.AdminPreview, authRequired, adminRequired))
 	s.mux.HandleFunc("POST /api/admin/newsletter/send", chain(newsletterH.AdminSend, authRequired, adminRequired))
 	s.mux.HandleFunc("GET /api/admin/newsletter/campaigns", chain(newsletterH.AdminCampaigns, authRequired, adminRequired))
 	s.mux.HandleFunc("GET /api/admin/newsletter/subscribers", chain(newsletterH.AdminSubscribers, authRequired, adminRequired))

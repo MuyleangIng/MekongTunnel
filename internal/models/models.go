@@ -454,6 +454,13 @@ type NewsletterCampaign struct {
 	RecipientCount int       `json:"recipient_count"`
 }
 
+// NewsletterRecipient is a subscribed user included in a newsletter campaign.
+type NewsletterRecipient struct {
+	Email            string `json:"email"`
+	Name             string `json:"name"`
+	UnsubscribeToken string `json:"-"`
+}
+
 // ─── DonationSubmission ───────────────────────────────────────
 
 type DonationSubmission struct {

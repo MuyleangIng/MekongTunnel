@@ -2597,6 +2597,22 @@ func buildAdminCases() []endpointCase {
 			},
 		},
 		{
+			name:         "AdminNewsletterPreview",
+			method:       http.MethodPost,
+			path:         "/api/admin/newsletter/preview",
+			expected:     http.StatusOK,
+			authRequired: "Admin",
+			runUnauthorized: func(_ *testing.T, _ *caseContext) *http.Response {
+				return makeRequest(http.MethodPost, "/api/admin/newsletter/preview", map[string]any{"subject": "Hello", "body_html": "<p>Hi</p>"}, "")
+			},
+			runForbidden: func(_ *testing.T, c *caseContext) *http.Response {
+				return makeRequest(http.MethodPost, "/api/admin/newsletter/preview", map[string]any{"subject": "Hello", "body_html": "<p>Hi</p>"}, c.freeJWT)
+			},
+			run: func(_ *testing.T, c *caseContext) *http.Response {
+				return makeRequest(http.MethodPost, "/api/admin/newsletter/preview", map[string]any{"subject": "Hello", "body_html": "<p>Hi</p>"}, c.adminJWT)
+			},
+		},
+		{
 			name:         "AdminNewsletterSend",
 			method:       http.MethodPost,
 			path:         "/api/admin/newsletter/send",
@@ -3376,22 +3392,47 @@ func mustPlanConfigPayload() []map[string]any {
 }
 
 func mustNewsletterToken(userID string) string {
-	user, err := testDB.GetUserByID(context.Background(), userID)
+	token, err := testDB.EnsureNewsletterUnsubscribeToken(context.Background(), userID)
 	if err != nil {
 		panic(err)
 	}
-	if user.NewsletterUnsubscribeToken != "" {
-		return user.NewsletterUnsubscribeToken
+	return token
+}
+
+func TestAdminNewsletterPreviewRendersConcreteUnsubscribeLink(t *testing.T) {
+	ctx := newCaseContext()
+	wantToken := mustNewsletterToken(ctx.adminUser.ID)
+
+	resp := makeRequest(http.MethodPost, "/api/admin/newsletter/preview", map[string]any{
+		"subject":   "Hello",
+		"body_html": `<p>Hi</p><a href="{{unsubscribe_url}}">Unsubscribe</a>`,
+	}, ctx.adminJWT)
+	defer closeResponse(resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("preview status = %d, body = %s", resp.StatusCode, strings.TrimSpace(string(mustReadBody(resp))))
 	}
-	token, err := auth.GenerateSecureToken()
-	if err != nil {
-		panic(err)
+
+	var payload struct {
+		HTML             string `json:"html"`
+		UnsubscribeToken string `json:"unsubscribe_token"`
+		UnsubscribeURL   string `json:"unsubscribe_url"`
+		AutoAppended     bool   `json:"auto_appended_unsubscribe"`
 	}
-	updated, err := testDB.UpdateUser(context.Background(), userID, map[string]any{"newsletter_unsubscribe_token": token})
-	if err != nil {
-		panic(err)
+	decodeResponseData(resp, &payload)
+
+	if payload.UnsubscribeToken != wantToken {
+		t.Fatalf("unsubscribe_token = %q, want %q", payload.UnsubscribeToken, wantToken)
 	}
-	return updated.NewsletterUnsubscribeToken
+	if payload.AutoAppended {
+		t.Fatalf("auto_appended_unsubscribe = true, want false")
+	}
+	if !strings.Contains(payload.HTML, payload.UnsubscribeURL) {
+		t.Fatalf("expected rendered html to contain unsubscribe url %q, got %q", payload.UnsubscribeURL, payload.HTML)
+	}
+	if strings.Contains(payload.HTML, "{{unsubscribe_url}}") {
+		t.Fatalf("expected preview html to replace placeholder, got %q", payload.HTML)
+	}
 }
 
 func mustSeedDonation(t *testing.T, name string) *models.DonationSubmission {

@@ -48,6 +48,7 @@ type TunnelsHandler struct {
 	StatsClient     *http.Client
 	StreamClient    *http.Client
 	JWTSecret       string
+	Telegram        TelegramAlerter
 }
 
 // ListTunnels handles GET /api/tunnels.
@@ -337,10 +338,17 @@ func (h *TunnelsHandler) ReportTunnel(w http.ResponseWriter, r *http.Request) {
 		t.Status = "active"
 	}
 
+	var before *models.Tunnel
+	if existing, err := h.DB.GetTunnelByID(r.Context(), t.ID); err == nil {
+		before = existing
+	}
+
 	if err := h.DB.UpsertTunnel(r.Context(), &t); err != nil {
 		response.InternalError(w, err)
 		return
 	}
+
+	notifyTunnelTransition(r.Context(), h.Telegram, before, t.Status)
 
 	response.Success(w, map[string]any{"message": "tunnel synced"})
 }
@@ -363,6 +371,13 @@ func (h *TunnelsHandler) UpdateTunnelStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	var before *models.Tunnel
+	if body.Status != "" {
+		if existing, err := h.DB.GetTunnelByID(r.Context(), id); err == nil {
+			before = existing
+		}
+	}
+
 	if body.Status != "" {
 		var endedAt *time.Time
 		if body.Status == "stopped" {
@@ -373,6 +388,8 @@ func (h *TunnelsHandler) UpdateTunnelStatus(w http.ResponseWriter, r *http.Reque
 			response.InternalError(w, err)
 			return
 		}
+
+		notifyTunnelTransition(r.Context(), h.Telegram, before, body.Status)
 	}
 
 	if body.TotalRequests > 0 || body.TotalBytes > 0 {

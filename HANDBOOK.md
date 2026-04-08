@@ -55,7 +55,7 @@ Developer machine                  Proxy edge                     Public web/API
 
 | Component | Language | Version | Link |
 |-----------|----------|---------|------|
-| Go Server + CLI | Go 1.24 | v1.5.7 | [GitHub](https://github.com/MuyleangIng/MekongTunnel) |
+| Go Server + CLI | Go 1.24 | v1.5.8 | [GitHub](https://github.com/MuyleangIng/MekongTunnel) |
 | npm CLI + SDK | Node.js 18+ | v2.0.0 | [npm](https://www.npmjs.com/package/mekong-cli) |
 | Python CLI + SDK | Python 3.8+ | v2.1.0 | [PyPI](https://pypi.org/project/mekong-tunnel/) |
 | VS Code Extension | TypeScript | v1.5.0 | [Marketplace](https://marketplace.visualstudio.com/items?itemName=KhmerStack.mekong-tunnel) |
@@ -320,8 +320,8 @@ make build-small        # max size optimization (~6 MB server, ~4 MB CLI)
 make build-tiny         # UPX compression (~2 MB server)
 make build-all          # cross-compile server: linux/darwin × amd64/arm64
 make build-client-all   # cross-compile CLI: all platforms incl. windows/arm64
-make release-cli-assets TAG=v1.5.7   # dist/v1.5.7 assets + checksum + release notes
-make release-cli-publish TAG=v1.5.7  # push tag only; release.yml publishes the GitHub release
+make release-cli-assets TAG=v1.5.8   # dist/v1.5.8 assets + checksum + release notes
+make release-cli-publish TAG=v1.5.8  # push tag only; release.yml publishes the GitHub release
 make test               # run all tests (excludes known flaky proxy tests)
 make compose-dev-up     # start local Postgres + Redis + API
 make compose-init-dev   # run migrations + server_config seed + admin bootstrap
@@ -1194,8 +1194,8 @@ Steps:
 Local equivalent:
 
 ```bash
-make release-cli-assets TAG=v1.5.7
-make release-cli-publish TAG=v1.5.7
+make release-cli-assets TAG=v1.5.8
+make release-cli-publish TAG=v1.5.8
 ```
 
 ### publish-npm.yml — npm

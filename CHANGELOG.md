@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## v1.5.8 - 2026-03-28
+## v1.5.8 - 2026-04-08
 
 Highlights:
 
@@ -47,6 +47,14 @@ Highlights:
 - Added the ORG verification approval flow end-to-end: requested org domain and seat limits, approval notes, waiting-state UI, admin review details, and org creation/linking/activation when an ORG request is approved
 - Added approved ORG contract discount support so admins can set `0`-`100%` during org approval, the billing page surfaces the approved discount, and ORG checkout applies it to Stripe checkout sessions
 - Extended organization billing requests so members can request a discount percentage and org managers can approve a specific percentage with notes on the org dashboard
+- Added Telegram bot account linking, command replies, and alert delivery for tunnel and custom-domain monitoring
+- Added Telegram bot docs and Discord bot draft docs, and pointed the main repo docs link to https://docs.mekongtunnel.dev/
+- Updated Telegram bot formatting for cleaner `/services`, `/domain`, and `/logs` replies on mobile
+- Added automatic Telegram alerts for tunnel down, tunnel issue, tunnel recovered, domain pending, domain failed, domain ready, and domain route-updated events
+- Fixed Telegram log redaction so full `Cookie:` and `Set-Cookie:` lines are removed before logs are sent to chat
+- Sent Telegram domain alerts to linked team managers for team-owned custom domains, including admin-triggered verify and target updates
+- Fixed newsletter unsubscribe rendering so each recipient gets the correct unsubscribe link, and added admin newsletter preview API support
+- Built fresh multi-platform client binaries with `main.version=v1.5.8`
 
 ## v1.5.7 - 2026-03-27
 
@@ -164,6 +172,7 @@ Highlights:
 
 | Tag | Date |
 | --- | --- |
+| `v1.5.8` | 2026-04-08 |
 | `v1.5.7` | 2026-03-27 |
 | `v1.5.6` | 2026-03-25 |
 | `v1.4.9` | 2026-03-14 |

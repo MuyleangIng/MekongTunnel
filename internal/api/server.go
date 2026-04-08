@@ -105,6 +105,11 @@ func (s *Server) registerRoutes() {
 	// ── Shared notification service ──────────────────────────────
 	notifySvc := &notify.Service{DB: s.db, Hub: s.hub, Redis: s.cfg.Redis}
 
+	var botSvc *telegrambot.Service
+	if s.cfg.Telegram.Enabled {
+		botSvc = telegrambot.New(s.cfg.Telegram, s.db)
+	}
+
 	// ── Mailer ───────────────────────────────────────────────────
 	mailSvc := mailer.New(s.cfg.MailConfig)
 	if mailSvc.Enabled() {
@@ -148,6 +153,7 @@ func (s *Server) registerRoutes() {
 		},
 		StreamClient: &http.Client{},
 		JWTSecret:    s.cfg.JWTSecret,
+		Telegram:     botSvc,
 	}
 
 	userH := &handlers.UserHandler{DB: s.db, Notify: notifySvc}
@@ -168,14 +174,14 @@ func (s *Server) registerRoutes() {
 	}
 
 	teamH := &handlers.TeamHandler{DB: s.db, Mailer: mailSvc, Notify: notifySvc, FrontendURL: s.cfg.FrontendURL}
-	adminH := &handlers.AdminHandler{DB: s.db, Notify: notifySvc, Mailer: mailSvc, FrontendURL: s.cfg.FrontendURL}
+	adminH := &handlers.AdminHandler{DB: s.db, Notify: notifySvc, Mailer: mailSvc, FrontendURL: s.cfg.FrontendURL, Telegram: botSvc}
 	newsletterH := &handlers.NewsletterHandler{DB: s.db, Mailer: mailSvc, FrontendURL: s.cfg.FrontendURL}
 	partnersH := &handlers.PartnersHandler{DB: s.db}
 	sponsorsH := &handlers.SponsorsHandler{DB: s.db}
 	notifH := &handlers.NotificationsHandler{DB: s.db, Hub: s.hub, JWTSecret: s.cfg.JWTSecret}
 	monitorH := &handlers.MonitorHandler{}
 	subdomainH := &handlers.SubdomainHandler{DB: s.db}
-	domainsH := &handlers.DomainsHandler{DB: s.db}
+	domainsH := &handlers.DomainsHandler{DB: s.db, Telegram: botSvc}
 	uploadH := &handlers.UploadHandler{
 		UploadDir: s.cfg.UploadDir,
 		BaseURL:   s.cfg.PublicURL,
@@ -461,7 +467,6 @@ func (s *Server) registerRoutes() {
 	// ── Telegram bot ─────────────────────────────────────────────
 	if s.cfg.Telegram.Enabled {
 		telegramRate := middleware.RateLimitIP(s.cfg.Redis, "telegram-link", 10, time.Minute)
-		botSvc := telegrambot.New(s.cfg.Telegram, s.db)
 		telegramH := &handlers.TelegramHandler{DB: s.db, Bot: botSvc}
 		log.Printf("[api] telegram bot enabled (@%s)", s.cfg.Telegram.BotUsername)
 		s.mux.HandleFunc("POST /api/telegram/webhook", telegramH.Webhook)

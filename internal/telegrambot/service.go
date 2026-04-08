@@ -122,7 +122,7 @@ func (s *Service) dispatch(ctx context.Context, update *Update) {
 	case "/unlink":
 		s.handleUnlink(ctx, chatID)
 	default:
-		s.send(chatID, "Unknown command. Use /help to see what I can do.")
+		s.send(chatID, FormatUnknownCommand())
 	}
 }
 
@@ -143,20 +143,17 @@ func (s *Service) handleStart(ctx context.Context, chatID int64, from *User, arg
 	if link != nil {
 		user, err := s.db.GetUserByID(ctx, link.UserID)
 		if err == nil && user != nil && user.Suspended {
-			s.send(chatID, suspendedAccountMsg)
+			s.send(chatID, FormatSuspended())
 			return
 		}
-		s.send(chatID, "Welcome back! Your Mekong account is linked.\n\nUse /help to see available commands.")
+		s.send(chatID, FormatWelcomeBack())
 		return
 	}
-	s.send(chatID, fmt.Sprintf(
-		"Hi %s! 👋\n\nLink your Mekong account to view active tunnels, logs, subdomains, and domain status.\n\nUse /link to begin.",
-		from.FirstName,
-	))
+	s.send(chatID, FormatStartIntro(from.FirstName))
 }
 
 func (s *Service) handleHelp(ctx context.Context, chatID int64) {
-	s.send(chatID, helpText)
+	s.sendMarkdown(chatID, FormatHelp())
 }
 
 func (s *Service) handleLink(ctx context.Context, chatID int64, from *User) {
@@ -168,7 +165,7 @@ func (s *Service) handleLink(ctx context.Context, chatID int64, from *User) {
 		return
 	}
 	if existing != nil {
-		s.send(chatID, "Your Telegram account is already linked to a Mekong account.\n\nUse /unlink first if you want to re-link.")
+		s.send(chatID, FormatAlreadyLinked())
 		return
 	}
 
@@ -185,10 +182,7 @@ func (s *Service) handleLink(ctx context.Context, chatID int64, from *User) {
 	}
 	approveURL := joinURLPath(s.cfg.FrontendURL, approvePath) + "?code=" + url.QueryEscape(sess.Code)
 
-	s.send(chatID, fmt.Sprintf(
-		"Open the link below to connect your Mekong account:\n\n%s\n\nThis link expires in 10 minutes.",
-		approveURL,
-	))
+	s.send(chatID, FormatLinkRequest(approveURL))
 }
 
 func (s *Service) handleMe(ctx context.Context, chatID int64) {
@@ -236,7 +230,7 @@ func (s *Service) handleLogs(ctx context.Context, chatID int64, arg string) {
 	for _, t := range tunnels {
 		if t.Subdomain == arg || t.ID == arg {
 			if t.Status != string(models.TunnelActive) {
-				s.send(chatID, "Recent logs are only available while the tunnel is active.")
+				s.send(chatID, "Recent logs are only available while the tunnel is active.\n\nUse /services to check what is live.")
 				return
 			}
 			tunnelID = t.ID
@@ -245,7 +239,7 @@ func (s *Service) handleLogs(ctx context.Context, chatID int64, arg string) {
 		}
 	}
 	if tunnelID == "" {
-		s.send(chatID, fmt.Sprintf("No tunnel found for: %s", arg))
+		s.send(chatID, fmt.Sprintf("No tunnel found for: %s\n\nUse /services to list active tunnels.", arg))
 		return
 	}
 
@@ -256,7 +250,7 @@ func (s *Service) handleLogs(ctx context.Context, chatID int64, arg string) {
 		return
 	}
 	if len(lines) == 0 {
-		s.send(chatID, fmt.Sprintf("No recent logs are available for `%s` right now.", arg))
+		s.send(chatID, fmt.Sprintf("No recent logs are available for %s right now.", arg))
 		return
 	}
 
@@ -326,7 +320,7 @@ func (s *Service) handleUnlink(ctx context.Context, chatID int64) {
 		return
 	}
 	if link == nil {
-		s.send(chatID, "Your Telegram account is not linked to any Mekong account.")
+		s.send(chatID, FormatNotLinked())
 		return
 	}
 
@@ -336,7 +330,7 @@ func (s *Service) handleUnlink(ctx context.Context, chatID int64) {
 		return
 	}
 
-	s.send(chatID, "Your Telegram account has been unlinked from Mekong.")
+	s.send(chatID, FormatUnlinked())
 }
 
 // ── helpers ──────────────────────────────────────────────────
@@ -351,18 +345,52 @@ func (s *Service) NotifyLinkApproved(chatID int64, user *models.User) {
 		display = fmt.Sprintf("%s (%s)", name, user.Email)
 	}
 
-	go s.send(chatID, fmt.Sprintf(
-		"Your Telegram account is now linked to %s.\n\nUse /help to see available commands.",
-		display,
-	))
+	go s.send(chatID, FormatLinkApproved(display))
 }
 
 func (s *Service) NotifyLinkCancelled(chatID int64) {
-	go s.send(chatID, "The pending Mekong link request was cancelled.")
+	go s.send(chatID, FormatLinkCancelled())
 }
 
 func (s *Service) NotifyUnlinked(chatID int64) {
-	go s.send(chatID, "Your Telegram account has been unlinked from Mekong.")
+	go s.send(chatID, FormatUnlinked())
+}
+
+func (s *Service) NotifyTunnelDown(_ context.Context, userID, service string, port int) {
+	if strings.TrimSpace(userID) == "" {
+		return
+	}
+	s.notifyUsers([]string{userID}, FormatTunnelDownAlert(service, port))
+}
+
+func (s *Service) NotifyTunnelIssue(_ context.Context, userID, service, symptom string) {
+	if strings.TrimSpace(userID) == "" {
+		return
+	}
+	s.notifyUsers([]string{userID}, FormatTunnelIssueAlert(service, symptom))
+}
+
+func (s *Service) NotifyTunnelRecovered(_ context.Context, userID, service string) {
+	if strings.TrimSpace(userID) == "" {
+		return
+	}
+	s.notifyUsers([]string{userID}, FormatTunnelRecoveredAlert(service))
+}
+
+func (s *Service) NotifyDomainPending(_ context.Context, userIDs []string, host string) {
+	s.notifyUsers(userIDs, FormatDomainPendingAlert(host))
+}
+
+func (s *Service) NotifyDomainFailed(_ context.Context, userIDs []string, host, reason string) {
+	s.notifyUsers(userIDs, FormatDomainFailedAlert(host, reason))
+}
+
+func (s *Service) NotifyDomainReady(_ context.Context, userIDs []string, host, target string) {
+	s.notifyUsers(userIDs, FormatDomainReadyAlert(host, target))
+}
+
+func (s *Service) NotifyDomainUpdated(_ context.Context, userIDs []string, host, target string) {
+	s.notifyUsers(userIDs, FormatDomainUpdatedAlert(host, target))
 }
 
 func (s *Service) send(chatID int64, text string) {
@@ -419,7 +447,7 @@ func (s *Service) requireLinkedUser(ctx context.Context, chatID int64) (*models.
 		return nil, nil, false
 	}
 	if link == nil {
-		s.send(chatID, notLinkedMsg)
+		s.send(chatID, FormatNotLinked())
 		return nil, nil, false
 	}
 
@@ -430,7 +458,7 @@ func (s *Service) requireLinkedUser(ctx context.Context, chatID int64) (*models.
 		return nil, nil, false
 	}
 	if user.Suspended {
-		s.send(chatID, suspendedAccountMsg)
+		s.send(chatID, FormatSuspended())
 		return nil, nil, false
 	}
 	return link, user, true
@@ -484,19 +512,49 @@ func joinURLPath(baseURL, path string) string {
 	return baseURL + path
 }
 
-const notLinkedMsg = "Your Telegram account is not linked to a Mekong account.\n\nUse /link to connect your account."
-const suspendedAccountMsg = "Your Mekong account is suspended. Manage your account in the dashboard to restore Telegram access."
+func (s *Service) notifyUsers(userIDs []string, text string) {
+	userIDs = uniqueStrings(userIDs)
+	if len(userIDs) == 0 || strings.TrimSpace(text) == "" {
+		return
+	}
 
-const helpText = `*Mekong Tunnel Bot*
+	go func(ids []string, msg string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-Available commands:
+		for _, userID := range ids {
+			link, err := s.db.GetTelegramLinkByUserID(ctx, userID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				log.Printf("[telegrambot] load link by user %s: %v", userID, err)
+				continue
+			}
+			if link == nil {
+				continue
+			}
+			s.send(link.TelegramChatID, msg)
+		}
+	}(append([]string(nil), userIDs...), text)
+}
 
-/link - Link Telegram to your Mekong account
-/me - Show your account info
-/services - List active tunnels
-/logs <id> - Show recent logs
-/subdomains - List reserved subdomains
-/domains - List custom domains
-/domain <host> - Check one domain
-/unlink - Unlink from your account
-/help - Show this message`
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}

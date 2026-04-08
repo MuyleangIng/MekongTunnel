@@ -20,7 +20,8 @@ const mekongCNAMETarget = "proxy.angkorsearch.dev"
 
 // DomainsHandler manages custom domains.
 type DomainsHandler struct {
-	DB *db.DB
+	DB       *db.DB
+	Telegram TelegramAlerter
 }
 
 type enrichedCustomDomain struct {
@@ -252,6 +253,7 @@ func (h *DomainsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		response.InternalError(w, err)
 		return
 	}
+	notifyDomainCreated(r.Context(), h.Telegram, domainAlertRecipients(r.Context(), h.DB, d), d)
 	response.Created(w, enrichCustomDomain(d))
 }
 
@@ -297,6 +299,7 @@ func (h *DomainsHandler) CreateCLI(w http.ResponseWriter, r *http.Request) {
 		response.InternalError(w, err)
 		return
 	}
+	notifyDomainCreated(r.Context(), h.Telegram, domainAlertRecipients(r.Context(), h.DB, d), d)
 	response.Created(w, enrichCustomDomain(d))
 }
 
@@ -375,11 +378,16 @@ func (h *DomainsHandler) DeleteCLI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DomainsHandler) respondVerification(w http.ResponseWriter, r *http.Request, d *models.CustomDomain) {
+	recipients := domainAlertRecipients(r.Context(), h.DB, d)
 	dns := customdomain.BuildDNSInstructions(d.Domain, mekongCNAMETarget, d.VerificationToken, net.LookupIP)
 
 	// Localhost / dev bypass: auto-verify any *.localhost or 127.x.x.x domain
 	if isLocalhostDomain(d.Domain) {
 		_ = h.DB.SetCustomDomainVerified(r.Context(), d.ID)
+		if updated, err := h.DB.GetCustomDomainByID(r.Context(), d.ID); err == nil && updated != nil {
+			d = updated
+		}
+		notifyDomainVerificationResult(r.Context(), h.Telegram, recipients, d, true, true, "")
 		response.Success(w, customDomainVerificationResult{
 			Verified:        true,
 			Status:          "verified",
@@ -423,10 +431,16 @@ func (h *DomainsHandler) respondVerification(w http.ResponseWriter, r *http.Requ
 		_ = h.DB.SetCustomDomainFailed(r.Context(), d.ID)
 	}
 
+	if updated, err := h.DB.GetCustomDomainByID(r.Context(), d.ID); err == nil && updated != nil {
+		d = updated
+	}
+
 	status := "failed"
 	if verified {
 		status = "verified"
 	}
+
+	notifyDomainVerificationResult(r.Context(), h.Telegram, recipients, d, verified, httpsOK, verifyMessage(cnameOK, txtOK, addressOK, httpsOK, httpsErr))
 
 	response.Success(w, customDomainVerificationResult{
 		Verified:        verified,
@@ -564,13 +578,23 @@ func (h *DomainsHandler) SetTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.DB.GetCustomDomainByScope(r.Context(), id, claims.UserID, scope.TeamID); err != nil {
+	d, err := h.DB.GetCustomDomainByScope(r.Context(), id, claims.UserID, scope.TeamID)
+	if err != nil {
 		response.NotFound(w, "domain not found")
 		return
 	}
 	if err := h.DB.SetCustomDomainTargetByScope(r.Context(), id, claims.UserID, scope.TeamID, targetSubdomain); err != nil {
 		response.InternalError(w, err)
 		return
+	}
+	prevTarget := ""
+	if d.TargetSubdomain != nil {
+		prevTarget = strings.TrimSpace(*d.TargetSubdomain)
+	}
+	if prevTarget != targetSubdomain {
+		targetCopy := targetSubdomain
+		d.TargetSubdomain = &targetCopy
+		notifyDomainTargetUpdated(r.Context(), h.Telegram, domainAlertRecipients(r.Context(), h.DB, d), d)
 	}
 	response.Success(w, map[string]any{"ok": true})
 }
@@ -621,13 +645,23 @@ func (h *DomainsHandler) SetTargetCLI(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if _, err := h.DB.GetCustomDomainByScope(r.Context(), id, user.ID, scope.TeamID); err != nil {
+	d, err := h.DB.GetCustomDomainByScope(r.Context(), id, user.ID, scope.TeamID)
+	if err != nil {
 		response.NotFound(w, "domain not found")
 		return
 	}
 	if err := h.DB.SetCustomDomainTargetByScope(r.Context(), id, user.ID, scope.TeamID, targetSubdomain); err != nil {
 		response.InternalError(w, err)
 		return
+	}
+	prevTarget := ""
+	if d.TargetSubdomain != nil {
+		prevTarget = strings.TrimSpace(*d.TargetSubdomain)
+	}
+	if prevTarget != targetSubdomain {
+		targetCopy := targetSubdomain
+		d.TargetSubdomain = &targetCopy
+		notifyDomainTargetUpdated(r.Context(), h.Telegram, domainAlertRecipients(r.Context(), h.DB, d), d)
 	}
 	response.Success(w, map[string]any{"ok": true})
 }

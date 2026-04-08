@@ -9,9 +9,10 @@
 | Author | Ing Muyleang (អុឹង មួយលៀង) |
 | Web UI | [angkorsearch.dev](https://angkorsearch.dev) |
 | API | [api.angkorsearch.dev](https://api.angkorsearch.dev) |
+| Docs | [docs.mekongtunnel.dev](https://docs.mekongtunnel.dev/) |
 | Tunnel Edge | `proxy.angkorsearch.dev` |
 | License | MIT |
-| Current Version | v1.5.7 |
+| Current Version | v1.5.8 |
 
 ---
 
@@ -195,8 +196,8 @@ cp .env.prod.example .env.prod
 make build          # server + CLI
 make build-all      # cross-compile server (Linux + macOS, amd64 + arm64)
 make build-client-all  # cross-compile CLI (all platforms)
-make release-cli-assets TAG=v1.5.7   # 6 CLI assets + SHA256SUMS + release-notes.md
-make release-cli-publish TAG=v1.5.7  # push tag only; GitHub release workflow publishes assets
+make release-cli-assets TAG=v1.5.8   # 6 CLI assets + SHA256SUMS + release-notes.md
+make release-cli-publish TAG=v1.5.8  # push tag only; GitHub release workflow publishes assets
 
 # Local API stack with Postgres + Redis
 cp .env.compose.dev.example .env.compose.dev

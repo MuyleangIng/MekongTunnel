@@ -25,6 +25,7 @@ type AdminHandler struct {
 	Notify      *notify.Service
 	Mailer      *mailer.Mailer
 	FrontendURL string
+	Telegram    TelegramAlerter
 }
 
 type adminOrgMemberResponse struct {
@@ -340,11 +341,18 @@ func (h *AdminHandler) KillTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var before *models.Tunnel
+	if existing, err := h.DB.GetTunnelByID(r.Context(), id); err == nil {
+		before = existing
+	}
+
 	now := time.Now()
 	if err := h.DB.UpdateTunnelStatus(r.Context(), id, "stopped", &now); err != nil {
 		response.InternalError(w, err)
 		return
 	}
+
+	notifyTunnelTransition(r.Context(), h.Telegram, before, "stopped")
 
 	response.Success(w, map[string]any{"message": "tunnel killed"})
 }
@@ -407,7 +415,7 @@ func (h *AdminHandler) VerifyDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dh := &DomainsHandler{DB: h.DB}
+	dh := &DomainsHandler{DB: h.DB, Telegram: h.Telegram}
 	dh.respondVerification(w, r, d)
 }
 
@@ -463,6 +471,15 @@ func (h *AdminHandler) SetDomainTarget(w http.ResponseWriter, r *http.Request) {
 	if err := h.DB.SetCustomDomainTargetByID(r.Context(), id, targetSubdomain); err != nil {
 		response.InternalError(w, err)
 		return
+	}
+	prevTarget := ""
+	if d.TargetSubdomain != nil {
+		prevTarget = strings.TrimSpace(*d.TargetSubdomain)
+	}
+	if prevTarget != targetSubdomain {
+		targetCopy := targetSubdomain
+		d.TargetSubdomain = &targetCopy
+		notifyDomainTargetUpdated(r.Context(), h.Telegram, domainAlertRecipients(r.Context(), h.DB, d), d)
 	}
 	response.Success(w, map[string]any{"ok": true})
 }

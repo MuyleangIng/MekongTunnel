@@ -121,7 +121,7 @@ func TestRunDeleteCommand(t *testing.T) {
 		}
 	}
 
-	if err := runDeleteCommand([]string{"myapp"}); err != nil {
+	if err := runDeleteCommand([]string{"myapp", "--yes"}); err != nil {
 		t.Fatalf("runDeleteCommand() error = %v", err)
 	}
 	if !deleted {
@@ -149,7 +149,7 @@ func TestRunDeleteCommandNotFound(t *testing.T) {
 		return nil, nil
 	}
 
-	if err := runDeleteCommand([]string{"myapp"}); err == nil {
+	if err := runDeleteCommand([]string{"myapp", "--yes"}); err == nil {
 		t.Fatal("runDeleteCommand() should fail when the subdomain is missing")
 	}
 }
@@ -216,7 +216,7 @@ func TestRunSubdomainCommandDeletesWithVerb(t *testing.T) {
 		}
 	}
 
-	if err := runSubdomainCommand([]string{"delete", "myapp"}); err != nil {
+	if err := runSubdomainCommand([]string{"delete", "myapp", "--yes"}); err != nil {
 		t.Fatalf("runSubdomainCommand() error = %v", err)
 	}
 	if len(calls) != 2 {

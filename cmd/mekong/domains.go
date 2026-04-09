@@ -147,7 +147,7 @@ func formatAPITimestamp(raw string) string {
 
 func ensureDomainDNS(record customDomainRecord) customDomainRecord {
 	if record.CNAMETarget == "" {
-		record.CNAMETarget = "proxy.angkorsearch.dev"
+		record.CNAMETarget = "proxy.mekongtunnel.dev"
 	}
 	if record.TXTName == "" {
 		record.TXTName = "_mekongtunnel-verify." + record.Domain

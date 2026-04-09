@@ -8,6 +8,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"log"
@@ -210,6 +211,15 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 		return
 	}
 
+	// Internal deployment tunnels can claim a specific subdomain when the API
+	// proves trust with the shared tunnel-edge secret.
+	sub, err = s.claimTrustedDeploySubdomain(tun, sub)
+	if err != nil {
+		fmt.Fprintf(channel, "\r\n  ERROR: %s\r\n\r\n", err)
+		channel.Close()
+		return
+	}
+
 	// If the client sent an API token, validate it and try to claim a reserved subdomain.
 	// This runs after setupSession so the env requests have been applied to tun.
 	sub, err = s.claimReservedSubdomain(ctx, tun, sub)
@@ -385,10 +395,37 @@ func (s *Server) setupSession(requests <-chan *ssh.Request, tun *tunnel.Tunnel) 
 const (
 	tokenEnvName              = "MEKONG_API_TOKEN"
 	requestedSubdomainEnvName = "MEKONG_SUBDOMAIN"
+	deploySubdomainEnvName    = "MEKONG_DEPLOY_SUBDOMAIN"
+	edgeSecretEnvName         = "MEKONG_TUNNEL_EDGE_SECRET"
 	upstreamHostEnvName       = "MEKONG_UPSTREAM_HOST"
 	localPortEnvName          = "MEKONG_LOCAL_PORT"
 	skipWarningEnvName        = "MEKONG_SKIP_WARNING"
 )
+
+func (s *Server) claimTrustedDeploySubdomain(tun *tunnel.Tunnel, currentSub string) (string, error) {
+	requested := strings.ToLower(strings.TrimSpace(tun.DeploySubdomain()))
+	if requested == "" {
+		return currentSub, nil
+	}
+	if !isDeploySubdomainName(requested) {
+		return currentSub, fmt.Errorf("invalid deployment subdomain %q", requested)
+	}
+	if strings.TrimSpace(s.apiSecret) == "" {
+		return currentSub, fmt.Errorf("deployment subdomain claims require TUNNEL_EDGE_SECRET")
+	}
+	if subtle.ConstantTimeCompare([]byte(tun.EdgeSecret()), []byte(s.apiSecret)) != 1 {
+		return currentSub, fmt.Errorf("unauthorized deployment subdomain claim")
+	}
+	if requested == currentSub {
+		tun.SetDisableSync(true)
+		return currentSub, nil
+	}
+	if !s.RenameTunnel(currentSub, requested) {
+		return currentSub, fmt.Errorf("deployment subdomain %q is already active", requested)
+	}
+	tun.SetDisableSync(true)
+	return requested, nil
+}
 
 func (s *Server) claimReservedSubdomain(ctx context.Context, tun *tunnel.Tunnel, currentSub string) (string, error) {
 	requested := tun.GetRequestedSubdomain()
@@ -462,6 +499,10 @@ func applyEnvRequest(req *ssh.Request, tun *tunnel.Tunnel) error {
 			}
 		}
 		tun.SetRequestedSubdomain(subdomain)
+	case deploySubdomainEnvName:
+		tun.SetDeploySubdomain(payload.Value)
+	case edgeSecretEnvName:
+		tun.SetEdgeSecret(payload.Value)
 	case upstreamHostEnvName:
 		host, err := normalizeUpstreamHost(payload.Value)
 		if err != nil {
@@ -569,6 +610,18 @@ func normalizeLocalPort(raw string) (uint32, error) {
 		return 0, fmt.Errorf("invalid local port %q", raw)
 	}
 	return uint32(n), nil
+}
+
+func isDeploySubdomainName(raw string) bool {
+	if len(raw) < 3 || len(raw) > 40 {
+		return false
+	}
+	for _, c := range raw {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func expirationMessage(tun *tunnel.Tunnel, reason tunnel.ExpirationReason) string {

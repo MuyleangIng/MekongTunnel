@@ -130,6 +130,10 @@ func main() {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
+	if deployDir := os.Getenv("DEPLOY_DIR"); deployDir != "" {
+		srv.DeployDir = deployDir
+	}
+
 	apiURL := strings.TrimSpace(os.Getenv("API_URL"))
 	if apiURL == "" {
 		apiURL = deriveAPIBaseURL(cfg.Domain)

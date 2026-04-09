@@ -16,7 +16,7 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/models"
 )
 
-const mekongCNAMETarget = "proxy.angkorsearch.dev"
+const mekongCNAMETarget = "proxy.mekongtunnel.dev"
 
 // DomainsHandler manages custom domains.
 type DomainsHandler struct {
@@ -127,8 +127,8 @@ func validateCustomDomain(domain string) error {
 	if err := customdomain.ValidateDomain(domain); err != nil {
 		return err
 	}
-	if strings.HasSuffix(domain, "proxy.angkorsearch.dev") {
-		return fmt.Errorf("cannot add proxy.angkorsearch.dev subdomains here — use Reserved Subdomains instead")
+	if strings.HasSuffix(domain, "proxy.mekongtunnel.dev") {
+		return fmt.Errorf("cannot add proxy.mekongtunnel.dev subdomains here — use Reserved Subdomains instead")
 	}
 	return nil
 }

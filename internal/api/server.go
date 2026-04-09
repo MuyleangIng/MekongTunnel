@@ -6,6 +6,8 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api/handlers"
@@ -80,6 +82,37 @@ func (s *Server) Close() {
 	if s.redisCancel != nil {
 		s.redisCancel()
 	}
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func deployTunnelAddr() string {
+	if addr := strings.TrimSpace(os.Getenv("DEPLOY_TUNNEL_ADDR")); addr != "" {
+		return addr
+	}
+
+	host := strings.TrimSpace(os.Getenv("DEPLOY_TUNNEL_HOST"))
+	if host == "" {
+		host = strings.TrimSpace(os.Getenv("DEPLOY_DOMAIN"))
+	}
+	if host == "" {
+		host = "proxy.mekongtunnel.dev"
+	}
+	if at := strings.LastIndex(host, "@"); at >= 0 {
+		host = host[at+1:]
+	}
+
+	port := strings.TrimSpace(os.Getenv("DEPLOY_TUNNEL_SSH_PORT"))
+	if port == "" {
+		port = "22"
+	}
+
+	return host + ":" + port
 }
 
 // ─── Route registration ───────────────────────────────────────
@@ -186,6 +219,14 @@ func (s *Server) registerRoutes() {
 		UploadDir: s.cfg.UploadDir,
 		BaseURL:   s.cfg.PublicURL,
 	}
+	deployH := &handlers.DeployHandler{
+		DB:           s.db,
+		DeployDir:    envOr("DEPLOY_DIR", "/opt/mekong/deployments"),
+		Domain:       envOr("DEPLOY_DOMAIN", "proxy.mekongtunnel.dev"),
+		TunnelAddr:   deployTunnelAddr(),
+		TunnelSecret: s.cfg.TunnelEdgeSecret,
+	}
+	deployH.Init(context.Background())
 
 	// ── Health ──────────────────────────────────────────────────
 	s.mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -438,6 +479,13 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/domains/{id}", chain(domainsH.Delete, authRequired))
 	s.mux.HandleFunc("POST /api/domains/{id}/verify", chain(domainsH.Verify, authRequired))
 	s.mux.HandleFunc("PATCH /api/domains/{id}/target", chain(domainsH.SetTarget, authRequired))
+
+	// ── Deploy (student hosting) ────────────────────────────────
+	s.mux.HandleFunc("POST /api/deploy", chain(deployH.Upload, authRequired))
+	s.mux.HandleFunc("GET /api/deploy", chain(deployH.List, authRequired))
+	s.mux.HandleFunc("DELETE /api/deploy/{subdomain}", chain(deployH.Stop, authRequired))
+	s.mux.HandleFunc("DELETE /api/deploy/{subdomain}/delete", chain(deployH.Delete, authRequired))
+	s.mux.HandleFunc("GET /api/deploy/{subdomain}/logs", chain(deployH.Logs, authRequired))
 
 	// ── Newsletter ──────────────────────────────────────────────
 	s.mux.HandleFunc("POST /api/newsletter/subscribe", newsletterH.Subscribe)

@@ -288,7 +288,7 @@ func TestRunDomainDeleteCommandShowsCleanupNotes(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := runDomainDeleteCommand([]string{"app.example.com"}); err != nil {
+		if err := runDomainDeleteCommand([]string{"app.example.com", "--yes"}); err != nil {
 			t.Fatalf("runDomainDeleteCommand() error = %v", err)
 		}
 	})

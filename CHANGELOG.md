@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v1.6.0 - 2026-04-10
+
+Highlights:
+
+- Added `mekong deploy` for hosted static, Next.js, and PHP project uploads, including `mekong deploy list` and `mekong deploy stop`
+- Updated the CLI help output, help topics, and shell completions so `deploy` is advertised in `mekong`, `mekong help`, and completion scripts
+- Switched public reserved-subdomain help text from the old `angkorsearch.dev` wording to `mekongtunnel.dev`
+- Added hosted deployment backend support on the API and tunnel edge using app-server file serving plus SSH reverse tunnels instead of the older rsync/Caddy flow
+- Restored active hosted deployments on API startup and exposed per-deployment logs for the dashboard and server-side troubleshooting
+- Built fresh multi-platform client binaries with `main.version=v1.6.0`
+
 ## v1.5.8 - 2026-04-08
 
 Highlights:

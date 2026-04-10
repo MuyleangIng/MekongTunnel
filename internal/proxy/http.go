@@ -19,6 +19,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -53,7 +55,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	host := stripPort(r.Host)
 
-	// Root domain (for example proxy.angkorsearch.dev): serve warning
+	// Root domain (for example proxy.mekongtunnel.dev): serve warning
 	// interstitial when it's a tunnel warning flow (has redirect param or is a
 	// POST confirmation), otherwise redirect to the main web app.
 	if host == s.domain {
@@ -61,7 +63,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.serveWarningPage(w, r)
 			return
 		}
-		http.Redirect(w, r, "https://angkorsearch.dev/", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "https://mekongtunnel.dev/", http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -80,6 +82,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Bad Request", http.StatusBadRequest)
 				return
 			}
+
+			// Check for static deployment — serve files if deploy directory exists.
+			if s.DeployDir != "" {
+				deployPath := filepath.Join(s.DeployDir, filepath.Clean("/"+sub))
+				if info, err := os.Stat(deployPath); err == nil && info.IsDir() {
+					http.FileServer(http.Dir(deployPath)).ServeHTTP(w, r)
+					return
+				}
+			}
+
 			reserved, err := s.lookupReservedSubdomain(r.Context(), sub)
 			if err != nil {
 				log.Printf("Reserved subdomain lookup failed for %s: %v", sub, err)
@@ -379,7 +391,7 @@ func (s *Server) serveWarningPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if redirect == "" {
-		http.Redirect(w, r, "https://angkorsearch.dev/", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "https://mekongtunnel.dev/", http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -437,7 +449,7 @@ func (s *Server) serveTunnelOfflinePage(w http.ResponseWriter, r *http.Request, 
 		PrimaryLabel:   "Refresh page",
 		PrimaryHref:    currentRequestURL(r),
 		SecondaryLabel: "Back to MekongTunnel",
-		SecondaryHref:  "https://angkorsearch.dev/",
+		SecondaryHref:  "https://mekongtunnel.dev/",
 	}, "tunnel offline")
 }
 
@@ -466,7 +478,7 @@ func (s *Server) serveTunnelNotFoundPage(w http.ResponseWriter, r *http.Request,
 		PrimaryLabel:   "Refresh page",
 		PrimaryHref:    currentRequestURL(r),
 		SecondaryLabel: "Open MekongTunnel",
-		SecondaryHref:  "https://angkorsearch.dev/",
+		SecondaryHref:  "https://mekongtunnel.dev/",
 	}, "tunnel not found")
 }
 
@@ -485,7 +497,7 @@ func (s *Server) serveCustomDomainPendingPage(w http.ResponseWriter, r *http.Req
 		PrimaryLabel:   "Try again",
 		PrimaryHref:    currentRequestURL(r),
 		SecondaryLabel: "Open MekongTunnel",
-		SecondaryHref:  "https://angkorsearch.dev/",
+		SecondaryHref:  "https://mekongtunnel.dev/",
 	}, "custom domain pending")
 }
 
@@ -513,7 +525,7 @@ func (s *Server) serveUpstreamUnavailablePage(w http.ResponseWriter, r *http.Req
 		PrimaryLabel:       "Reload page",
 		PrimaryHref:        currentRequestURL(r),
 		SecondaryLabel:     "Open MekongTunnel",
-		SecondaryHref:      "https://angkorsearch.dev/",
+		SecondaryHref:      "https://mekongtunnel.dev/",
 	}, "upstream unavailable")
 }
 

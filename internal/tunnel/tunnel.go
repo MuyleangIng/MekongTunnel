@@ -54,9 +54,12 @@ type Tunnel struct {
 	inactivityTTL      time.Duration
 	apiToken           string // raw API token sent by the client via MEKONG_API_TOKEN env var
 	requestedSubdomain string // requested reserved subdomain sent via MEKONG_SUBDOMAIN
+	deploySubdomain    string // trusted deployment subdomain sent by the API via MEKONG_DEPLOY_SUBDOMAIN
+	edgeSecret         string // shared tunnel-edge secret sent via MEKONG_TUNNEL_EDGE_SECRET
 	upstreamHost       string // local Host header override sent via MEKONG_UPSTREAM_HOST
 	skipWarning        bool   // skip phishing-warning interstitial (set via MEKONG_SKIP_WARNING)
 	userID             string // validated API-token owner for dashboard/live tunnel APIs
+	disableSync        bool   // skip tunnel-session sync for internal deployment tunnels
 
 	statsMu       sync.Mutex
 	totalBytes    uint64
@@ -333,6 +336,34 @@ func (t *Tunnel) GetRequestedSubdomain() string {
 	return t.requestedSubdomain
 }
 
+// SetDeploySubdomain stores the trusted deployment subdomain sent by the API.
+func (t *Tunnel) SetDeploySubdomain(subdomain string) {
+	t.mu.Lock()
+	t.deploySubdomain = subdomain
+	t.mu.Unlock()
+}
+
+// DeploySubdomain returns the trusted deployment subdomain, or "" if none was provided.
+func (t *Tunnel) DeploySubdomain() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.deploySubdomain
+}
+
+// SetEdgeSecret stores the shared tunnel-edge secret sent by the API.
+func (t *Tunnel) SetEdgeSecret(secret string) {
+	t.mu.Lock()
+	t.edgeSecret = secret
+	t.mu.Unlock()
+}
+
+// EdgeSecret returns the shared tunnel-edge secret, or "" if none was provided.
+func (t *Tunnel) EdgeSecret() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.edgeSecret
+}
+
 // SetUpstreamHost stores the Host header override sent by the client.
 func (t *Tunnel) SetUpstreamHost(host string) {
 	t.mu.Lock()
@@ -352,6 +383,20 @@ func (t *Tunnel) SkipWarning() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.skipWarning
+}
+
+// SetDisableSync marks whether this tunnel should be omitted from tunnel-session sync.
+func (t *Tunnel) SetDisableSync(v bool) {
+	t.mu.Lock()
+	t.disableSync = v
+	t.mu.Unlock()
+}
+
+// DisableSync returns true when this tunnel should not be synced into tunnel_sessions.
+func (t *Tunnel) DisableSync() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.disableSync
 }
 
 // SetLocalPort stores the developer's actual local app port sent by the client.

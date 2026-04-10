@@ -65,3 +65,67 @@ func TestApplyRequestedExpiry_MaxExceeded(t *testing.T) {
 		t.Fatal("applyRequestedExpiry() should fail when over max lifetime")
 	}
 }
+
+func TestClaimTrustedDeploySubdomain(t *testing.T) {
+	const (
+		currentSub = "happy-tiger-12345678"
+		targetSub  = "student-demo"
+		edgeSecret = "shared-secret"
+	)
+
+	srv := &Server{
+		tunnels:   make(map[string]*tunnel.Tunnel),
+		apiSecret: edgeSecret,
+	}
+	tun := tunnel.New(currentSub, fakeListener{}, "127.0.0.1", 80, "127.0.0.1", config.DefaultTunnelLifetime)
+	tun.SetDeploySubdomain(targetSub)
+	tun.SetEdgeSecret(edgeSecret)
+	srv.tunnels[currentSub] = tun
+
+	got, err := srv.claimTrustedDeploySubdomain(tun, currentSub)
+	if err != nil {
+		t.Fatalf("claimTrustedDeploySubdomain() error: %v", err)
+	}
+	if got != targetSub {
+		t.Fatalf("claimTrustedDeploySubdomain() = %q, want %q", got, targetSub)
+	}
+	if tun.Subdomain != targetSub {
+		t.Fatalf("tun.Subdomain = %q, want %q", tun.Subdomain, targetSub)
+	}
+	if !tun.DisableSync() {
+		t.Fatal("trusted deployment tunnel should disable tunnel-session sync")
+	}
+	if _, ok := srv.tunnels[targetSub]; !ok {
+		t.Fatal("renamed deployment tunnel not found in registry")
+	}
+	if _, ok := srv.tunnels[currentSub]; ok {
+		t.Fatal("old deployment tunnel registry key still present after rename")
+	}
+}
+
+func TestClaimTrustedDeploySubdomain_BadSecret(t *testing.T) {
+	const currentSub = "happy-tiger-12345678"
+
+	srv := &Server{
+		tunnels:   make(map[string]*tunnel.Tunnel),
+		apiSecret: "shared-secret",
+	}
+	tun := tunnel.New(currentSub, fakeListener{}, "127.0.0.1", 80, "127.0.0.1", config.DefaultTunnelLifetime)
+	tun.SetDeploySubdomain("student-demo")
+	tun.SetEdgeSecret("wrong-secret")
+	srv.tunnels[currentSub] = tun
+
+	got, err := srv.claimTrustedDeploySubdomain(tun, currentSub)
+	if err == nil {
+		t.Fatal("claimTrustedDeploySubdomain() should fail for a bad edge secret")
+	}
+	if got != currentSub {
+		t.Fatalf("claimTrustedDeploySubdomain() = %q, want %q on failure", got, currentSub)
+	}
+	if tun.Subdomain != currentSub {
+		t.Fatalf("tun.Subdomain = %q, want %q after failure", tun.Subdomain, currentSub)
+	}
+	if tun.DisableSync() {
+		t.Fatal("failed trusted deployment claim must not disable sync")
+	}
+}

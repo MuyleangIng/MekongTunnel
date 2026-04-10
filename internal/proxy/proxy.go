@@ -76,6 +76,10 @@ type Server struct {
 	apiBaseURL string
 	apiClient  *http.Client
 	apiSecret  string // X-Tunnel-Secret header value for internal tunnel-edge writes
+
+	// DeployDir is the directory where static deployments are stored.
+	// If set, unknown subdomains will be checked here before returning 404.
+	DeployDir string
 }
 
 // SetTokenValidator wires a DB-backed token validator into the proxy server.
@@ -378,7 +382,7 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) reportTunnelOpen(t *tunnel.Tunnel) {
-	if t == nil {
+	if t == nil || t.DisableSync() {
 		return
 	}
 	go func() {
@@ -389,7 +393,7 @@ func (s *Server) reportTunnelOpen(t *tunnel.Tunnel) {
 }
 
 func (s *Server) reportTunnelClosed(t *tunnel.Tunnel) {
-	if t == nil {
+	if t == nil || t.DisableSync() {
 		return
 	}
 	go func() {

@@ -583,7 +583,14 @@ func printMainHelp() {
 	fmt.Fprintln(os.Stderr, "Project Commands:")
 	fmt.Fprintln(os.Stderr, "  detect      Detect local stack and port                (--json for script output)")
 	fmt.Fprintln(os.Stderr, "  init        Write .mekong.json for this project")
+	fmt.Fprintln(os.Stderr, "  deploy      Upload a static/Next.js/PHP project")
 	fmt.Fprintln(os.Stderr, "  doctor      Check connectivity, auth, and config       (alias: test)")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Deploy Commands:")
+	fmt.Fprintln(os.Stderr, "  deploy                           List active deployments")
+	fmt.Fprintln(os.Stderr, "  deploy <path>                    Package and upload a project directory")
+	fmt.Fprintln(os.Stderr, "  deploy list                      List active deployments")
+	fmt.Fprintln(os.Stderr, "  deploy stop <subdomain>          Stop a hosted deployment")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Subdomain Commands:")
 	fmt.Fprintln(os.Stderr, "  subdomain                    List reserved subdomains")
@@ -617,7 +624,7 @@ func printMainHelp() {
 	fmt.Fprintln(os.Stderr, "  -v, --version               Print version and quit")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Run 'mekong help <topic>' for more detail.")
-	fmt.Fprintln(os.Stderr, "Topics: auth  subdomain  domain  config  php  health")
+	fmt.Fprintln(os.Stderr, "Topics: auth  subdomain  domain  deploy  config  php  health")
 	fmt.Fprintln(os.Stderr, "")
 }
 
@@ -648,7 +655,7 @@ func printSubdomainHelp() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "  Reserved Subdomains")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  Use `subdomain` for names under `*.proxy.angkorsearch.dev`.")
+	fmt.Fprintln(os.Stderr, "  Use `subdomain` for names under `*.proxy.mekongtunnel.dev`.")
 	fmt.Fprintln(os.Stderr, "  Use `domain` for your own custom domains such as `app.example.com`.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "  Preferred commands:")
@@ -668,7 +675,7 @@ func printDomainHelp() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "  Custom Domains")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  Reserved names use `mekong subdomain ...` and live under `*.proxy.angkorsearch.dev`.")
+	fmt.Fprintln(os.Stderr, "  Reserved names use `mekong subdomain ...` and live under `*.proxy.mekongtunnel.dev`.")
 	fmt.Fprintln(os.Stderr, "  Custom domains use `mekong domain ...` and point your own domain such as `app.example.com`.")
 	fmt.Fprintln(os.Stderr, "  Branded domains such as `app.mekongtunnel.dev` are optional.")
 	fmt.Fprintln(os.Stderr, "")
@@ -693,6 +700,28 @@ func printDomainHelp() {
 	fmt.Fprintln(os.Stderr, "    wait     poll until DNS and HTTPS are ready")
 	fmt.Fprintln(os.Stderr, "    target   point a custom domain to a reserved subdomain")
 	fmt.Fprintln(os.Stderr, "    delete   remove a custom domain from MekongTunnel")
+	fmt.Fprintln(os.Stderr, "")
+}
+
+func printDeployHelp() {
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "  Deploy")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "  Upload a project directory to MekongTunnel hosting.")
+	fmt.Fprintln(os.Stderr, "  Supported types: static HTML/CSS/JS, Next.js build output, and PHP projects.")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "  Commands:")
+	fmt.Fprintln(os.Stderr, "    mekong deploy")
+	fmt.Fprintln(os.Stderr, "    mekong deploy ./dist")
+	fmt.Fprintln(os.Stderr, "    mekong deploy ./.next")
+	fmt.Fprintln(os.Stderr, "    mekong deploy ./src")
+	fmt.Fprintln(os.Stderr, "    mekong deploy list")
+	fmt.Fprintln(os.Stderr, "    mekong deploy stop mysite")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "  Notes:")
+	fmt.Fprintln(os.Stderr, "    Run `mekong login` first.")
+	fmt.Fprintln(os.Stderr, "    Deployments require a Student plan or higher.")
+	fmt.Fprintln(os.Stderr, "    One active deployment per user is currently allowed.")
 	fmt.Fprintln(os.Stderr, "")
 }
 
@@ -761,6 +790,8 @@ func runHelpCommand(args []string) error {
 		printSubdomainHelp()
 	case "domain", "domains":
 		printDomainHelp()
+	case "deploy", "hosting":
+		printDeployHelp()
 	case "config", "init":
 		printConfigHelp()
 	case "doctor", "test", "health":

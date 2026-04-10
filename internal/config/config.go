@@ -17,7 +17,7 @@ const (
 	AuthorKhName = "អុឹង មួយលៀង"
 	AuthorHandle = "Ing_Muyleang"
 
-	DefaultDomain     = "proxy.angkorsearch.dev"
+	DefaultDomain     = "proxy.mekongtunnel.dev"
 	InactivityTimeout = 2 * time.Hour
 
 	// SSH handshake timeout
@@ -27,10 +27,10 @@ const (
 	ConnectionRateWindow = 1 * time.Minute // sliding window for connection rate
 
 	// Tunnel lifetime
-	DefaultTunnelLifetime          = 24 * time.Hour      // default tunnel duration regardless of activity
-	MaxTunnelLifetime              = 7 * 24 * time.Hour  // maximum user-requested tunnel duration (anonymous)
-	ReservedDefaultTunnelLifetime  = 7 * 24 * time.Hour  // default lifetime when using a reserved subdomain
-	ReservedMaxTunnelLifetime      = 30 * 24 * time.Hour // maximum lifetime with a reserved subdomain (1 month)
+	DefaultTunnelLifetime         = 24 * time.Hour      // default tunnel duration regardless of activity
+	MaxTunnelLifetime             = 7 * 24 * time.Hour  // maximum user-requested tunnel duration (anonymous)
+	ReservedDefaultTunnelLifetime = 7 * 24 * time.Hour  // default lifetime when using a reserved subdomain
+	ReservedMaxTunnelLifetime     = 30 * 24 * time.Hour // maximum lifetime with a reserved subdomain (1 month)
 
 	// HTTP server timeouts
 	HTTPReadTimeout   = 10 * time.Second

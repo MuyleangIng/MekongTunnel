@@ -295,7 +295,7 @@ func reorderArgs(args []string) []string {
 var knownCommands = []string{
 	"logs", "status", "ps", "stop", "update", "login", "logout", "whoami",
 	"subdomains", "subdomain", "domains", "domain", "help", "detect", "init",
-	"reserve", "delete", "unreserve", "test", "doctor", "version", "rm",
+	"deploy", "reserve", "delete", "unreserve", "test", "doctor", "version", "rm",
 	"completion", "sd", "dm",
 }
 
@@ -359,7 +359,7 @@ func minInt(a, b int) int {
 func suggestCommand(input string) string {
 	candidates := []string{
 		"logs", "status", "ps", "stop", "update", "login", "logout", "whoami",
-		"subdomain", "domain", "help", "detect", "init", "doctor", "version", "rm",
+		"subdomain", "domain", "help", "detect", "init", "deploy", "doctor", "version", "rm",
 	}
 	best, bestDist := "", 999
 	for _, cmd := range candidates {
@@ -497,6 +497,12 @@ func main() {
 		case "delete", "unreserve":
 			if err := runDeleteCommand(os.Args[2:]); err != nil {
 				fmt.Fprintf(os.Stderr, "  error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "deploy":
+			if err := runDeployCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "%s  ✖  %v%s\n", red, err, reset)
 				os.Exit(1)
 			}
 			return
@@ -1693,6 +1699,7 @@ _mekong() {
         'domain:Manage custom domains'
         'detect:Detect local stack and port'
         'init:Write .mekong.json'
+        'deploy:Deploy a hosted project'
         'doctor:Check connectivity and auth'
         'help:Show help for a topic'
       )
@@ -1737,9 +1744,18 @@ _mekong() {
           )
           _describe 'subcommand' subcmds
           ;;
+        deploy)
+          local -a deployArgs
+          deployArgs=(
+            'list:List active deployments'
+            'stop:Stop a deployment'
+          )
+          _describe 'deploy command' deployArgs
+          _files -/
+          ;;
         help)
           local -a topics
-          topics=('auth' 'subdomain' 'domain' 'config' 'php' 'health')
+          topics=('auth' 'subdomain' 'domain' 'deploy' 'config' 'php' 'health')
           _describe 'topic' topics
           ;;
       esac
@@ -1761,7 +1777,7 @@ _mekong_complete() {
   prev="${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    local cmds="ps status logs stop rm update version login logout whoami subdomain domain detect init doctor help"
+    local cmds="ps status logs stop rm update version login logout whoami subdomain domain detect init deploy doctor help"
     COMPREPLY=($(compgen -W "$cmds" -- "$cur"))
     return
   fi
@@ -1783,8 +1799,11 @@ _mekong_complete() {
     domain|dm)
       COMPREPLY=($(compgen -W "list add connect verify wait target delete" -- "$cur"))
       ;;
+    deploy)
+      COMPREPLY=($(compgen -W "list stop" -- "$cur"))
+      ;;
     help)
-      COMPREPLY=($(compgen -W "auth subdomain domain config php health" -- "$cur"))
+      COMPREPLY=($(compgen -W "auth subdomain domain deploy config php health" -- "$cur"))
       ;;
   esac
 }

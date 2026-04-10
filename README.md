@@ -7,12 +7,12 @@
 | | |
 |---|---|
 | Author | Ing Muyleang (អុឹង មួយលៀង) |
-| Web UI | [angkorsearch.dev](https://angkorsearch.dev) |
-| API | [api.angkorsearch.dev](https://api.angkorsearch.dev) |
+| Web UI | [mekongtunnel.dev](https://mekongtunnel.dev) |
+| API | [api.mekongtunnel.dev](https://api.mekongtunnel.dev) |
 | Docs | [docs.mekongtunnel.dev](https://docs.mekongtunnel.dev/) |
-| Tunnel Edge | `proxy.angkorsearch.dev` |
+| Tunnel Edge | `proxy.mekongtunnel.dev` |
 | License | MIT |
-| Current Version | v1.5.8 |
+| Current Version | v1.6.1 |
 
 ---
 
@@ -43,7 +43,7 @@ mekong 3000 --subdomain myapp
 Plain `mekong 3000` keeps using a random generated tunnel URL. Add `--subdomain myapp`
 only when you want a specific reserved name.
 
-Generated tunnels use `*.proxy.angkorsearch.dev` by default. Branded custom domains such as
+Generated tunnels use `*.proxy.mekongtunnel.dev` by default. Branded custom domains such as
 `app.mekongtunnel.dev` are supported through `mekong domain connect ...`.
 
 Browser visitors to generated tunnel URLs see a one-time shared-tunnel notice first. If the
@@ -145,13 +145,13 @@ mekong --help                  # usage info
 
 ```bash
 # Basic
-ssh -t -R 80:localhost:3000 proxy.angkorsearch.dev
+ssh -t -R 80:localhost:3000 proxy.mekongtunnel.dev
 
 # With keep-alive
-ssh -t -R 80:localhost:3000 -o ServerAliveInterval=60 -o ServerAliveCountMax=3 proxy.angkorsearch.dev
+ssh -t -R 80:localhost:3000 -o ServerAliveInterval=60 -o ServerAliveCountMax=3 proxy.mekongtunnel.dev
 
 # With expiry
-ssh -o SetEnv=MEKONG_EXPIRE=48h -t -R 80:localhost:3000 proxy.angkorsearch.dev
+ssh -o SetEnv=MEKONG_EXPIRE=48h -t -R 80:localhost:3000 proxy.mekongtunnel.dev
 ```
 
 ---
@@ -196,8 +196,8 @@ cp .env.prod.example .env.prod
 make build          # server + CLI
 make build-all      # cross-compile server (Linux + macOS, amd64 + arm64)
 make build-client-all  # cross-compile CLI (all platforms)
-make release-cli-assets TAG=v1.5.8   # 6 CLI assets + SHA256SUMS + release-notes.md
-make release-cli-publish TAG=v1.5.8  # push tag only; GitHub release workflow publishes assets
+make release-cli-assets TAG=v1.6.1   # 6 CLI assets + SHA256SUMS + release-notes.md
+make release-cli-publish TAG=v1.6.1  # push tag only; GitHub release workflow publishes assets
 
 # Local API stack with Postgres + Redis
 cp .env.compose.dev.example .env.compose.dev
@@ -293,7 +293,7 @@ Internet
    │ HTTPS :443
    ▼
 ┌─────────────────────────────────────────┐
-│       proxy.angkorsearch.dev            │
+│       proxy.mekongtunnel.dev            │
 │                                         │
 │  SSH Server :22   → assigns subdomain   │
 │  HTTPS Proxy :443 → reverse proxy       │
@@ -309,8 +309,8 @@ Redis is optional in development. In multi-instance production it is used as a c
 
 Every tunnel gets a random subdomain such as:
 
-- `adjective-noun-8hexchars.proxy.angkorsearch.dev`
-- or a reserved/branded domain like `myapp.proxy.angkorsearch.dev`
+- `adjective-noun-8hexchars.proxy.mekongtunnel.dev`
+- or a reserved/branded domain like `myapp.proxy.mekongtunnel.dev`
 
 Login for a reserved subdomain that stays the same across reconnects.
 
@@ -318,8 +318,8 @@ Login for a reserved subdomain that stays the same across reconnects.
 
 ## Links
 
-- Web UI: [angkorsearch.dev](https://angkorsearch.dev)
-- API: [api.angkorsearch.dev](https://api.angkorsearch.dev)
+- Web UI: [mekongtunnel.dev](https://mekongtunnel.dev)
+- API: [api.mekongtunnel.dev](https://api.mekongtunnel.dev)
 - GitHub: [github.com/MuyleangIng/MekongTunnel](https://github.com/MuyleangIng/MekongTunnel)
 - npm: [npmjs.com/package/mekong-cli](https://www.npmjs.com/package/mekong-cli)
 - PyPI: [pypi.org/project/mekong-tunnel](https://pypi.org/project/mekong-tunnel/)

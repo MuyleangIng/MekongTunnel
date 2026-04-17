@@ -24,9 +24,9 @@ func envOrDefault(key, fallback string) string {
 }
 
 var (
-	authAPIBase  = envOrDefault("MEKONG_AUTH_API_BASE", "https://api.angkorsearch.dev")
-	authWebBase  = envOrDefault("MEKONG_AUTH_WEB_BASE", "https://angkorsearch.dev")
-	tunnelDomain = envOrDefault("MEKONG_TUNNEL_DOMAIN", "proxy.angkorsearch.dev")
+	authAPIBase  = envOrDefault("MEKONG_AUTH_API_BASE", "https://api.mekongtunnel.dev")
+	authWebBase  = envOrDefault("MEKONG_AUTH_WEB_BASE", "https://mekongtunnel.dev")
+	tunnelDomain = envOrDefault("MEKONG_TUNNEL_DOMAIN", "proxy.mekongtunnel.dev")
 )
 
 const (

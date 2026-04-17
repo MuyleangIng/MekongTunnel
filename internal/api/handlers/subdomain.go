@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api/middleware"
 	"github.com/MuyleangIng/MekongTunnel/internal/api/response"
@@ -15,6 +17,48 @@ import (
 // SubdomainHandler handles reserved subdomains and per-subdomain access-control rules.
 type SubdomainHandler struct {
 	DB *db.DB
+}
+
+// deploymentSubdomain is a lightweight view of a deployment used in subdomain list responses.
+type deploymentSubdomain struct {
+	ID        string `json:"id"`
+	Subdomain string `json:"subdomain"`
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at"`
+	Source    string `json:"source"` // always "deployment"
+}
+
+// countActiveDeploymentSubdomains returns how many active (non-deleted) deployments a user has.
+// Deployment subdomains occupy a real subdomain slot and count toward the plan quota.
+func (h *SubdomainHandler) countActiveDeploymentSubdomains(ctx context.Context, userID string) int {
+	var n int
+	_ = h.DB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM deployments WHERE user_id=$1 AND status != 'deleted'`, userID).Scan(&n)
+	return n
+}
+
+// listDeploymentSubdomains returns the deployment subdomain details for a user.
+func (h *SubdomainHandler) listDeploymentSubdomains(ctx context.Context, userID string) []deploymentSubdomain {
+	rows, err := h.DB.Pool.Query(ctx,
+		`SELECT id, subdomain, type, status, created_at FROM deployments WHERE user_id=$1 AND status != 'deleted' ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []deploymentSubdomain
+	for rows.Next() {
+		var d deploymentSubdomain
+		var createdAt time.Time
+		if err := rows.Scan(&d.ID, &d.Subdomain, &d.Type, &d.Status, &createdAt); err != nil {
+			continue
+		}
+		d.CreatedAt = createdAt.UTC().Format("2006-01-02T15:04:05Z")
+		d.Source = "deployment"
+		out = append(out, d)
+	}
+	return out
 }
 
 func (h *SubdomainHandler) userFromAPIToken(r *http.Request) (*models.User, error) {
@@ -61,11 +105,16 @@ func (h *SubdomainHandler) List(w http.ResponseWriter, r *http.Request) {
 	} else {
 		limit, _ = h.DB.GetSubdomainLimit(r.Context(), claims.Plan)
 	}
-	count := len(list)
+	// Deployment subdomains also count toward the quota (they occupy real subdomain slots).
+	deployItems := h.listDeploymentSubdomains(r.Context(), claims.UserID)
+	deployCount := len(deployItems)
+	count := len(list) + deployCount
 	response.Success(w, map[string]any{
-		"subdomains": list,
-		"count":      count,
-		"limit":      limit,
+		"subdomains":              list,
+		"deployment_subdomains":   deployItems,
+		"count":                   count,
+		"limit":                   limit,
+		"deployment_count":        deployCount,
 	})
 }
 
@@ -102,10 +151,13 @@ func (h *SubdomainHandler) ListCLI(w http.ResponseWriter, r *http.Request) {
 	} else {
 		limit, _ = h.DB.GetSubdomainLimit(r.Context(), user.Plan)
 	}
+	deployItems := h.listDeploymentSubdomains(r.Context(), user.ID)
 	response.Success(w, map[string]any{
-		"subdomains": list,
-		"count":      len(list),
-		"limit":      limit,
+		"subdomains":            list,
+		"deployment_subdomains": deployItems,
+		"count":                 len(list) + len(deployItems),
+		"limit":                 limit,
+		"deployment_count":      len(deployItems),
 	})
 }
 
@@ -156,10 +208,11 @@ func (h *SubdomainHandler) Create(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err == nil && limit > 0 {
-				count, _ := h.DB.GetSubdomainCountByScope(r.Context(), claims.UserID, "")
-				if count >= limit {
+				reserved, _ := h.DB.GetSubdomainCountByScope(r.Context(), claims.UserID, "")
+				deployments := h.countActiveDeploymentSubdomains(r.Context(), claims.UserID)
+				if reserved+deployments >= limit {
 					response.Error(w, http.StatusPaymentRequired,
-						fmt.Sprintf("plan limit reached: your %s plan allows %d reserved subdomain(s)", claims.Plan, limit))
+						fmt.Sprintf("subdomain limit reached: your %s plan allows %d subdomain(s) total (including deployments)", claims.Plan, limit))
 					return
 				}
 			}

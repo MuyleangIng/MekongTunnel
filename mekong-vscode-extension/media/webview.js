@@ -11,6 +11,7 @@
     liveRunning: false,
     livePort: null,
     liveTunnelActive: false,
+    liveIsMd: false,
     mekongInstalled: true,
     loggedIn: false,
     userEmail: '',
@@ -329,6 +330,12 @@
       $('ls-start-section').style.display = 'none';
       $('ls-running-section').style.display = 'block';
       $('ls-url-text').textContent = url;
+
+      $('ls-tunnel-wrap').style.display = '';
+      $('ls-live-reload-sub').textContent = state.liveIsMd
+        ? 'Markdown changes will re-render automatically — works over public tunnel too.'
+        : 'HTML, CSS, JS, and asset changes will refresh automatically.';
+
       tunnelBtn.style.display = liveTunnelActive ? 'none' : '';
       tunnelBtn.disabled = liveTunnelConnecting;
       tunnelBtn.textContent = liveTunnelConnecting ? 'Starting public tunnel...' : 'Tunnel to public URL';
@@ -379,6 +386,10 @@
     if (!liveTunnelActive && _lastLiveTunnel === true) addLog('Live Server public tunnel stopped', 'warn');
     _lastLive = live && !!port;
     _lastLiveTunnel = liveTunnelActive;
+
+    // Tab badge dot — green dot on "Live Server" tab when active
+    var tabDot = $('tab-live-dot');
+    if (tabDot) tabDot.style.display = (live && port) ? 'inline-block' : 'none';
   }
 
   function detectPort() {
@@ -442,6 +453,7 @@
       state.liveRunning = !!msg.liveRunning;
       state.livePort = msg.livePort || null;
       state.liveTunnelActive = !!msg.liveTunnelActive;
+      state.liveIsMd = !!msg.liveIsMd;
       state.mekongInstalled = msg.mekongInstalled !== false;
       state.loggedIn = !!msg.loggedIn;
       state.userEmail = msg.userEmail || '';

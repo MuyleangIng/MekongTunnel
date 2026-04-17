@@ -9,6 +9,7 @@ import (
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api/response"
 	"github.com/MuyleangIng/MekongTunnel/internal/auth"
+	"github.com/MuyleangIng/MekongTunnel/internal/db"
 )
 
 type contextKey string
@@ -28,6 +29,30 @@ func AuthMiddleware(jwtSecret string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, err := extractClaims(r, jwtSecret)
+			if err != nil {
+				response.Unauthorized(w, "authentication required")
+				return
+			}
+			if claims.Temp2FA {
+				response.Unauthorized(w, "2fa verification required")
+				return
+			}
+			if claims.MustReset && !mustResetAllowedPaths[r.URL.Path] {
+				response.Error(w, http.StatusForbidden, "password_reset_required")
+				return
+			}
+			ctx := context.WithValue(r.Context(), UserKey, claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// AuthOrAPITokenMiddleware accepts either a normal dashboard JWT or a CLI API token.
+// API tokens are expanded into JWT-like claims by loading the owning user from the DB.
+func AuthOrAPITokenMiddleware(jwtSecret string, database *db.DB) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, err := extractClaimsOrAPIToken(r, jwtSecret, database)
 			if err != nil {
 				response.Unauthorized(w, "authentication required")
 				return
@@ -100,9 +125,13 @@ func GetClaims(r *http.Request) *auth.JWTClaims {
 
 // ParseTokenString validates a raw JWT string (used for SSE ?token= auth).
 func ParseTokenString(token, secret string) *auth.JWTClaims {
-	if token == "" { return nil }
+	if token == "" {
+		return nil
+	}
 	claims, err := auth.ValidateToken(token, secret)
-	if err != nil { return nil }
+	if err != nil {
+		return nil
+	}
 	return claims
 }
 
@@ -117,4 +146,40 @@ func extractClaims(r *http.Request, secret string) (*auth.JWTClaims, error) {
 		return nil, http.ErrNoCookie
 	}
 	return auth.ValidateToken(parts[1], secret)
+}
+
+func extractClaimsOrAPIToken(r *http.Request, secret string, database *db.DB) (*auth.JWTClaims, error) {
+	header := r.Header.Get("Authorization")
+	if header == "" {
+		return nil, http.ErrNoCookie
+	}
+	parts := strings.SplitN(header, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+		return nil, http.ErrNoCookie
+	}
+
+	rawToken := parts[1]
+	if claims, err := auth.ValidateToken(rawToken, secret); err == nil {
+		return claims, nil
+	}
+	if database == nil {
+		return nil, http.ErrNoCookie
+	}
+
+	userID, err := database.ValidateToken(r.Context(), rawToken)
+	if err != nil {
+		return nil, err
+	}
+	user, err := database.GetUserByID(r.Context(), userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &auth.JWTClaims{
+		UserID:    user.ID,
+		Email:     user.Email,
+		Plan:      user.Plan,
+		IsAdmin:   user.IsAdmin,
+		MustReset: user.ForcePasswordReset,
+	}, nil
 }

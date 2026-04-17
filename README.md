@@ -124,6 +124,16 @@ mekong domain connect app.example.com myapp
 mekong doctor                  # connectivity/auth checks
 mekong doctor app.example.com  # custom-domain DNS + HTTPS checks
 
+# Deploy (static hosting)
+mekong deploy ./dist           # deploy built site — static/Vue/React/Next.js/PHP
+mekong deploy ./               # deploy from current directory (auto-detects type)
+mekong deploy list             # list active deployments
+mekong deploy stop <sub>       # stop a deployment
+mekong deploy redeploy <sub> <path>  # push a new build to an existing deployment
+mekong deploy open <sub>       # open deployment URL in browser
+mekong deploy quota            # show storage quota usage
+mekong deploy info <sub>       # show deployment details
+
 # Project setup
 mekong detect                  # detect the local stack in the current project
 mekong init                    # write .mekong.json from detection
@@ -212,12 +222,17 @@ docker compose --env-file .env.compose.prod -f docker-compose.yml -f docker-comp
 # Optional tunnel edge locally or in staging
 docker compose --env-file .env.compose.dev -f docker-compose.yml -f docker-compose.dev.yml --profile tunnel up -d mekong-tunnel
 
-# Deploy scripts for existing VM workflows
+# Deploy scripts for existing VM / systemd workflows
 ./scripts/deploy-api.sh
 ./scripts/deploy-tunnel.sh
+
+# GCP deploy scripts
+LOCAL_ENV_FILE=.env.prod bash ./scripts/gcp-deploy-api.sh
+LOCAL_ENV_FILE=.env.prod bash ./scripts/gcp-deploy-tunnel.sh
+bash ./scripts/gcp-deploy-frontend.sh
 ```
 
-`deploy-tunnel.sh` uploads your local `.env.prod` to the tunnel host. `.env` and `.env.api` are no longer part of the supported workflow.
+`deploy-tunnel.sh` and `gcp-deploy-tunnel.sh` both upload your local `.env.prod` to the tunnel host. `.env` and `.env.api` are no longer part of the supported workflow.
 
 Supported env files now:
 
@@ -259,6 +274,43 @@ export REDIS_NOTIFICATION_CHANNEL=notifications
 ```
 
 Without `REDIS_URL`, the API and tunnel edge still work normally in single-node mode.
+
+### Deploy hosting (optional)
+
+To enable `mekong deploy` static/PHP/Next.js hosting:
+
+```bash
+export DEPLOY_DIR=/opt/mekong/deployments
+export DEPLOY_DOMAIN=proxy.mekongtunnel.dev
+export TUNNEL_EDGE_SECRET=<shared-secret-on-api-and-proxy>
+export DEPLOY_TUNNEL_ADDR=<tunnel-server-ip>:2222
+```
+
+The API and tunnel server must share the same `TUNNEL_EDGE_SECRET`.
+
+### Koma / Bakong payments (optional)
+
+To enable Bakong KHQR subscription checkout and wallet top-up:
+
+```bash
+export KOMA_API_URL=https://koma.khqr.site
+export KOMA_MERCHANT_ID=<your-koma-merchant-id>
+export KOMA_SECRET_KEY=<your-koma-secret-key>
+export BAKONG_ACCOUNT_NAME=MekongTunnel
+export BAKONG_ACCOUNT_ID=<your-bakong-account-id>
+```
+
+### Telegram bot (optional)
+
+```bash
+export TELEGRAM_BOT_ENABLED=true
+export TELEGRAM_BOT_TOKEN=<bot-token>
+export TELEGRAM_BOT_USERNAME=MekongTunnelBot
+export TELEGRAM_WEBHOOK_SECRET=<webhook-secret>
+export TELEGRAM_APPROVE_PATH=/telegram-link
+```
+
+See [docs/TELEGRAM_BOT.md](./docs/TELEGRAM_BOT.md) for the full setup guide.
 
 See:
 

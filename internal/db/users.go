@@ -25,6 +25,7 @@ func scanUser(row interface {
 		&u.CreatedAt, &u.UpdatedAt, &u.LastSeenAt,
 		&u.TrialEndsAt, &u.NewsletterSubscribed, &u.NewsletterUnsubscribeToken,
 		&u.ProvisionedByOrgID, &u.ForcePasswordReset,
+		&u.PlanExpiresAt, &u.PlanApprovedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -40,7 +41,8 @@ const userColumns = `
 	stripe_customer_id, stripe_subscription_id, subscription_plan,
 	created_at, updated_at, last_seen_at,
 	trial_ends_at, newsletter_subscribed, newsletter_unsubscribe_token,
-	provisioned_by_org_id, force_password_reset`
+	provisioned_by_org_id, force_password_reset,
+	plan_expires_at, plan_approved_at`
 
 // ─── CRUD ────────────────────────────────────────────────────
 

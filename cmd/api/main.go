@@ -80,6 +80,7 @@ func main() {
 	smtpUser := getEnv("SMTP_USER", "")
 	smtpPass := getEnv("SMTP_PASS", "")
 	smtpFrom := getEnv("SMTP_FROM", "")
+	adminNotifyEmail := getEnv("ADMIN_NOTIFY_EMAIL", "")
 
 	// ── Database ─────────────────────────────────────────────────
 	log.Println("[api] connecting to database...")
@@ -154,6 +155,7 @@ func main() {
 			User:       smtpUser,
 			Pass:       smtpPass,
 			From:       smtpFrom,
+			AdminEmail: adminNotifyEmail,
 		},
 		Redis: redisClient,
 		Telegram: telegrambot.Config{

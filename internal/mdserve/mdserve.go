@@ -369,6 +369,19 @@ func BuildNav(root, currentPath string) string {
 	return sb.String()
 }
 
+// firstMDInDir returns the URL path of the first .md file found in dir, relative to rootClean.
+// Returns empty string if none found.
+func firstMDInDir(dir, rootClean string) string {
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+			rel, _ := filepath.Rel(rootClean, filepath.Join(dir, e.Name()))
+			return "/" + filepath.ToSlash(rel)
+		}
+	}
+	return ""
+}
+
 // Handler returns an http.Handler that renders .md files to HTML with sidebar nav.
 // Other files (images, CSS, etc.) fall through to http.FileServer.
 func Handler(root string) http.Handler {
@@ -394,6 +407,18 @@ func Handler(root string) http.Handler {
 		target := clean
 		info, statErr := os.Stat(target)
 
+		// /index.html on a markdown-only site → redirect to first .md
+		if strings.HasSuffix(strings.ToLower(rawPath), "/index.html") {
+			if statErr != nil || !info.IsDir() {
+				// file doesn't exist — check if this is a markdown-only folder
+				dir := filepath.Dir(clean)
+				if firstMD := firstMDInDir(dir, rootClean); firstMD != "" {
+					http.Redirect(w, r, firstMD, http.StatusFound)
+					return
+				}
+			}
+		}
+
 		// Directory → prefer README.md > index.md > first .md found > index.html
 		if statErr == nil && info.IsDir() {
 			found := false
@@ -407,13 +432,9 @@ func Handler(root string) http.Handler {
 				}
 			}
 			if !found {
-				entries, _ := os.ReadDir(target)
-				for _, e := range entries {
-					if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
-						rel, _ := filepath.Rel(rootClean, filepath.Join(target, e.Name()))
-						http.Redirect(w, r, "/"+rel, http.StatusFound)
-						return
-					}
+				if firstMD := firstMDInDir(target, rootClean); firstMD != "" {
+					http.Redirect(w, r, firstMD, http.StatusFound)
+					return
 				}
 			}
 		}

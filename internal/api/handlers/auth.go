@@ -187,6 +187,17 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 			user.Name+" ("+user.Email+") just signed up",
 			"/admin/users")
 	}
+	if h.Mailer != nil {
+		go h.Mailer.NotifyAdmin(
+			"New user registered: "+user.Email,
+			mailer.AdminAlertHTML(
+				"New User Registration",
+				fmt.Sprintf("<strong>%s</strong> (%s) just signed up.<br>Account type: %s", user.Name, user.Email, user.AccountType),
+				"View in Admin",
+				h.FrontendURL+"/admin/users",
+			),
+		)
+	}
 
 	response.Created(w, map[string]any{
 		"access_token": accessToken,
@@ -654,6 +665,17 @@ func (h *AuthHandler) RequestAdminVerify(w http.ResponseWriter, r *http.Request)
 				"Manual verification requested",
 				user.Name+" ("+user.Email+") is asking an admin to manually verify their account. "+msg,
 				"/admin/users/"+user.ID)
+			if h.Mailer != nil {
+				go h.Mailer.NotifyAdmin(
+					"Manual verification request: "+user.Email,
+					mailer.AdminAlertHTML(
+						"Manual Verification Requested",
+						fmt.Sprintf("<strong>%s</strong> (%s) is asking to be manually verified.<br>Message: %s", user.Name, user.Email, msg),
+						"Review User",
+						h.FrontendURL+"/admin/users/"+user.ID,
+					),
+				)
+			}
 		}
 		log.Printf("[auth] admin verify request from %s", user.Email)
 	}

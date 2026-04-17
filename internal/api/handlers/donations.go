@@ -8,13 +8,16 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/api/middleware"
 	"github.com/MuyleangIng/MekongTunnel/internal/api/response"
 	"github.com/MuyleangIng/MekongTunnel/internal/db"
+	"github.com/MuyleangIng/MekongTunnel/internal/mailer"
 	"github.com/MuyleangIng/MekongTunnel/internal/models"
 	"github.com/MuyleangIng/MekongTunnel/internal/notify"
 )
 
 type DonationHandler struct {
-	DB     *db.DB
-	Notify *notify.Service
+	DB          *db.DB
+	Notify      *notify.Service
+	Mailer      *mailer.Mailer
+	FrontendURL string
 }
 
 // Submit handles POST /api/donations/submit — public submission.
@@ -61,6 +64,17 @@ func (h *DonationHandler) Submit(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("New donation from %s", created.Name),
 			fmt.Sprintf("%s %s via %s", created.Amount, created.Currency, created.PaymentMethod),
 			"/admin/donations",
+		)
+	}
+	if h.Mailer != nil {
+		go h.Mailer.NotifyAdmin(
+			fmt.Sprintf("New donation from %s", created.Name),
+			mailer.AdminAlertHTML(
+				"New Donation Received",
+				fmt.Sprintf("<strong>%s</strong> (%s) donated <strong>%s %s</strong> via %s.", created.Name, created.Email, created.Amount, created.Currency, created.PaymentMethod),
+				"Review Donations",
+				h.FrontendURL+"/admin/donations",
+			),
 		)
 	}
 	response.Success(w, created)

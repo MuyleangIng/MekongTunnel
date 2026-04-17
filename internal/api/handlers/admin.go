@@ -936,7 +936,8 @@ func (h *AdminHandler) UpdateVerifyRequest(w http.ResponseWriter, r *http.Reques
 		OrgDomain               string `json:"org_domain"`
 		OrgSeatLimit            int    `json:"org_seat_limit"`
 		OrgName                 string `json:"org_name"`
-		ForceOverride           bool   `json:"force_override"` // set true to downgrade even paid subscribers
+		ForceOverride           bool   `json:"force_override"`  // set true to downgrade even paid subscribers
+		DurationMonths          int    `json:"duration_months"` // plan expiry duration for student/teacher (default 6)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		response.BadRequest(w, "invalid JSON body")
@@ -1107,6 +1108,23 @@ func (h *AdminHandler) UpdateVerifyRequest(w http.ResponseWriter, r *http.Reques
 				message += " Your plan has been updated."
 			} else {
 				message += " Your higher plan was kept unchanged."
+			}
+			// Set plan expiry for student/teacher — default 6 months, admin can override
+			if vr.Type == "student" || vr.Type == "teacher" {
+				months := body.DurationMonths
+				if months < 1 {
+					months = 6 // default
+				}
+				expiresAt := time.Now().AddDate(0, months, 0)
+				approvedAt := time.Now()
+				if _, err := h.DB.UpdateUser(r.Context(), vr.UserID, map[string]any{
+					"plan_expires_at":  expiresAt,
+					"plan_approved_at": approvedAt,
+				}); err != nil {
+					log.Printf("[admin] failed to set plan expiry for user %s: %v", vr.UserID, err)
+				} else {
+					message += fmt.Sprintf(" Your %s plan is valid for %d month(s), until %s.", vr.Type, months, expiresAt.Format("Jan 2, 2006"))
+				}
 			}
 		}
 	case "rejected":

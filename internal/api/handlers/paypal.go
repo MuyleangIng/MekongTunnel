@@ -17,9 +17,10 @@ import (
 
 // ReceiptHandler handles manual payment receipts (PayPal / ABA / Bakong).
 type ReceiptHandler struct {
-	DB     *db.DB
-	Notify *notify.Service
-	Mailer *mailer.Mailer
+	DB          *db.DB
+	Notify      *notify.Service
+	Mailer      *mailer.Mailer
+	FrontendURL string
 }
 
 // activatePlan updates the user's plan and sends a notification.
@@ -98,13 +99,24 @@ func (h *ReceiptHandler) SubmitReceipt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Notify all admins about the new receipt submission.
+	methodLabel := map[string]string{"paypal": "PayPal", "aba": "ABA Pay", "bakong": "Bakong"}[body.Method]
 	if h.Notify != nil {
-		methodLabel := map[string]string{"paypal": "PayPal", "aba": "ABA Pay", "bakong": "Bakong"}[body.Method]
 		go h.Notify.SendToAdmins(context.Background(), "receipt_submitted",
 			"New payment receipt submitted",
 			fmt.Sprintf("A user submitted a %s receipt for the %s plan ($%.2f). Review it now.",
 				methodLabel, body.Plan, finalPrice),
 			"/admin/billing")
+	}
+	if h.Mailer != nil {
+		go h.Mailer.NotifyAdmin(
+			fmt.Sprintf("New %s payment receipt — %s plan", methodLabel, body.Plan),
+			mailer.AdminAlertHTML(
+				"New Payment Receipt Submitted",
+				fmt.Sprintf("A user submitted a <strong>%s</strong> receipt for the <strong>%s</strong> plan (<strong>$%.2f</strong>).", methodLabel, body.Plan, finalPrice),
+				"Review Billing",
+				h.FrontendURL+"/admin/billing",
+			),
+		)
 	}
 
 	log.Printf("[billing] receipt submitted: user=%s plan=%s method=%s", claims.UserID, body.Plan, body.Method)

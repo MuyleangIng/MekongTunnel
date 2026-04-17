@@ -20,6 +20,7 @@ let liveServer: LiveServerHandle | null = null
 let liveWatcher: vscode.FileSystemWatcher | null = null
 let livePreviewPanel: vscode.WebviewPanel | null = null
 let liveRootDir: string | null = null
+let liveIsMd: boolean = false
 
 // cached mekong binary path: undefined = not checked yet, null = not found
 let cachedMekongBin: string | null | undefined = undefined
@@ -208,13 +209,22 @@ function detectPort(): { port: number; framework: string } | null {
 function detectHtmlRoot(): string | null {
   const folders = vscode.workspace.workspaceFolders
   if (!folders?.length) return null
-  // Prefer the active editor's directory if it's an HTML file
+  // Prefer the active editor's directory if it's an HTML or Markdown file
   const active = vscode.window.activeTextEditor?.document.uri.fsPath
-  if (active && active.endsWith('.html')) return path.dirname(active)
-  // Otherwise use workspace root if index.html exists there
+  if (active && /\.(html?|md)$/i.test(active)) return path.dirname(active)
+  // Otherwise use workspace root
   const root = folders[0].uri.fsPath
-  if (fs.existsSync(path.join(root, 'index.html'))) return root
   return root
+}
+
+/** Returns true if the directory contains .md files but no index.html */
+function isMarkdownRoot(dir: string): boolean {
+  try {
+    const entries = fs.readdirSync(dir)
+    const hasHtml = entries.some(e => /\.(html?)$/i.test(e) && fs.statSync(path.join(dir, e)).isFile())
+    if (hasHtml) return false
+    return entries.some(e => /\.md$/i.test(e) && fs.statSync(path.join(dir, e)).isFile())
+  } catch { return false }
 }
 
 function isWithinDir(rootDir: string, targetPath: string): boolean {
@@ -520,6 +530,7 @@ class MekongWebviewProvider implements vscode.WebviewViewProvider {
       liveRunning:     isLive,
       livePort:        liveServer?.port ?? null,
       liveTunnelActive,
+      liveIsMd,
       mekongInstalled: cachedMekongBin !== null && cachedMekongBin !== undefined,
       platform:        process.platform,   // 'darwin' | 'linux' | 'win32'
       arch:            process.arch,       // 'arm64' | 'x64'
@@ -1171,6 +1182,7 @@ export function activate(context: vscode.ExtensionContext) {
       try {
         liveServer = await startLiveServer(rootDir, basePort)
         liveRootDir = rootDir
+        liveIsMd = !!(fileUri && fileUri.fsPath.match(/\.md$/i)) || isMarkdownRoot(rootDir)
       } catch (err: any) {
         vscode.window.showErrorMessage(`Live Server failed to start: ${err.message}`)
         return
@@ -1181,7 +1193,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Watch all files in rootDir for changes
       liveWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(rootDir, '**/*.{html,htm,css,js,ts,json,svg,png,jpg,jpeg,gif}')
+        new vscode.RelativePattern(rootDir, '**/*.{html,htm,md,css,js,ts,json,svg,png,jpg,jpeg,gif}')
       )
       const reload = (uri: vscode.Uri) => {
         outputChannel?.appendLine(`[live] File changed: ${path.relative(rootDir!, uri.fsPath)} → reload`)
@@ -1195,7 +1207,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Determine which path to open
       let openPath = '/'
-      if (fileUri && fileUri.fsPath.match(/\.html?$/i)) {
+      if (fileUri && fileUri.fsPath.match(/\.(html?|md)$/i)) {
         openPath = '/' + path.relative(rootDir, fileUri.fsPath).replace(/\\/g, '/')
       }
 
@@ -1268,6 +1280,7 @@ export function activate(context: vscode.ExtensionContext) {
       liveServer.stop()
       liveServer = null
       liveRootDir = null
+      liveIsMd = false
       liveWatcher?.dispose()
       liveWatcher = null
       livePreviewPanel?.dispose()

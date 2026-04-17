@@ -82,6 +82,9 @@ type User struct {
 	// Org provisioning fields
 	ProvisionedByOrgID *string `json:"provisioned_by_org_id,omitempty"`
 	ForcePasswordReset bool    `json:"force_password_reset,omitempty"`
+	// Plan expiry (student/teacher plans expire after a fixed period)
+	PlanExpiresAt  *time.Time `json:"plan_expires_at,omitempty"`
+	PlanApprovedAt *time.Time `json:"plan_approved_at,omitempty"`
 }
 
 // IsAdmin returns whether the user has admin privileges.

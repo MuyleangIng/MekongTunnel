@@ -32,6 +32,10 @@ type BillingHandler struct {
 	StripeWebhookSecret string
 	PlanPrices          map[string]string // plan → Stripe price ID
 	FrontendURL         string
+	KomaAPIURL          string
+	KomaMerchantID      string
+	KomaSecretKey       string
+	HTTPClient          *http.Client
 	Notify              *notify.Service
 }
 
@@ -113,6 +117,64 @@ func (h *BillingHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, result)
 }
 
+// StartTrial handles POST /api/billing/trial.
+func (h *BillingHandler) StartTrial(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.GetClaims(r)
+	if claims == nil {
+		response.Unauthorized(w, "authentication required")
+		return
+	}
+
+	cfg, err := h.DB.GetServerConfig(r.Context())
+	if err != nil {
+		response.InternalError(w, err)
+		return
+	}
+	if cfg == nil || !cfg.FreeTrialEnabled || cfg.TrialDurationDays <= 0 {
+		response.Error(w, http.StatusForbidden, "free trial is not enabled")
+		return
+	}
+
+	user, err := h.DB.GetUserByID(r.Context(), claims.UserID)
+	if err != nil {
+		response.NotFound(w, "user not found")
+		return
+	}
+	if user.Plan != "free" {
+		response.Error(w, http.StatusForbidden, "free trial is only available for free accounts")
+		return
+	}
+	if user.SubscriptionPlan != "" || (user.StripeSubscriptionID != nil && *user.StripeSubscriptionID != "") {
+		response.Error(w, http.StatusConflict, "active subscriptions cannot start a free trial")
+		return
+	}
+	if user.TrialEndsAt != nil {
+		if user.TrialEndsAt.After(time.Now()) {
+			response.Error(w, http.StatusConflict, "free trial is already active")
+			return
+		}
+		response.Error(w, http.StatusConflict, "free trial can only be used once per account")
+		return
+	}
+
+	endsAt := time.Now().Add(time.Duration(cfg.TrialDurationDays) * 24 * time.Hour)
+	if err := h.DB.SetTrial(r.Context(), claims.UserID, &endsAt); err != nil {
+		response.InternalError(w, err)
+		return
+	}
+
+	updated, err := h.DB.GetUserByID(r.Context(), claims.UserID)
+	if err != nil {
+		response.InternalError(w, err)
+		return
+	}
+
+	response.Success(w, map[string]any{
+		"trial_ends_at": endsAt,
+		"user":          sanitizeUser(updated),
+	})
+}
+
 // CreateCheckout handles POST /api/billing/checkout.
 func (h *BillingHandler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetClaims(r)
@@ -136,6 +198,7 @@ func (h *BillingHandler) CreateCheckout(w http.ResponseWriter, r *http.Request) 
 		response.BadRequest(w, "plan is required")
 		return
 	}
+	body.Plan = normalizeBillingPlan(body.Plan)
 
 	orgDiscountPercent := 0
 	orgDiscountNote := ""

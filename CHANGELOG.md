@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## v1.6.1 - 2026-04-10
+
+Highlights:
+
+- Extended `mekong deploy` to support Vue.js, React (CRA), React + Vite, and Next.js with API routes — type is auto-detected from project structure
+- Added `mekong deploy redeploy <subdomain> <path>` to update an existing deployment in-place and reset its TTL
+- Added `mekong deploy open <subdomain>` to print and open a deployment URL in the browser
+- Added `mekong deploy quota` to show storage usage bar and deployment slot count for the current plan
+- Added `mekong deploy info <subdomain>` to show full deployment detail including tunnel status and redeploy count
+- Backend now enforces per-plan deployment limits (student: 1, pro: 3, enterprise/team: 10) instead of a hardcoded limit of 1
+- Backend now checks storage quota before every upload and returns a clear error when exceeded
+- Added `GET /api/deploy/{subdomain}`, `PUT /api/deploy/{subdomain}` (redeploy), and `GET /api/deploy/quota` API endpoints
+- List and detail responses now include tunnel status, redeploy count, last deployed time, and quota info
+- Migration 031 expands the deployments type constraint and adds `redeploy_count` / `last_deployed_at` columns
+- Built fresh multi-platform client binaries with `main.version=v1.6.1`
+
+## v1.6.0 - 2026-04-10
+
+Highlights:
+
+- Added `mekong deploy` for hosted static, Next.js, and PHP project uploads, including `mekong deploy list` and `mekong deploy stop`
+- Updated the CLI help output, help topics, and shell completions so `deploy` is advertised in `mekong`, `mekong help`, and completion scripts
+- Switched public reserved-subdomain help text from the old `angkorsearch.dev` wording to `mekongtunnel.dev`
+- Added hosted deployment backend support on the API and tunnel edge using app-server file serving plus SSH reverse tunnels instead of the older rsync/Caddy flow
+- Restored active hosted deployments on API startup and exposed per-deployment logs for the dashboard and server-side troubleshooting
+- Built fresh multi-platform client binaries with `main.version=v1.6.0`
+
 ## v1.5.8 - 2026-04-08
 
 Highlights:

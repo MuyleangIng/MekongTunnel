@@ -31,6 +31,9 @@ type Config struct {
 	User string // Gmail address
 	Pass string // Gmail App Password
 	From string // display name + address
+
+	// AdminEmail receives operational alert emails (new signups, requests, etc.)
+	AdminEmail string // ADMIN_NOTIFY_EMAIL
 }
 
 // Mailer sends emails.
@@ -220,6 +223,53 @@ func (m *Mailer) SendProvisionedWelcome(toEmail, name, orgName, tempPassword, fr
 	if err := m.Send(toEmail, subject, html); err != nil {
 		log.Printf("[mailer] SendProvisionedWelcome to %s: %v", toEmail, err)
 	}
+}
+
+// SendPlanExpiryWarning emails a student whose plan expires within the next week.
+func (m *Mailer) SendPlanExpiryWarning(toEmail, name string, expiresAt time.Time, frontendURL string) {
+	daysLeft := int(time.Until(expiresAt).Hours()/24) + 1
+	settingsURL := strings.TrimRight(frontendURL, "/") + "/dashboard/settings?tab=quota"
+	subject := fmt.Sprintf("Your MekongTunnel student plan expires in %d day(s)", daysLeft)
+	html := fmt.Sprintf(`<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px">
+  <h2 style="color:#1a1a1a;margin-bottom:8px">⚠️ Your student plan expires soon</h2>
+  <p style="color:#555">Hi %s,</p>
+  <p style="color:#555">Your MekongTunnel student plan will expire on <strong>%s</strong> — that's in <strong>%d day(s)</strong>.</p>
+  <p style="color:#555">Please <strong>back up any important data</strong> (deployments, subdomains) before it expires. After expiry your plan will revert to the free tier.</p>
+  <p style="color:#555">If you need more time, you can request a plan extension from your settings page:</p>
+  <a href="%s" style="display:inline-block;margin:16px 0;padding:12px 24px;background:#c89b3c;color:#000;border-radius:10px;text-decoration:none;font-weight:700">Request Extension</a>
+  <p style="color:#888;font-size:12px">— The MekongTunnel Team</p>
+</div>`, name, expiresAt.Format("Jan 2, 2006"), daysLeft, settingsURL)
+	go func() {
+		if err := m.Send(toEmail, subject, html); err != nil {
+			log.Printf("[mailer] SendPlanExpiryWarning to %s: %v", toEmail, err)
+		}
+	}()
+}
+
+// NotifyAdmin sends an operational alert email to the configured AdminEmail.
+// If AdminEmail is not set, the call is a no-op.
+func (m *Mailer) NotifyAdmin(subject, htmlBody string) {
+	if m.cfg.AdminEmail == "" {
+		return
+	}
+	if err := m.Send(m.cfg.AdminEmail, subject, htmlBody); err != nil {
+		log.Printf("[mailer] NotifyAdmin: %v", err)
+	}
+}
+
+// AdminAlertHTML builds a simple admin alert email body.
+func AdminAlertHTML(title, details, actionLabel, actionURL string) string {
+	btnHTML := ""
+	if actionURL != "" && actionLabel != "" {
+		btnHTML = bulletButton(actionLabel, actionURL, "#cc0001")
+	}
+	body := fmt.Sprintf(`
+<h2 style="margin:0 0 8px;font-size:22px;color:#1a1a2e">%s</h2>
+<p style="margin:0 0 20px;font-size:15px;color:#555">%s</p>
+%s
+<hr style="border:none;border-top:1px solid #eee;margin:0 0 20px">
+<p style="font-size:12px;color:#aaa;margin:0">This is an automated alert from Mekong Tunnel.</p>`, title, details, btnHTML)
+	return emailWrapper("Admin Alert — Mekong Tunnel", title, body)
 }
 
 func provisionedWelcomeHTML(name, orgName, email, tempPassword, loginURL string) string {

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/api/response"
 	"github.com/MuyleangIng/MekongTunnel/internal/auth"
 	"github.com/MuyleangIng/MekongTunnel/internal/db"
+	"github.com/MuyleangIng/MekongTunnel/internal/mailer"
 	"github.com/MuyleangIng/MekongTunnel/internal/notify"
 )
 
@@ -21,8 +23,10 @@ var validVerifyTypes = map[string]bool{
 
 // UserHandler handles /api/user/* endpoints.
 type UserHandler struct {
-	DB     *db.DB
-	Notify *notify.Service
+	DB          *db.DB
+	Notify      *notify.Service
+	Mailer      *mailer.Mailer
+	FrontendURL string
 }
 
 // UpdateProfile handles PUT /api/user.
@@ -332,6 +336,17 @@ func (h *UserHandler) SubmitVerifyRequest(w http.ResponseWriter, r *http.Request
 			"New verification request",
 			name+" submitted a "+body.Type+" verification request",
 			"/admin/verify-requests")
+		if h.Mailer != nil {
+			go h.Mailer.NotifyAdmin(
+				fmt.Sprintf("New %s verification request", body.Type),
+				mailer.AdminAlertHTML(
+					fmt.Sprintf("New %s Verification Request", strings.Title(body.Type)),
+					fmt.Sprintf("%s submitted a <strong>%s</strong> verification request.", name, body.Type),
+					"Review Requests",
+					h.FrontendURL+"/admin/verify-requests",
+				),
+			)
+		}
 	}
 
 	response.Success(w, vr)

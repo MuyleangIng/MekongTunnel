@@ -50,7 +50,8 @@ func (h *TeamHandler) GetTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 // teamLimit returns the max number of teams allowed for a plan.
-// -1 = unlimited, 0 = no teams allowed
+// -1 = unlimited, 0 = no teams allowed.
+// Teams are a Pro/Org-only feature; student and free plans have no access.
 func teamLimit(plan string, isAdmin bool) int {
 	if isAdmin {
 		return -1 // unlimited
@@ -60,10 +61,8 @@ func teamLimit(plan string, isAdmin bool) int {
 		return -1 // unlimited
 	case "pro":
 		return 5
-	case "student":
-		return 1
 	default:
-		return 0
+		return 0 // student, free, and unknown plans cannot create teams
 	}
 }
 
@@ -75,8 +74,6 @@ func memberSizeLimit(plan string) int {
 		return -1
 	case "pro":
 		return 50
-	case "student":
-		return 10
 	default:
 		return 5
 	}
@@ -271,8 +268,6 @@ func planTunnelLimit(plan string) int {
 		return -1
 	case "pro":
 		return 10
-	case "student":
-		return 3
 	default:
 		return 1
 	}
@@ -285,8 +280,6 @@ func planSubdomainLimit(plan string) int {
 		return -1
 	case "pro":
 		return 3
-	case "student":
-		return 1
 	default:
 		return 0
 	}
@@ -299,8 +292,6 @@ func teamRouteLimit(plan string) int {
 		return -1
 	case "pro":
 		return 10
-	case "student":
-		return 3
 	default:
 		return 0
 	}

@@ -24,6 +24,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/MuyleangIng/MekongTunnel/internal/expiry"
 )
 
 const (
@@ -51,6 +53,12 @@ type deployListResponse struct {
 	Deployments []deployItem `json:"deployments"`
 }
 
+type apiWrapper[T any] struct {
+	OK   bool   `json:"ok"`
+	Data T      `json:"data"`
+	Err  string `json:"error"`
+}
+
 type deployItem struct {
 	ID        string     `json:"id"`
 	URL       string     `json:"url"`
@@ -62,24 +70,121 @@ type deployItem struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+// deployFlags holds parsed flags from the argument list.
+type deployFlags struct {
+	Expire string
+	All    bool
+	Args   []string // positional args after flags stripped
+}
+
+// parseDeployFlags extracts --expire/-e and --all/-a from args.
+// It is a pure function with no side-effects so it can be unit-tested.
+func parseDeployFlags(args []string) (deployFlags, error) {
+	var f deployFlags
+	var pos []string
+	expireSeen := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--expire" || a == "-e":
+			if expireSeen {
+				return f, fmt.Errorf("--expire can only be specified once")
+			}
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") || args[i+1] == "" {
+				return f, fmt.Errorf("--expire requires a value\n  Examples: --expire 7d  --expire 2w  --expire 1mo  --expire 48h")
+			}
+			f.Expire = args[i+1]
+			expireSeen = true
+			i++
+		case strings.HasPrefix(a, "--expire="):
+			if expireSeen {
+				return f, fmt.Errorf("--expire can only be specified once")
+			}
+			v := strings.TrimPrefix(a, "--expire=")
+			if v == "" {
+				return f, fmt.Errorf("--expire= requires a value\n  Examples: --expire=7d  --expire=2w  --expire=1mo")
+			}
+			f.Expire = v
+			expireSeen = true
+		case a == "--all" || a == "-a":
+			f.All = true
+		default:
+			pos = append(pos, a)
+		}
+	}
+	f.Args = pos
+
+	if f.Expire != "" {
+		d, err := expiry.Parse(f.Expire)
+		if err != nil {
+			return f, fmt.Errorf("invalid --expire value %q\n\n  Must be a number+unit:\n    30m  1h  6h  24h   → minutes/hours\n    1d   7d  14d       → days\n    1w   2w            → weeks\n    1mo  1m            → months\n\n  Examples: --expire 7d   --expire 2w   --expire 1mo   --expire 48h", f.Expire)
+		}
+		if err := expiry.ValidateDeployExpiry(d); err != nil {
+			return f, fmt.Errorf("--expire %s: %s", f.Expire, err.Error())
+		}
+	}
+	return f, nil
+}
+
 func runDeployCommand(args []string) error {
+	// Help flags — no auth needed
+	if len(args) > 0 {
+		switch args[0] {
+		case "-h", "--help", "help", "?":
+			printDeployHelp()
+			return nil
+		}
+	}
+
+	// Parse and validate flags before auth so errors are fast
+	f, err := parseDeployFlags(args)
+	if err != nil {
+		return err
+	}
+
 	tok := resolveAPIToken("")
 	if tok == "" {
 		return fmt.Errorf("not logged in\n  Run: mekong login")
 	}
 
+	args = f.Args
+
+	// --all / -a with no subcommand → list
+	if f.All && len(args) == 0 {
+		return runDeployList(tok)
+	}
+
 	if len(args) == 0 {
+		if f.Expire != "" {
+			return fmt.Errorf("missing path — usage: mekong deploy <path> --expire %s", f.Expire)
+		}
 		return runDeployList(tok)
 	}
 
 	switch args[0] {
-	case "list", "ls":
+	case "list", "ls", "ps":
 		return runDeployList(tok)
-	case "stop", "rm", "delete", "down":
+	case "stop", "down":
+		if f.All || (len(args) > 1 && (args[1] == "--all" || args[1] == "-a" || args[1] == "all")) {
+			return runDeployStopAll(tok)
+		}
 		if len(args) < 2 {
-			return fmt.Errorf("usage: mekong deploy stop <subdomain>")
+			return fmt.Errorf("usage: mekong deploy stop <subdomain>\n       mekong deploy stop --all")
 		}
 		return runDeployStop(tok, args[1])
+	case "rm", "delete", "del":
+		if f.All || (len(args) > 1 && (args[1] == "--all" || args[1] == "-a" || args[1] == "all")) {
+			return runDeployDeleteAll(tok)
+		}
+		if len(args) < 2 {
+			return fmt.Errorf("usage: mekong deploy delete <subdomain>\n       mekong deploy delete --all")
+		}
+		return runDeployDelete(tok, args[1])
+	case "log", "logs":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: mekong deploy log <subdomain>")
+		}
+		return runDeployLogs(tok, args[1])
 	case "redeploy", "update", "push":
 		if len(args) < 3 {
 			return fmt.Errorf("usage: mekong deploy redeploy <subdomain> <path>")
@@ -90,21 +195,21 @@ func runDeployCommand(args []string) error {
 			return fmt.Errorf("usage: mekong deploy open <subdomain>")
 		}
 		return runDeployOpen(tok, args[1])
-	case "quota":
+	case "quota", "usage":
 		return runDeployQuota(tok)
-	case "info":
+	case "info", "status":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: mekong deploy info <subdomain>")
 		}
 		return runDeployInfo(tok, args[1])
 	}
 
-	return runDeployUpload(tok, args[0])
+	return runDeployUpload(tok, args[0], f.Expire)
 }
 
 // ── Upload ───────────────────────────────────────────────────────────────────
 
-func runDeployUpload(tok, path string) error {
+func runDeployUpload(tok, path, expire string) error {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("invalid path: %w", err)
@@ -156,6 +261,9 @@ func runDeployUpload(tok, path string) error {
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	_ = mw.WriteField("type", dtype.Type)
+	if expire != "" {
+		_ = mw.WriteField("expire", expire)
+	}
 	fw, err := mw.CreateFormFile("archive", "deploy.zip")
 	if err != nil {
 		return err
@@ -188,10 +296,11 @@ func runDeployUpload(tok, path string) error {
 		return fmt.Errorf("server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 
-	var result deployUploadResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
+	var wrapped apiWrapper[deployUploadResponse]
+	if err := json.Unmarshal(respBody, &wrapped); err != nil {
 		return fmt.Errorf("invalid response: %w", err)
 	}
+	result := wrapped.Data
 
 	fmt.Printf("\n%s  ✅  Deploy complete!%s\n\n", green, reset)
 	fmt.Printf("  %s🌐  URL%s       %s%s%s\n", cyan, reset, green, result.URL, reset)
@@ -210,47 +319,31 @@ func runDeployUpload(tok, path string) error {
 // ── List ─────────────────────────────────────────────────────────────────────
 
 func runDeployList(tok string) error {
-	req, err := http.NewRequest(http.MethodGet, authAPIBase+"/api/deploy", nil)
+	items, err := fetchDeployList(tok)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+tok)
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("not logged in — run: mekong login")
-	}
-
-	var result deployListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("invalid response: %w", err)
-	}
-
-	if len(result.Deployments) == 0 {
+	if len(items) == 0 {
 		fmt.Printf("\n%s  No active deployments%s\n\n", gray, reset)
 		fmt.Printf("  Deploy a project:  mekong deploy ./dist\n\n")
 		return nil
 	}
 
-	fmt.Printf("\n%s  Your Deployments%s\n\n", cyan, reset)
-	for _, d := range result.Deployments {
+	fmt.Printf("\n%s  Your Deployments%s  (%d total)\n\n", cyan, reset, len(items))
+	for _, d := range items {
 		sc := green
 		if d.Status != "active" {
 			sc = yellow
 		}
 		fmt.Printf("  %s●%s  %s%s%s\n", sc, reset, green, d.URL, reset)
-		fmt.Printf("     Type: %-10s Status: %s%s%s\n", d.Type, sc, d.Status, reset)
-		fmt.Printf("     Size: %-10s Created: %s\n", fmtBytes(d.SizeBytes), d.CreatedAt.Format("Jan 2, 2006"))
+		fmt.Printf("     Type: %-14s Status: %s%s%s\n", d.Type, sc, d.Status, reset)
+		fmt.Printf("     Size: %-14s Created: %s\n", fmtBytes(d.SizeBytes), d.CreatedAt.Format("Jan 2, 2006"))
 		if d.ExpiresAt != nil {
 			fmt.Printf("     Expires: %s\n", d.ExpiresAt.Format("Jan 2, 2006"))
 		}
-		fmt.Printf("     Stop:  mekong deploy stop %s\n", d.Subdomain)
+		fmt.Printf("     %sLog:   mekong deploy log %s%s\n", gray, d.Subdomain, reset)
+		fmt.Printf("     %sStop:  mekong deploy stop %s%s\n", gray, d.Subdomain, reset)
 		fmt.Println()
 	}
 
@@ -283,6 +376,165 @@ func runDeployStop(tok, subdomain string) error {
 
 	fmt.Printf("\n%s  ✓  Deployment %s stopped%s\n\n", green, subdomain, reset)
 	return nil
+}
+
+// ── Stop All ──────────────────────────────────────────────────────────────────
+
+func runDeployStopAll(tok string) error {
+	items, err := fetchDeployList(tok)
+	if err != nil {
+		return err
+	}
+	active := make([]deployItem, 0)
+	for _, d := range items {
+		if d.Status == "active" {
+			active = append(active, d)
+		}
+	}
+	if len(active) == 0 {
+		fmt.Printf("\n%s  No active deployments to stop%s\n\n", gray, reset)
+		return nil
+	}
+	fmt.Printf("\n%s  Stopping %d deployment(s) ...%s\n\n", cyan, len(active), reset)
+	for _, d := range active {
+		if err := runDeployStop(tok, d.Subdomain); err != nil {
+			fmt.Printf("%s  ✖  %s: %v%s\n", red, d.Subdomain, err, reset)
+		}
+	}
+	return nil
+}
+
+// ── Delete (hard) ─────────────────────────────────────────────────────────────
+
+func runDeployDelete(tok, subdomain string) error {
+	req, err := http.NewRequest(http.MethodDelete, authAPIBase+"/api/deploy/"+subdomain+"/delete", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("deployment %q not found", subdomain)
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	fmt.Printf("\n%s  ✓  Deployment %s deleted%s\n\n", green, subdomain, reset)
+	return nil
+}
+
+func runDeployDeleteAll(tok string) error {
+	items, err := fetchDeployList(tok)
+	if err != nil {
+		return err
+	}
+	if len(items) == 0 {
+		fmt.Printf("\n%s  No deployments to delete%s\n\n", gray, reset)
+		return nil
+	}
+	fmt.Printf("\n%s  Deleting %d deployment(s) ...%s\n\n", cyan, len(items), reset)
+	for _, d := range items {
+		if err := runDeployDelete(tok, d.Subdomain); err != nil {
+			fmt.Printf("%s  ✖  %s: %v%s\n", red, d.Subdomain, err, reset)
+		}
+	}
+	return nil
+}
+
+// ── Logs ──────────────────────────────────────────────────────────────────────
+
+func runDeployLogs(tok, subdomain string) error {
+	req, err := http.NewRequest(http.MethodGet, authAPIBase+"/api/deploy/"+subdomain+"/logs", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("deployment %q not found", subdomain)
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("not your deployment")
+	}
+
+	var wrapped apiWrapper[struct {
+		Logs  string `json:"logs"`
+		Lines []struct {
+			Kind string `json:"kind"`
+			Text string `json:"text"`
+		} `json:"lines"`
+	}]
+	if err := json.NewDecoder(resp.Body).Decode(&wrapped); err != nil {
+		return fmt.Errorf("invalid response: %w", err)
+	}
+	data := wrapped.Data
+
+	fmt.Printf("\n%s  Logs: %s%s\n\n", cyan, subdomain, reset)
+
+	kindColor := map[string]string{
+		"meta": cyan,
+		"info": green,
+		"warn": yellow,
+		"err":  red,
+		"req":  gray,
+	}
+
+	for _, line := range data.Lines {
+		col := kindColor[line.Kind]
+		if col == "" {
+			col = reset
+		}
+		fmt.Printf("  %s%s%s\n", col, line.Text, reset)
+	}
+	fmt.Println()
+	return nil
+}
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+func fetchDeployList(tok string) ([]deployItem, error) {
+	req, err := http.NewRequest(http.MethodGet, authAPIBase+"/api/deploy", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("not logged in — run: mekong login")
+	}
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	var wrapped apiWrapper[deployListResponse]
+	if err := json.NewDecoder(resp.Body).Decode(&wrapped); err != nil {
+		return nil, fmt.Errorf("invalid response: %w", err)
+	}
+	return wrapped.Data.Deployments, nil
 }
 
 // ── Redeploy ──────────────────────────────────────────────────────────────────

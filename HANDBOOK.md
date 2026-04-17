@@ -1,7 +1,7 @@
 # MekongTunnel — Project Handbook
 
 > Author: **Ing Muyleang** (អុឹង មួយលៀង) · KhmerStack · [angkorsearch.dev](https://angkorsearch.dev)
-> Last updated: 2026-03-28 · Go v1.5.8 · npm v2.0.0 · PyPI v2.1.0 · VS Code v1.5.0
+> Last updated: 2026-04-10 · Go v1.5.8 · npm v2.0.0 · PyPI v2.1.0 · VS Code v1.5.0
 
 ---
 
@@ -66,14 +66,16 @@ Developer machine                  Proxy edge                     Public web/API
 ## 2. Repository Structure
 
 ```
-tunnl.gg/                              ← Go monorepo root
+mekongtunnel-ecosystem/                ← Go monorepo root
 ├── cmd/
 │   ├── apibench/                      ← local API stress / latency benchmark
 │   ├── mekong/                        ← CLI client binary
 │   │   ├── main.go                    (reconnect loop, QR, clipboard, expiry)
 │   │   ├── auth.go                    (login, logout, whoami, token-info)
+│   │   ├── deploy.go                  (mekong deploy — upload/list/stop/redeploy)
 │   │   ├── subdomains.go              (reserve/list/delete reserved subdomains)
 │   │   ├── domains.go                 (custom domains, doctor, connect, wait)
+│   │   ├── localstack.go              (local virtual host helpers)
 │   │   ├── selftest.go                (mekong test — self-diagnostic)
 │   │   ├── platform_unix.go           (daemon via Setsid + isPIDAlive via signal)
 │   │   └── platform_windows.go        (DETACHED_PROCESS + OpenProcess)
@@ -85,10 +87,13 @@ tunnl.gg/                              ← Go monorepo root
 │   ├── redisx/                        (optional Redis cache, pub/sub, OTP, rate limiting)
 │   ├── domain/domain.go               (Generate(), IsValid() for subdomains)
 │   ├── expiry/                        (tunnel lifetime, idle timeout handling)
+│   ├── billing/                       (billing service: autobilling, types, Koma client)
+│   ├── telegrambot/                   (Telegram bot client, service, message formatting)
 │   ├── proxy/
 │   │   ├── proxy.go                   (tunnel registry, reserved/custom domain lookups)
 │   │   ├── ssh.go                     (SSH server handler — random + reserved subdomains)
 │   │   ├── http.go                    (HTTPS reverse proxy, custom domain routing, WebSocket support)
+│   │   ├── api_validator.go           (internal edge token validation via API)
 │   │   ├── stats.go                   (HTML dashboard at /, JSON at /api/stats)
 │   │   └── abuse.go                   (rate limiting, sliding-window, IP blocking)
 │   ├── tunnel/
@@ -122,36 +127,47 @@ tunnl.gg/                              ← Go monorepo root
 │       └── totp.go                    (TOTP 2FA: setup, verify, backup codes)
 │
 ├── internal/api/
+│   ├── autobilling.go                 (background auto-renewal job)
 │   ├── server.go                      (all HTTP routes registered here)
 │   ├── middleware/
-│   │   ├── auth.go                    (JWT auth, optional auth, admin auth)
+│   │   ├── auth.go                    (JWT auth, optional auth, admin auth, internal secret)
 │   │   ├── cors.go                    (CORS policy)
 │   │   └── rate_limit.go              (Redis-backed API rate limiting)
 │   └── handlers/
 │       ├── auth.go                    (register, login, OAuth, 2FA, password reset)
 │       ├── user.go                    (profile, password, deletion, verify request)
 │       ├── tokens.go                  (API token CRUD)
-│       ├── tunnels.go                 (list user tunnels, kill tunnel)
+│       ├── tunnels.go                 (list/kill user tunnels, live tunnel view)
 │       ├── teams.go                   (team CRUD, members, invitations)
-│       ├── billing.go                 (Stripe checkout, portal, invoices)
-│       ├── admin.go                   (admin: users, plans, abuse, server config)
+│       ├── billing.go                 (Stripe checkout, portal, Koma checkout)
+│       ├── billing_bakong.go          (Bakong KHQR subscription checkout flow)
+│       ├── billing_koma.go            (Koma payment gateway helpers)
+│       ├── deploy.go                  (static/PHP/Next.js hosting via SSH tunnel)
+│       ├── edge_auth.go               (internal edge API: token validate, subdomain lookup)
+│       ├── wallet.go                  (credit wallet: balance, Bakong top-up, history)
+│       ├── wallet_koma.go             (Koma helpers for wallet top-up)
+│       ├── org.go                     (org creation, members, teams, approval workflow)
+│       ├── admin.go                   (admin: users, plans, abuse, server config, orgs)
 │       ├── subdomain.go               (reserved subdomain management)
-│       ├── domains.go                 (custom domain management)
+│       ├── domains.go                 (custom domain management + Telegram alerts)
 │       ├── cli_device.go              (CLI device authentication)
-│       ├── notifications.go           (user notifications)
+│       ├── notifications.go           (user notifications + SSE stream)
 │       ├── newsletter.go              (email subscription + unsubscribe by token)
 │       ├── partners.go                (partner directory)
+│       ├── paypal.go                  (PayPal IPN / receipt handling)
+│       ├── resource_scope.go          (plan-scoped resource access helpers)
 │       ├── sponsors.go                (sponsor listings)
 │       ├── donations.go               (donation submit/list/approve)
+│       ├── telegram.go                (Telegram account linking flow)
+│       ├── telegram_alerts.go         (Telegram alert notifications for admin events)
 │       ├── upload.go                  (file upload — reused for donation receipts)
-│       └── monitor.go                 (system monitoring)
+│       └── monitor.go                 (system monitoring snapshot + SSE stream)
 │
-├── migrations/                        (17 PostgreSQL migration files)
-├── api/                               (OpenAPI spec — if present)
+├── migrations/                        (031 PostgreSQL migration files)
 ├── mekong-node-sdk/                   ← local folder for the npm package
 ├── mekong-python-sdk/                 ← local folder for the Python package
 ├── mekong-vscode-extension/           ← local folder for the VS Code extension
-├── .github/workflows/                 (5 CI/CD pipelines)
+├── .github/workflows/                 (CI/CD pipelines)
 ├── Makefile
 ├── Dockerfile.api
 ├── docker-compose.yml
@@ -382,6 +398,29 @@ RESEND_FROM=Mekong Tunnel <noreply@angkorsearch.dev>
 # SMTP fallback (only used if RESEND_API_KEY is not set)
 SMTP_USER=you@gmail.com
 SMTP_PASS=app-specific-password
+
+# Deploy hosting (mekong deploy)
+DEPLOY_DIR=/opt/mekong/deployments
+DEPLOY_DOMAIN=proxy.mekongtunnel.dev
+TUNNEL_EDGE_SECRET=<shared-with-tunnel-server>
+DEPLOY_TUNNEL_ADDR=<tunnel-ip>:2222          # preferred; overrides HOST+PORT below
+DEPLOY_TUNNEL_HOST=<tunnel-ip>               # fallback if DEPLOY_TUNNEL_ADDR not set
+DEPLOY_TUNNEL_SSH_PORT=2222
+
+# Koma / Bakong payment gateway
+KOMA_API_URL=https://koma.khqr.site
+KOMA_MERCHANT_ID=
+KOMA_SECRET_KEY=
+BAKONG_ACCOUNT_NAME=MekongTunnel
+BAKONG_ACCOUNT_ID=
+
+# Telegram bot (optional)
+TELEGRAM_BOT_ENABLED=false
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_BOT_USERNAME=MekongTunnelBot
+TELEGRAM_BOT_NAME=Mekong Tunnel
+TELEGRAM_WEBHOOK_SECRET=
+TELEGRAM_APPROVE_PATH=/telegram-link
 ```
 
 ### Environment variables (tunnel server)
@@ -468,6 +507,21 @@ To run manually:
 | `014_email_otp.sql` | Email OTP 2FA codes |
 | `015_trial_newsletter.sql` | Free trial + newsletter subscriber fields |
 | `016_donations.sql` | Donation submissions table |
+| `017_announcement.sql` | Admin announcement banner |
+| `018_team_subdomain_assignments.sql` | Team-scoped subdomain assignments |
+| `019_org_system.sql` | Organization system (org, seats, billing) |
+| `020_org_teams.sql` | Org-owned teams |
+| `021_org_workflow.sql` | Org approval workflow |
+| `022_org_discount_approval.sql` | Org discount approval process |
+| `023_paypal_receipts.sql` | PayPal receipt submissions |
+| `024_receipt_resubmit.sql` | Manual receipt resubmission support |
+| `025_telegram_bot.sql` | Telegram account linking |
+| `026_deployments.sql` | Static/PHP/Next.js deploy hosting table |
+| `027_deploy_storage_quota.sql` | Per-user deploy storage quota tracking |
+| `028_credit_wallet.sql` | Credit wallet + Bakong top-up orders |
+| `029_payment_orders_koma.sql` | Koma payment orders |
+| `030_payment_orders_billing_bakong.sql` | Bakong billing subscription orders |
+| `031_deploy_types_extended.sql` | Extended deploy type support |
 
 ### Seed data
 
@@ -516,6 +570,17 @@ go run ./cmd/api
 | `server_config` | global server settings (JSON) — includes freeTrialEnabled, trialDurationDays, bakongDiscountPercent |
 | `newsletter_subscribers` | email, subscribed_at, unsubscribed_at, unsubscribe_token |
 | `donation_submissions` | id, name, email, amount, currency, payment_method, receipt_url, social_url, message, status (pending/approved/rejected), show_on_home, created_at |
+| `organizations` | id, name, owner_id, plan, seat_limit, created_at |
+| `org_members` | org_id, user_id, role, allocated_tunnels, joined_at |
+| `org_teams` | org_id, team_id |
+| `org_requests` | id, org_id, user_id, type, status, data (JSONB), comments |
+| `telegram_links` | id, user_id, telegram_id, telegram_username, linked_at |
+| `deployments` | id, user_id, subdomain, url, type, status, size_bytes, deploy_dir, redeploy_count, created_at, expires_at, last_deployed_at |
+| `deploy_storage_quota` | user_id, used_bytes, quota_bytes |
+| `credit_wallet` | id, user_id, balance_credits, updated_at |
+| `wallet_orders` | id, user_id, ref, provider (koma/bakong), amount_usd, credits, status, created_at, confirmed_at |
+| `payment_orders_koma` | id, user_id, ref, plan, amount_usd, status, created_at |
+| `payment_orders_bakong` | id, user_id, ref, plan, amount_usd, status, created_at |
 
 ---
 
@@ -600,6 +665,27 @@ mekong -d 3000
 # Writes PID + tunnel info to ~/.mekong/state.json
 # Streams logs to ~/.mekong/mekong.log
 ```
+
+### Deploy command (`mekong deploy`)
+
+Packages and uploads a local project directory to the MekongTunnel hosting service.
+Requires a student plan or higher. Detected project types: `static`, `nextjs`, `nextjs-api`,
+`vue`, `react-vite`, `react` (CRA), `php`.
+
+```bash
+mekong deploy ./dist          # deploy built site — auto-detects type
+mekong deploy ./              # deploy from current directory
+mekong deploy ./.next         # Next.js — run npm run build first
+mekong deploy list            # list active deployments
+mekong deploy stop <sub>      # stop a deployment
+mekong deploy redeploy <sub> <path>   # push a new build to existing deployment
+mekong deploy open <sub>      # open deployment URL in browser
+mekong deploy quota           # show storage quota usage
+mekong deploy info <sub>      # show detailed deployment info
+```
+
+Files are zipped locally (max 100MB, `.mekongignore` respected), uploaded to
+`POST /api/deploy`, and served via an SSH reverse tunnel from the app server.
 
 ---
 
@@ -896,6 +982,104 @@ On approval: user plan is upgraded and a confirmation email is sent via Resend.
 | POST | `/api/admin/newsletter/send` | ✓ admin | `{subject, body}` | Send newsletter to all subscribers |
 | GET | `/api/admin/donations` | ✓ admin | `?status=` | All donation submissions |
 | PATCH | `/api/admin/donations/:id` | ✓ admin | `{status, show_on_home?}` | Approve/reject donation, toggle donor wall visibility |
+
+---
+
+### Deploy (static / PHP / Next.js hosting)
+
+Auth: JWT or API token. Requires student plan or higher.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/deploy` | ✓ | Upload zip archive → returns `{id, url, subdomain, type, size_bytes, expires_at}` |
+| GET | `/api/deploy` | ✓ | List active deployments |
+| GET | `/api/deploy/quota` | ✓ | Storage quota `{used_bytes, quota_bytes, free_bytes, plan, max_deployments, active_deployments}` |
+| GET | `/api/deploy/{subdomain}` | ✓ | Get single deployment detail |
+| PUT | `/api/deploy/{subdomain}` | ✓ | Redeploy (replace archive) |
+| DELETE | `/api/deploy/{subdomain}` | ✓ | Stop deployment (keeps row) |
+| DELETE | `/api/deploy/{subdomain}/delete` | ✓ | Stop and delete deployment row |
+| GET | `/api/deploy/{subdomain}/logs` | ✓ | Tail recent deployment tunnel logs |
+
+Upload form fields: `archive` (zip file), `type` (static/nextjs/vue/react-vite/react/php).
+
+---
+
+### Wallet (Bakong credit system)
+
+`$1 USD = 1 credit`. Credits pay for deploy storage add-ons.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/wallet` | ✓ | Balance `{credits, plan, storage_packages[]}` |
+| POST | `/api/wallet/topup/bakong` | ✓ | Create Bakong KHQR top-up session → `{ref, qr_string, amount_usd, credits}` |
+| POST | `/api/wallet/topup/confirm` | ✓ | Manually confirm a top-up (legacy) |
+| POST | `/api/wallet/topup/screenshot` | ✓ | Upload payment screenshot for manual review |
+| GET | `/api/wallet/order/{ref}` | ✓ | Poll order status → `{status, credits?}` |
+| GET | `/api/wallet/admin/pending` | ✓ admin | List pending screenshot orders |
+| POST | `/api/wallet/admin/approve/{order_id}` | ✓ admin | Approve screenshot and credit wallet |
+
+---
+
+### Billing — Bakong / Koma
+
+| Method | Path | Auth | Body | Description |
+|--------|------|------|------|-------------|
+| POST | `/api/billing/bakong/checkout` | ✓ | `{plan, ref?}` | Create Bakong KHQR subscription checkout |
+| POST | `/api/billing/bakong/confirm` | ✓ | `{ref}` | Confirm Bakong payment |
+| GET | `/api/billing/bakong/{ref}` | ✓ | — | Poll Bakong order status |
+
+---
+
+### Organizations
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/org/create` | ✓ | Create my organization |
+| GET | `/api/org/mine` | ✓ | Get my organization |
+| GET | `/api/org/{id}` | ✓ | Get org by ID |
+| GET | `/api/org/{id}/members` | ✓ | List org members |
+| DELETE | `/api/org/{id}/members/{userId}` | ✓ | Remove org member |
+| PATCH | `/api/org/{id}/members/{userId}/allocation` | ✓ | Set tunnel allocation for member |
+| GET | `/api/org/{id}/teams` | ✓ | List org teams |
+| POST | `/api/org/{id}/teams` | ✓ | Create team inside org |
+| DELETE | `/api/org/{id}/teams/{teamId}` | ✓ | Delete org team |
+| GET | `/api/org/{id}/requests` | ✓ | List approval requests |
+| PATCH | `/api/org/{id}/requests/{reqId}` | ✓ | Review request |
+| POST | `/api/org/{id}/requests/{reqId}/comments` | ✓ | Comment on request |
+| POST | `/api/org/request` | ✓ | Submit an org request |
+| POST | `/api/org/{id}/import/preview` | ✓ | Preview bulk member import |
+| POST | `/api/org/{id}/import` | ✓ | Bulk import members |
+
+---
+
+### Telegram
+
+Only registered when `TELEGRAM_BOT_ENABLED=true`.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/telegram/webhook` | — | Telegram bot webhook (verified by webhook secret) |
+| GET | `/api/telegram/link` | ✓ | Get my Telegram link info |
+| GET | `/api/telegram/link/session` | ✓ | Get Telegram link session (QR/deep-link flow) |
+| POST | `/api/telegram/link/approve` | ✓ | Approve Telegram account link |
+| POST | `/api/telegram/link/cancel` | ✓ | Cancel pending link |
+| POST | `/api/telegram/unlink` | ✓ | Unlink Telegram account |
+
+---
+
+### Internal Edge API (tunnel server → API server)
+
+These endpoints are protected by `TUNNEL_EDGE_SECRET` (via `X-Internal-Secret` header).
+They are called by the tunnel edge server to validate tokens and resolve subdomains.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/internal/edge/validate-token` | Validate bearer token → returns user + plan |
+| GET | `/api/internal/edge/first-subdomain` | Get first reserved subdomain for user |
+| GET | `/api/internal/edge/reserved-subdomain` | Get reserved subdomain by name for user |
+| GET | `/api/internal/edge/custom-domain-target` | Look up tunnel target for a custom domain |
+| GET | `/api/internal/edge/subdomain-exists` | Check if a reserved subdomain exists |
+| GET | `/api/internal/edge/tunnel-last-seen` | Get last seen timestamp for a tunnel |
 
 ---
 

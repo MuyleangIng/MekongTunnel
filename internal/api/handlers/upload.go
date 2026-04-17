@@ -120,11 +120,19 @@ func (h *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 }
 
 // ServeFile handles GET /api/uploads/{filename} — serves the stored file.
+// Upload files (verification documents, avatars) must be viewable directly in
+// browsers and embeddable in iframes, so we override the default security headers
+// that block framing.
 func (h *UploadHandler) ServeFile(w http.ResponseWriter, r *http.Request) {
 	filename := r.PathValue("filename")
 	if filename == "" || strings.Contains(filename, "..") || strings.Contains(filename, "/") {
 		response.BadRequest(w, "invalid filename")
 		return
 	}
+	// Allow embedding in iframes (overrides SecurityHeaders X-Frame-Options: DENY)
+	w.Header().Del("X-Frame-Options")
+	// Allow cross-origin loading (images, PDFs in <img>, <iframe>, <embed>)
+	w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	http.ServeFile(w, r, filepath.Join(h.UploadDir, filename))
 }

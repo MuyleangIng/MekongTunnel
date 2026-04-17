@@ -12,6 +12,7 @@ func TestParseLogsArgs(t *testing.T) {
 		args       []string
 		wantFollow bool
 		wantPort   int
+		wantName   string
 		wantErr    bool
 	}{
 		{name: "no args", args: nil},
@@ -20,14 +21,14 @@ func TestParseLogsArgs(t *testing.T) {
 		{name: "port only", args: []string{"3000"}, wantPort: 3000},
 		{name: "follow then port", args: []string{"-f", "3000"}, wantFollow: true, wantPort: 3000},
 		{name: "port then follow", args: []string{"3000", "-f"}, wantFollow: true, wantPort: 3000},
+		{name: "subdomain only", args: []string{"myapp"}, wantName: "myapp"},
 		{name: "invalid flag", args: []string{"--bad"}, wantErr: true},
-		{name: "invalid port", args: []string{"abc"}, wantErr: true},
 		{name: "too many args", args: []string{"3000", "4000"}, wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotFollow, gotPort, err := parseLogsArgs(tt.args)
+			gotFollow, gotPort, gotName, err := parseLogsArgs(tt.args)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("parseLogsArgs() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -39,6 +40,9 @@ func TestParseLogsArgs(t *testing.T) {
 			}
 			if gotPort != tt.wantPort {
 				t.Fatalf("parseLogsArgs() port = %d, want %d", gotPort, tt.wantPort)
+			}
+			if gotName != tt.wantName {
+				t.Fatalf("parseLogsArgs() name = %q, want %q", gotName, tt.wantName)
 			}
 		})
 	}

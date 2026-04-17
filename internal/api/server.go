@@ -6,11 +6,14 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api/handlers"
 	"github.com/MuyleangIng/MekongTunnel/internal/api/middleware"
 	"github.com/MuyleangIng/MekongTunnel/internal/api/response"
+	"github.com/MuyleangIng/MekongTunnel/internal/billing"
 	"github.com/MuyleangIng/MekongTunnel/internal/config"
 	"github.com/MuyleangIng/MekongTunnel/internal/db"
 	"github.com/MuyleangIng/MekongTunnel/internal/hub"
@@ -65,8 +68,20 @@ func New(database *db.DB, cfg Config) *Server {
 		hub: hub.New(),
 	}
 	s.registerRoutes()
-	s.handler = middleware.CORSMiddleware(cfg.AllowedOrigins)(s.mux)
+	// Middleware stack (outermost → innermost):
+	// MaintenanceMode → BrowserRedirect → SecurityHeaders → EnforceOrigin → CORS → mux
+	s.handler = maintenanceModeMiddleware(cfg.FrontendURL)(
+		middleware.BrowserRedirect(cfg.FrontendURL)(
+			middleware.SecurityHeaders()(
+				middleware.EnforceOrigin(cfg.AllowedOrigins)(
+					middleware.CORSMiddleware(cfg.AllowedOrigins)(s.mux),
+				),
+			),
+		),
+	)
 	s.startNotificationRelay()
+	s.startBillingCron()
+	s.startPlanExpiryWarningJob(mailer.New(cfg.MailConfig), cfg.FrontendURL)
 	return s
 }
 
@@ -82,10 +97,60 @@ func (s *Server) Close() {
 	}
 }
 
+// maintenanceModeMiddleware returns 503 + JSON when MAINTENANCE_MODE=true.
+// The frontend's /maintenance page is linked in the response so browsers redirected
+// by Caddy's handle_errors can also show a human-readable page.
+func maintenanceModeMiddleware(frontendURL string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if os.Getenv("MAINTENANCE_MODE") == "true" {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Retry-After", "300")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"ok":false,"error":"We are under maintenance. Please check back shortly.","maintenance":true,"url":"` + strings.TrimRight(frontendURL, "/") + `/maintenance"}`))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func deployTunnelAddr() string {
+	if addr := strings.TrimSpace(os.Getenv("DEPLOY_TUNNEL_ADDR")); addr != "" {
+		return addr
+	}
+
+	host := strings.TrimSpace(os.Getenv("DEPLOY_TUNNEL_HOST"))
+	if host == "" {
+		host = strings.TrimSpace(os.Getenv("DEPLOY_DOMAIN"))
+	}
+	if host == "" {
+		host = "proxy.mekongtunnel.dev"
+	}
+	if at := strings.LastIndex(host, "@"); at >= 0 {
+		host = host[at+1:]
+	}
+
+	port := strings.TrimSpace(os.Getenv("DEPLOY_TUNNEL_SSH_PORT"))
+	if port == "" {
+		port = "22"
+	}
+
+	return host + ":" + port
+}
+
 // ─── Route registration ───────────────────────────────────────
 
 func (s *Server) registerRoutes() {
 	authRequired := middleware.AuthMiddleware(s.cfg.JWTSecret)
+	authOrAPIToken := middleware.AuthOrAPITokenMiddleware(s.cfg.JWTSecret, s.db)
 	adminRequired := middleware.AdminMiddleware()
 	internalOnly := middleware.InternalSecretMiddleware(s.cfg.TunnelEdgeSecret)
 	registerRate := middleware.RateLimitIP(s.cfg.Redis, "auth-register", 10, time.Minute)
@@ -144,6 +209,7 @@ func (s *Server) registerRoutes() {
 		DB:          s.db,
 		FrontendURL: s.cfg.FrontendURL,
 	}
+	edgeAuthH := &handlers.EdgeAuthHandler{DB: s.db}
 
 	tunnelsH := &handlers.TunnelsHandler{
 		DB:              s.db,
@@ -156,7 +222,7 @@ func (s *Server) registerRoutes() {
 		Telegram:     botSvc,
 	}
 
-	userH := &handlers.UserHandler{DB: s.db, Notify: notifySvc}
+	userH := &handlers.UserHandler{DB: s.db, Notify: notifySvc, Mailer: mailSvc, FrontendURL: s.cfg.FrontendURL}
 
 	billingH := &handlers.BillingHandler{
 		DB:                  s.db,
@@ -164,13 +230,20 @@ func (s *Server) registerRoutes() {
 		StripeWebhookSecret: s.cfg.StripeWebhookSecret,
 		PlanPrices:          s.cfg.PlanPrices,
 		FrontendURL:         s.cfg.FrontendURL,
-		Notify:              notifySvc,
+		KomaAPIURL:          envOr("KOMA_API_URL", "https://koma.khqr.site"),
+		KomaMerchantID:      envOr("KOMA_MERCHANT_ID", ""),
+		KomaSecretKey:       envOr("KOMA_SECRET_KEY", ""),
+		HTTPClient: &http.Client{
+			Timeout: 15 * time.Second,
+		},
+		Notify: notifySvc,
 	}
 
 	receiptH := &handlers.ReceiptHandler{
-		DB:     s.db,
-		Notify: notifySvc,
-		Mailer: mailSvc,
+		DB:          s.db,
+		Notify:      notifySvc,
+		Mailer:      mailSvc,
+		FrontendURL: s.cfg.FrontendURL,
 	}
 
 	teamH := &handlers.TeamHandler{DB: s.db, Mailer: mailSvc, Notify: notifySvc, FrontendURL: s.cfg.FrontendURL}
@@ -185,6 +258,29 @@ func (s *Server) registerRoutes() {
 	uploadH := &handlers.UploadHandler{
 		UploadDir: s.cfg.UploadDir,
 		BaseURL:   s.cfg.PublicURL,
+	}
+	deployH := &handlers.DeployHandler{
+		DB:           s.db,
+		DeployDir:    envOr("DEPLOY_DIR", "/opt/mekong/deployments"),
+		Domain:       envOr("DEPLOY_DOMAIN", "proxy.mekongtunnel.dev"),
+		TunnelAddr:   deployTunnelAddr(),
+		TunnelSecret: s.cfg.TunnelEdgeSecret,
+		Notify:       notifySvc,
+	}
+	deployH.Init(context.Background())
+	walletH := &handlers.WalletHandler{
+		DB:                s.db,
+		BakongAccountName: envOr("BAKONG_ACCOUNT_NAME", "MekongTunnel"),
+		BakongAccountID:   envOr("BAKONG_ACCOUNT_ID", ""),
+		KomaAPIURL:        envOr("KOMA_API_URL", "https://koma.khqr.site"),
+		KomaMerchantID:    envOr("KOMA_MERCHANT_ID", ""),
+		KomaSecretKey:     envOr("KOMA_SECRET_KEY", ""),
+		HTTPClient: &http.Client{
+			Timeout: 15 * time.Second,
+		},
+		UploadDir:   s.cfg.UploadDir,
+		FrontendURL: s.cfg.FrontendURL,
+		Mailer:      mailSvc,
 	}
 
 	// ── Health ──────────────────────────────────────────────────
@@ -248,6 +344,12 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/cli/domains/{id}", domainsH.DeleteCLI)
 	s.mux.HandleFunc("POST /api/cli/domains/{id}/verify", domainsH.VerifyCLI)
 	s.mux.HandleFunc("PATCH /api/cli/domains/{id}/target", domainsH.SetTargetCLI)
+	s.mux.HandleFunc("POST /api/internal/edge/validate-token", chain(edgeAuthH.ValidateToken, internalOnly))
+	s.mux.HandleFunc("GET /api/internal/edge/first-subdomain", chain(edgeAuthH.GetFirstReservedSubdomain, internalOnly))
+	s.mux.HandleFunc("GET /api/internal/edge/reserved-subdomain", chain(edgeAuthH.GetReservedSubdomainForUser, internalOnly))
+	s.mux.HandleFunc("GET /api/internal/edge/custom-domain-target", chain(edgeAuthH.LookupCustomDomainTarget, internalOnly))
+	s.mux.HandleFunc("GET /api/internal/edge/subdomain-exists", chain(edgeAuthH.ReservedSubdomainExists, internalOnly))
+	s.mux.HandleFunc("GET /api/internal/edge/tunnel-last-seen", chain(edgeAuthH.GetTunnelLastSeen, internalOnly))
 
 	// ── Tunnels ─────────────────────────────────────────────────
 	s.mux.HandleFunc("GET /api/tunnels", chain(tunnelsH.ListTunnels, authRequired))
@@ -270,7 +372,11 @@ func (s *Server) registerRoutes() {
 
 	// ── Billing ─────────────────────────────────────────────────
 	s.mux.HandleFunc("GET /api/billing", chain(billingH.GetBilling, authRequired))
+	s.mux.HandleFunc("POST /api/billing/trial", chain(billingH.StartTrial, authRequired))
 	s.mux.HandleFunc("POST /api/billing/checkout", chain(billingH.CreateCheckout, authRequired))
+	s.mux.HandleFunc("POST /api/billing/bakong/checkout", chain(billingH.CreateBakongCheckout, authRequired))
+	s.mux.HandleFunc("POST /api/billing/bakong/confirm", chain(billingH.ConfirmBakongPayment, authRequired))
+	s.mux.HandleFunc("GET /api/billing/bakong/{ref}", chain(billingH.PollBakongOrder, authRequired))
 	s.mux.HandleFunc("POST /api/billing/portal", chain(billingH.CreatePortal, authRequired))
 	s.mux.HandleFunc("POST /api/billing/webhook", billingH.WebhookHandler)
 	s.mux.HandleFunc("POST /api/billing/manual-payment", chain(receiptH.SubmitReceipt, authRequired))
@@ -439,6 +545,35 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/domains/{id}/verify", chain(domainsH.Verify, authRequired))
 	s.mux.HandleFunc("PATCH /api/domains/{id}/target", chain(domainsH.SetTarget, authRequired))
 
+	// ── Deploy (student hosting) ────────────────────────────────
+	s.mux.HandleFunc("POST /api/deploy", chain(deployH.Upload, authOrAPIToken))
+	s.mux.HandleFunc("GET /api/deploy", chain(deployH.List, authOrAPIToken))
+	s.mux.HandleFunc("GET /api/deploy/quota", chain(deployH.QuotaInfo, authOrAPIToken))
+	s.mux.HandleFunc("GET /api/deploy/{subdomain}", chain(deployH.Get, authOrAPIToken))
+	s.mux.HandleFunc("PUT /api/deploy/{subdomain}", chain(deployH.Redeploy, authOrAPIToken))
+	s.mux.HandleFunc("DELETE /api/deploy/{subdomain}", chain(deployH.Stop, authOrAPIToken))
+	s.mux.HandleFunc("DELETE /api/deploy/{subdomain}/delete", chain(deployH.Delete, authOrAPIToken))
+	s.mux.HandleFunc("GET /api/deploy/{subdomain}/logs", chain(deployH.Logs, authOrAPIToken))
+
+	// ── Quota requests (user) ─────────────────────────────────────────────────
+	s.mux.HandleFunc("POST /api/user/quota-request", chain(deployH.SubmitQuotaRequest, authRequired))
+	s.mux.HandleFunc("GET /api/user/quota-requests", chain(deployH.GetMyQuotaRequests, authRequired))
+
+	// ── Admin deploy routes ───────────────────────────────────────────────────
+	s.mux.HandleFunc("GET /api/admin/deployments", chain(deployH.AdminListDeployments, authRequired, adminRequired))
+	s.mux.HandleFunc("GET /api/admin/users/{id}/deployments", chain(deployH.AdminGetUserDeployments, authRequired, adminRequired))
+	s.mux.HandleFunc("GET /api/admin/quota-requests", chain(deployH.AdminListQuotaRequests, authRequired, adminRequired))
+	s.mux.HandleFunc("PATCH /api/admin/quota-requests/{id}", chain(deployH.AdminReviewQuotaRequest, authRequired, adminRequired))
+
+	// ── Wallet (Bakong credits) ──────────────────────────────────
+	s.mux.HandleFunc("GET /api/wallet", chain(walletH.GetBalance, authRequired))
+	s.mux.HandleFunc("POST /api/wallet/topup/bakong", chain(walletH.TopupBakong, authRequired))
+	s.mux.HandleFunc("POST /api/wallet/topup/confirm", chain(walletH.ConfirmTopup, authRequired))
+	s.mux.HandleFunc("POST /api/wallet/topup/screenshot", chain(walletH.UploadScreenshot, authRequired))
+	s.mux.HandleFunc("GET /api/wallet/order/{ref}", chain(walletH.PollOrder, authRequired))
+	s.mux.HandleFunc("GET /api/wallet/admin/pending", chain(walletH.ListPendingScreenshots, authRequired, adminRequired))
+	s.mux.HandleFunc("POST /api/wallet/admin/approve/{order_id}", chain(walletH.ApproveScreenshot, authRequired, adminRequired))
+
 	// ── Newsletter ──────────────────────────────────────────────
 	s.mux.HandleFunc("POST /api/newsletter/subscribe", newsletterH.Subscribe)
 	s.mux.HandleFunc("GET /api/newsletter/unsubscribe", newsletterH.Unsubscribe)
@@ -450,7 +585,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/admin/newsletter/subscribers", chain(newsletterH.AdminSubscribers, authRequired, adminRequired))
 
 	// ── Donations ─────────────────────────────────────────────────
-	donationH := &handlers.DonationHandler{DB: s.db, Notify: notifySvc}
+	donationH := &handlers.DonationHandler{DB: s.db, Notify: notifySvc, Mailer: mailSvc, FrontendURL: s.cfg.FrontendURL}
 	s.mux.HandleFunc("POST /api/donations/submit", chain(donationH.Submit, donationSubmitRate))
 	s.mux.HandleFunc("GET /api/donations", donationH.PublicList)
 	s.mux.HandleFunc("GET /api/admin/donations", adminChain(donationH.AdminList))
@@ -462,7 +597,7 @@ func (s *Server) registerRoutes() {
 
 	// ── File uploads ─────────────────────────────────────────────
 	s.mux.HandleFunc("POST /api/upload", chain(uploadH.Upload, authRequired))
-	s.mux.HandleFunc("GET /api/uploads/{filename}", uploadH.ServeFile)
+	s.mux.HandleFunc("GET /api/uploads/{filename}", chain(uploadH.ServeFile))
 
 	// ── Telegram bot ─────────────────────────────────────────────
 	if s.cfg.Telegram.Enabled {
@@ -494,6 +629,89 @@ func (s *Server) startNotificationRelay() {
 			log.Printf("[api] notification relay: %v", err)
 		}
 	}()
+}
+
+func (s *Server) startBillingCron() {
+	mailSvc := mailer.New(s.cfg.MailConfig)
+	job := &billing.Job{
+		DB:          s.db,
+		Mailer:      mailSvc,
+		FrontendURL: s.cfg.FrontendURL,
+	}
+
+	// Run once at startup (catches any missed day), then daily at midnight.
+	go func() {
+		job.Run(context.Background())
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			job.Run(context.Background())
+		}
+	}()
+}
+
+// startPlanExpiryWarningJob sends a warning email to students whose plan expires within 7 days.
+// Runs once at startup, then every 24 hours.
+func (s *Server) startPlanExpiryWarningJob(mailSvc *mailer.Mailer, frontendURL string) {
+	go func() {
+		s.runPlanExpiryWarnings(mailSvc, frontendURL)
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			s.runPlanExpiryWarnings(mailSvc, frontendURL)
+		}
+	}()
+}
+
+func (s *Server) runPlanExpiryWarnings(mailSvc *mailer.Mailer, frontendURL string) {
+	ctx := context.Background()
+
+	// Find students expiring within 7 days who haven't been warned for this expiry cycle.
+	rows, err := s.db.Pool.Query(ctx, `
+		SELECT id, name, email, plan_expires_at
+		FROM users
+		WHERE plan = 'student'
+		  AND plan_expires_at IS NOT NULL
+		  AND plan_expires_at > now()
+		  AND plan_expires_at <= now() + INTERVAL '7 days'
+		  AND (
+		    plan_expiry_warned_at IS NULL
+		    OR plan_expiry_warned_at < plan_expires_at - INTERVAL '7 days'
+		  )
+	`)
+	if err != nil {
+		log.Printf("[expiry-warn] query error: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	type userRow struct {
+		ID        string
+		Name      string
+		Email     string
+		ExpiresAt time.Time
+	}
+	var users []userRow
+	for rows.Next() {
+		var u userRow
+		if err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.ExpiresAt); err != nil {
+			continue
+		}
+		users = append(users, u)
+	}
+	rows.Close()
+
+	for _, u := range users {
+		// Mark warned before sending so a crash doesn't cause a double-send on restart.
+		if _, err := s.db.Pool.Exec(ctx,
+			`UPDATE users SET plan_expiry_warned_at = now(), updated_at = now() WHERE id = $1`, u.ID,
+		); err != nil {
+			log.Printf("[expiry-warn] mark warned for %s: %v", u.Email, err)
+			continue
+		}
+		mailSvc.SendPlanExpiryWarning(u.Email, u.Name, u.ExpiresAt, frontendURL)
+		log.Printf("[expiry-warn] sent warning to %s (expires %s)", u.Email, u.ExpiresAt.Format("2006-01-02"))
+	}
 }
 
 // ─── Middleware chain helper ──────────────────────────────────

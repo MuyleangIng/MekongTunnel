@@ -130,6 +130,10 @@ func main() {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
+	if deployDir := os.Getenv("DEPLOY_DIR"); deployDir != "" {
+		srv.DeployDir = deployDir
+	}
+
 	apiURL := strings.TrimSpace(os.Getenv("API_URL"))
 	if apiURL == "" {
 		apiURL = deriveAPIBaseURL(cfg.Domain)
@@ -138,13 +142,15 @@ func main() {
 		srv.SetAPIBaseURL(apiURL)
 		log.Printf("Tunnel API sync enabled via %s", apiURL)
 	}
-	if tunnelSecret := strings.TrimSpace(os.Getenv("TUNNEL_EDGE_SECRET")); tunnelSecret != "" {
+	tunnelSecret := strings.TrimSpace(os.Getenv("TUNNEL_EDGE_SECRET"))
+	if tunnelSecret != "" {
 		srv.SetAPISecret(tunnelSecret)
 		log.Println("Tunnel edge secret configured")
 	}
 
 	// Wire token validation when DATABASE_URL is available.
 	// Without a DB the server still works — users just get random subdomains.
+	hasTokenValidator := false
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 		database, err := db.Connect(dbURL)
 		if err != nil {
@@ -164,9 +170,14 @@ func main() {
 				}()
 			}
 			srv.SetTokenValidator(database)
+			hasTokenValidator = true
 			log.Println("Token validation enabled (database connected)")
 			defer database.Close()
 		}
+	}
+	if !hasTokenValidator && apiURL != "" && tunnelSecret != "" {
+		srv.SetTokenValidator(proxy.NewAPITokenValidator(apiURL, tunnelSecret))
+		log.Println("Token validation enabled via API")
 	}
 
 	// --- SSH Server ---

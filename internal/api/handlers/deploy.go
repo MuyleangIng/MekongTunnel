@@ -32,6 +32,7 @@ import (
 	"github.com/MuyleangIng/MekongTunnel/internal/api/response"
 	"github.com/MuyleangIng/MekongTunnel/internal/db"
 	"github.com/MuyleangIng/MekongTunnel/internal/domain"
+	"github.com/MuyleangIng/MekongTunnel/internal/expiry"
 	"github.com/MuyleangIng/MekongTunnel/internal/notify"
 	"golang.org/x/crypto/ssh"
 )
@@ -342,7 +343,22 @@ func (h *DeployHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sizeBytes := int64(len(zipData))
-	expiresAt := time.Now().Add(deployTTL)
+	ttl := deployTTL
+	if raw := strings.TrimSpace(r.FormValue("expire")); raw != "" {
+		d, err := expiry.Parse(raw)
+		if err != nil || d <= 0 {
+			os.RemoveAll(deployPath)
+			response.BadRequest(w, fmt.Sprintf("invalid expire value %q — use: 30m, 1h, 7d, 2w, 1mo", raw))
+			return
+		}
+		if err := expiry.ValidateDeployExpiry(d); err != nil {
+			os.RemoveAll(deployPath)
+			response.BadRequest(w, fmt.Sprintf("expire value out of range: %v", err))
+			return
+		}
+		ttl = d
+	}
+	expiresAt := time.Now().Add(ttl)
 
 	rec, err := h.createDeployment(ctx, deployRecord{
 		UserID:    claims.UserID,

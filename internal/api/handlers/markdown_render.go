@@ -384,14 +384,27 @@ func markdownDeployServer(root string) http.Handler {
 		target := clean
 		info, statErr := os.Stat(target)
 
-		// Directory → prefer README.md > index.md > index.html
+		// Directory → prefer README.md > index.md > first .md found > index.html
 		if statErr == nil && info.IsDir() {
+			found := false
 			for _, idx := range []string{"README.md", "index.md"} {
 				candidate := filepath.Join(target, idx)
 				if _, err := os.Stat(candidate); err == nil {
 					target = candidate
 					info, statErr = os.Stat(target)
+					found = true
 					break
+				}
+			}
+			if !found {
+				// Auto-redirect to first .md file in directory
+				entries, _ := os.ReadDir(target)
+				for _, e := range entries {
+					if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+						rel, _ := filepath.Rel(rootClean, filepath.Join(target, e.Name()))
+						http.Redirect(w, r, "/"+rel, http.StatusFound)
+						return
+					}
 				}
 			}
 		}

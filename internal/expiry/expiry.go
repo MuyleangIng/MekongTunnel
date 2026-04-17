@@ -18,7 +18,6 @@ var unitSuffixes = []struct {
 	{suffix: "months", unit: monthDuration},
 	{suffix: "month", unit: monthDuration},
 	{suffix: "mo", unit: monthDuration},
-	{suffix: "m", unit: monthDuration}, // 1m = 1 month (most useful in tunnel context)
 	{suffix: "weeks", unit: 7 * 24 * time.Hour},
 	{suffix: "week", unit: 7 * 24 * time.Hour},
 	{suffix: "wks", unit: 7 * 24 * time.Hour},
@@ -78,6 +77,8 @@ func Format(d time.Duration) string {
 		return fmt.Sprintf("%dd", d/(24*time.Hour))
 	case d%time.Hour == 0:
 		return fmt.Sprintf("%dh", d/time.Hour)
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%dm", d/time.Minute)
 	default:
 		return d.String()
 	}

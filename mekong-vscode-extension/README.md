@@ -28,11 +28,12 @@ Both scripts auto-detect your OS and architecture, install the binary, and add i
 
 - **Account panel** — login with one click, see your email and plan, use your reserved subdomain automatically
 - **Start Tunnel** — expose any local port to a public `proxy.angkorsearch.dev` URL by default
-- **HTML Live Server** — built-in live reload server for HTML files, no binary needed
+- **HTML Live Server** — built-in live reload server for HTML and Markdown files, no binary needed
+- **Markdown preview** — open any `.md` file with Live Server and see it rendered as styled HTML with live reload
 - **Auto port detection** — reads `package.json` to detect your framework's default port
 - **Dev server check** — warns you if your dev server isn't running before starting a tunnel
 - **Activity log** — real-time log of tunnel and live server events inside the panel
-- **Right-click support** — open any HTML file directly with Live Server from the Explorer
+- **Right-click support** — open any `.html` or `.md` file directly with Live Server from the Explorer
 
 ---
 
@@ -76,9 +77,26 @@ Open with `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Windows/Linux):
 
 ### Right-click in Explorer
 
-Right-click any `.html` file or folder → **Open with Live Server (Mekong)**
+Right-click any `.html`, `.md` file, or folder → **Open with Live Server (Mekong)**
 
 Starts the live server rooted at that file's directory and opens it in your browser automatically.
+
+---
+
+## Markdown Live Preview
+
+Open any `.md` file with the Live Server and it renders as a clean, GitHub-dark styled HTML page — with live reload whenever you save.
+
+**How to use:**
+1. Right-click a `.md` file in the Explorer → **Open with Mekong Live Server**
+2. Or open the **Live Server** tab in the sidebar panel and click **Open with Live Server**
+
+**Markdown Preview Mode behavior:**
+- Full markdown rendering: headings, bold/italic, code blocks with syntax highlighting classes, tables, blockquotes, lists, images, links
+- File watcher triggers a re-render on every save
+- Tunneling is **disabled** in Markdown mode — the panel hides the tunnel button and shows a note
+- Trying to tunnel the same port from the Tunnel tab is blocked with an error message
+- If a folder has no `index.html`, the live server falls back to `README.md` automatically
 
 ---
 
@@ -120,6 +138,22 @@ The extension reads your `package.json` and maps known frameworks to their defau
 | `mekong.binaryPath` | — | Custom path to `mekong` binary (leave empty for auto-detect) |
 | `mekong.showQr` | `false` | Show QR code in output panel |
 | `mekong.liveServerPort` | `5500` | Base port for the built-in Live Server |
+
+---
+
+## Changelog
+
+### v1.5.3
+- **Markdown tunnel guard** — tunneling is blocked when the Live Server is in Markdown mode; the tunnel button is hidden in the Live Server tab and the Tunnel tab shows an error if the same port is entered
+- **Live Server tab badge** — a small green dot appears on the Live Server tab label when the server is active
+- **Prominent Preview Panel button** — "Open Preview Panel" is now a full-width ghost button with a monitor icon in the running state, replacing the small sub-action link
+
+### v1.5.2
+- **Markdown Live Server** — `.md` files are now fully supported by the built-in Live Server; right-click any `.md` file or folder → Open with Mekong Live Server
+- **Markdown renderer** — zero-dependency inline renderer supporting headings, bold/italic/strikethrough, fenced code blocks, tables, blockquotes, ordered/unordered lists, images, and links; rendered with a GitHub-dark theme
+- **Directory fallback** — if a folder has no `index.html`, the Live Server serves `README.md` automatically
+- **Live reload for `.md`** — file watcher now includes `.md` files so saving triggers an instant re-render in the browser
+- **Right-click menus extended** — Explorer, Editor, and Editor title context menus now show Live Server options for `.md` files
 
 ---
 

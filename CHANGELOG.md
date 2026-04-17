@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+## v1.6.2 - 2026-04-17
+
+Highlights:
+
+- Added `mekong deploy log <subdomain>` to tail deployment logs with color-coded output by severity
+- Added `mekong deploy stop --all` to stop every active deployment in one command
+- Added `mekong deploy delete <subdomain>` (aliases: `rm`, `del`) for hard deletion of a deployment
+- Added `mekong deploy delete --all` to delete all deployments at once
+- Added `mekong deploy -a` / `--all` flag to list all deployments (active and stopped)
+- Added `mekong deploy ps`, `mekong deploy usage`, and `mekong deploy status` as aliases for `list`, `quota`, and `info`
+- Strict `--expire` validation: rejects invalid formats, zero/negative values, duplicates, and values below 30 minutes or above 1 year before any upload happens
+- Server now returns HTTP 400 with a clear error message on invalid expire instead of silently using the default TTL
+- Added `mekong deploy -h` / `--help` / `help` / `?` interception so help is shown without requiring auth or a valid path
+- Fixed panic when `-e` flag had no value or was immediately followed by another flag
+- Fixed duplicate `-e` flags being accepted silently (last value winning); now returns an error
+- Added `docs` deploy type: Markdown files are served with server-side rendering and a sidebar navigation between pages
+- Expiry parser now correctly handles `1m`/`1mo` as 1 month and `30m` as 30 minutes; added `ValidateDeployExpiry` bounds check
+- Comprehensive CLI test suite covering all deploy flags, zip packaging, project type detection, and all top-level commands via fake HTTP server
+- VS Code extension v1.5.5: Live Server now detects Markdown-only projects, renders `.md` files with sidebar nav, and auto-sets `liveIsMd` when the workspace contains only Markdown files
+- Built fresh multi-platform client binaries with `main.version=v1.6.2`
+
+## v1.6.1 - 2026-04-10
+
+Highlights:
+
+- Extended `mekong deploy` to support Vue.js, React (CRA), React + Vite, and Next.js with API routes — type is auto-detected from project structure
+- Added `mekong deploy redeploy <subdomain> <path>` to update an existing deployment in-place and reset its TTL
+- Added `mekong deploy open <subdomain>` to print and open a deployment URL in the browser
+- Added `mekong deploy quota` to show storage usage bar and deployment slot count for the current plan
+- Added `mekong deploy info <subdomain>` to show full deployment detail including tunnel status and redeploy count
+- Backend now enforces per-plan deployment limits (student: 1, pro: 3, enterprise/team: 10) instead of a hardcoded limit of 1
+- Backend now checks storage quota before every upload and returns a clear error when exceeded
+- Added `GET /api/deploy/{subdomain}`, `PUT /api/deploy/{subdomain}` (redeploy), and `GET /api/deploy/quota` API endpoints
+- List and detail responses now include tunnel status, redeploy count, last deployed time, and quota info
+- Migration 031 expands the deployments type constraint and adds `redeploy_count` / `last_deployed_at` columns
+- Built fresh multi-platform client binaries with `main.version=v1.6.1`
+
+## v1.6.0 - 2026-04-10
+
+Highlights:
+
+- Added `mekong deploy` for hosted static, Next.js, and PHP project uploads, including `mekong deploy list` and `mekong deploy stop`
+- Updated the CLI help output, help topics, and shell completions so `deploy` is advertised in `mekong`, `mekong help`, and completion scripts
+- Switched public reserved-subdomain help text from the old `angkorsearch.dev` wording to `mekongtunnel.dev`
+- Added hosted deployment backend support on the API and tunnel edge using app-server file serving plus SSH reverse tunnels instead of the older rsync/Caddy flow
+- Restored active hosted deployments on API startup and exposed per-deployment logs for the dashboard and server-side troubleshooting
+- Built fresh multi-platform client binaries with `main.version=v1.6.0`
+
 ## v1.5.8 - 2026-04-08
 
 Highlights:

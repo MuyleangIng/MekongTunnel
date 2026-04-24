@@ -2089,11 +2089,6 @@ func pruneLogFile(portFilter int, clearAll bool) error {
 // ---- self-update ----
 
 func selfUpdate() {
-	if os.Getenv("SUDO_USER") != "" {
-		fmt.Fprintf(os.Stderr, "%s  !  Don't run 'sudo mekong update' — just run 'mekong update'. It will ask for your password automatically if needed.%s\n", yellow, reset)
-		os.Exit(1)
-	}
-
 	fmt.Printf("%s  →  Checking for updates...%s\n", gray, reset)
 
 	client := &http.Client{Timeout: updateHTTPTimeout}
@@ -2153,11 +2148,21 @@ func selfUpdate() {
 
 	if err := os.Rename(tmpPath, currentBinary); err != nil {
 		if errors.Is(err, os.ErrPermission) {
-			fmt.Printf("%s  →  Permission denied — mekong is installed in a protected path (%s).%s\n", yellow, currentBinary, reset)
-			fmt.Printf("%s      Your password is required to replace the binary (same as running sudo).%s\n", gray, reset)
-			if err := sudoInstallBinary(tmpPath, currentBinary); err != nil {
-				fmt.Fprintf(os.Stderr, "%s  ✖  sudo replace failed: %v%s\n", red, err, reset)
-				os.Exit(1)
+			if os.Getuid() == 0 {
+				// Running as root already — copy directly without sudo.
+				if err := copyBinaryFile(tmpPath, currentBinary); err != nil {
+					os.Remove(tmpPath)
+					fmt.Fprintf(os.Stderr, "%s  ✖  Replace failed: %v%s\n", red, err, reset)
+					os.Exit(1)
+				}
+				os.Remove(tmpPath)
+			} else {
+				fmt.Printf("%s  →  Permission denied — mekong is installed in a protected path (%s).%s\n", yellow, currentBinary, reset)
+				fmt.Printf("%s      Your password is required to replace the binary (same as running sudo).%s\n", gray, reset)
+				if err := sudoInstallBinary(tmpPath, currentBinary); err != nil {
+					fmt.Fprintf(os.Stderr, "%s  ✖  sudo replace failed: %v%s\n", red, err, reset)
+					os.Exit(1)
+				}
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "%s  ✖  Replace failed: %v%s\n", red, err, reset)

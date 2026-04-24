@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v1.6.13 - 2026-04-24
+
+Highlights:
+
+- `sudo mekong update` now works correctly — when running as root it replaces the binary directly without calling sudo again
+- `install.sh` now removes stale mekong binaries from other locations (`/usr/local/bin`, `~/.local/bin`, `/opt/homebrew/bin`) so `sudo mekong` can never find an old binary at a different path
+
 ## v1.6.12 - 2026-04-24
 
 Highlights:

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.6.14 - 2026-04-24
+
+Highlights:
+
+- Built fresh multi-platform client binaries with `main.version=v1.6.14`
+
 ## v1.6.13 - 2026-04-24
 
 Highlights:

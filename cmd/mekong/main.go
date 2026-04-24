@@ -2089,6 +2089,11 @@ func pruneLogFile(portFilter int, clearAll bool) error {
 // ---- self-update ----
 
 func selfUpdate() {
+	if os.Getenv("SUDO_USER") != "" {
+		fmt.Fprintf(os.Stderr, "%s  !  Don't run 'sudo mekong update' — just run 'mekong update'. It will ask for your password automatically if needed.%s\n", yellow, reset)
+		os.Exit(1)
+	}
+
 	fmt.Printf("%s  →  Checking for updates...%s\n", gray, reset)
 
 	client := &http.Client{Timeout: updateHTTPTimeout}
@@ -2182,6 +2187,7 @@ func latestReleaseTag(client *http.Client) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	req.Header.Set("User-Agent", "mekong-cli/"+version)
 	// Do not follow the redirect — we just want the Location header.
 	noRedirectClient := *client
 	noRedirectClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {

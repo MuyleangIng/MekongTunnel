@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v1.6.11 - 2026-04-24
+
+Highlights:
+
+- `mekong update` now blocks `sudo mekong update` with a clear message — just run `mekong update`, it handles sudo internally
+- Added `User-Agent` header to the GitHub release redirect request
+
 ## v1.6.10 - 2026-04-24
 
 Highlights:

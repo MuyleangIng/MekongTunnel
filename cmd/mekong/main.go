@@ -2136,11 +2136,20 @@ func selfUpdate() {
 	defer os.Remove(tmpPath)
 
 	if err := os.Rename(tmpPath, currentBinary); err != nil {
-		if errors.Is(err, os.ErrPermission) && runtime.GOOS != "windows" {
-			fmt.Printf("%s  →  Permission denied — retrying with sudo...%s\n", gray, reset)
-			if err := sudoInstallBinary(tmpPath, currentBinary); err != nil {
-				fmt.Fprintf(os.Stderr, "%s  ✖  sudo replace failed: %v%s\n", red, err, reset)
+		if errors.Is(err, os.ErrPermission) {
+			switch runtime.GOOS {
+			case "windows":
+				fmt.Printf("%s  →  Permission denied — mekong is installed in a protected folder.%s\n", yellow, reset)
+				fmt.Printf("%s      Run PowerShell as Administrator and retry: mekong update%s\n", gray, reset)
+				fmt.Fprintf(os.Stderr, "%s  ✖  Update failed: %v%s\n", red, err, reset)
 				os.Exit(1)
+			default:
+				fmt.Printf("%s  →  Permission denied — mekong is installed in a protected path (%s).%s\n", yellow, currentBinary, reset)
+				fmt.Printf("%s      Your password is required to replace the binary (same as running sudo).%s\n", gray, reset)
+				if err := sudoInstallBinary(tmpPath, currentBinary); err != nil {
+					fmt.Fprintf(os.Stderr, "%s  ✖  sudo replace failed: %v%s\n", red, err, reset)
+					os.Exit(1)
+				}
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "%s  ✖  Replace failed: %v%s\n", red, err, reset)

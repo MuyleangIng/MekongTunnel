@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v1.6.7 - 2026-04-24
+
+Highlights:
+
+- `mekong update` now explains why your password is needed on macOS/Linux when the binary is in a protected path (e.g. `/usr/local/bin`) before prompting for sudo
+- On Windows, `mekong update` detects permission denied and tells you to re-run PowerShell as Administrator instead of showing a cryptic error
+
 ## v1.6.6 - 2026-04-24
 
 Highlights:

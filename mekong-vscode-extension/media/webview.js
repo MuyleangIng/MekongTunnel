@@ -173,10 +173,10 @@
       loginBtn.disabled = true;
       loginBtn.textContent = 'Waiting...';
       logoutBtn.style.display = 'none';
-    } else if (state.loggedIn && state.userEmail) {
+    } else if (state.loggedIn) {
       card.className = 'account-card signed-in';
       avatar.textContent = 'OK';
-      nameEl.textContent = state.userEmail;
+      nameEl.textContent = state.userEmail || 'Logged in';
       subEl.textContent = state.userPlan
         ? state.userPlan + ' plan active'
         : 'Reserved subdomain active';

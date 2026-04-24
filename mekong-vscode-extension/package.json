@@ -2,7 +2,7 @@
   "name": "mekong-tunnel",
   "displayName": "Mekong Tunnel",
   "description": "Expose your local dev server to the internet with one click — auto-detects port and framework",
-  "version": "1.5.5",
+  "version": "1.5.10",
   "publisher": "KhmerStack",
   "icon": "images/MekongNoBG.png",
   "galleryBanner": {
@@ -170,7 +170,7 @@
         "mekong.apiToken": {
           "type": "string",
           "default": "",
-          "description": "API token for reserved subdomain. Get your token from angkorsearch.dev/dashboard/tokens"
+          "description": "API token for reserved subdomain. Get your token from mekongtunnel.dev/dashboard/tokens"
         }
       }
     }

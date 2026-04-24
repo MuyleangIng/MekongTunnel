@@ -293,7 +293,7 @@ func reorderArgs(args []string) []string {
 // ---- command prefix resolver + typo suggestions ----
 
 var knownCommands = []string{
-	"logs", "status", "ps", "stop", "update", "login", "logout", "whoami",
+	"logs", "status", "ps", "stop", "update", "uninstall", "login", "logout", "whoami",
 	"subdomains", "subdomain", "domains", "domain", "help", "detect", "init",
 	"deploy", "reserve", "delete", "unreserve", "test", "doctor", "version", "rm",
 	"completion", "sd", "dm",
@@ -2318,8 +2318,20 @@ func runUninstall() {
 		fmt.Printf("%s  ✔  Binary removed%s\n", green, reset)
 	} else {
 		if err := os.Remove(self); err != nil {
-			fmt.Fprintf(os.Stderr, "%s  ✖  Could not remove binary (try sudo): %v%s\n", red, err, reset)
-			os.Exit(1)
+			if errors.Is(err, os.ErrPermission) {
+				fmt.Printf("%s  →  Permission denied — retrying with sudo...%s\n", gray, reset)
+				cmd := exec.Command("sudo", "rm", "-f", self)
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				cmd.Stdin = os.Stdin
+				if sudoErr := cmd.Run(); sudoErr != nil {
+					fmt.Fprintf(os.Stderr, "%s  ✖  sudo rm failed: %v%s\n", red, sudoErr, reset)
+					os.Exit(1)
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "%s  ✖  Could not remove binary: %v%s\n", red, err, reset)
+				os.Exit(1)
+			}
 		}
 		fmt.Printf("%s  ✔  Binary removed: %s%s\n", green, self, reset)
 	}

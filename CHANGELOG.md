@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## v1.6.5 - 2026-04-24
+
+Highlights:
+
+- `mekong uninstall` now auto-retries with `sudo` when binary is in a protected path (e.g. `/usr/local/bin`)
+- Added `uninstall` to help text and command list
+
+## v1.6.4 - 2026-04-24
+
+Highlights:
+
+- Added `mekong uninstall` command — removes binary, config dir, and PATH entry on all platforms (macOS, Linux, Windows)
+- Fixed `mekong update` checksum mismatch — parser now handles filenames with path prefixes (`dist/mekong-darwin-arm64`)
+- Fixed release script to clean old dist directory before rebuilding to prevent stale checksum files
+
+## v1.6.3 - 2026-04-24
+
+Highlights:
+
+- Fixed Windows binary detection in JetBrains plugin — now correctly finds `mekong.exe` at `%LOCALAPPDATA%\Programs\mekong\`
+- Fixed wrong domain in VS Code extension — token-info API was calling `api.angkorsearch.dev` instead of `api.mekongtunnel.dev`
+- VS Code extension v1.5.10: all `angkorsearch.dev` references replaced with `mekongtunnel.dev`
+
 ## v1.6.2 - 2026-04-17
 
 Highlights:

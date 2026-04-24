@@ -27,7 +27,7 @@ Both scripts auto-detect your OS and architecture, install the binary, and add i
 ## Features
 
 - **Account panel** — login with one click, see your email and plan, use your reserved subdomain automatically
-- **Start Tunnel** — expose any local port to a public `proxy.angkorsearch.dev` URL by default
+- **Start Tunnel** — expose any local port to a public `proxy.mekongtunnel.dev` URL by default
 - **HTML Live Server** — built-in live reload server for HTML and Markdown files, no binary needed
 - **Markdown preview** — open any `.md` file with Live Server and see it rendered as styled HTML with live reload
 - **Auto port detection** — reads `package.json` to detect your framework's default port
@@ -120,7 +120,7 @@ The extension reads your `package.json` and maps known frameworks to their defau
 |------|-------|-------------|
 | `$(radio-tower) mekong` | Idle | Click to start tunnel |
 | `$(sync~spin) mekong: connecting...` | Starting | Waiting for tunnel URL |
-| `$(radio-tower) https://abc.proxy.angkorsearch.dev` | Running | Click to copy URL |
+| `$(radio-tower) https://abc.proxy.mekongtunnel.dev` | Running | Click to copy URL |
 | `$(error) mekong: error` | Error | Click to restart |
 | `$(broadcast) Live Server` | Live idle | Click to start live server |
 | `$(broadcast) Live :5500` | Live running | Click to open in browser |
@@ -142,6 +142,31 @@ The extension reads your `package.json` and maps known frameworks to their defau
 ---
 
 ## Changelog
+
+### v1.5.10
+- **Fix wrong domains** — replaced all `angkorsearch.dev` references with `mekongtunnel.dev` in API calls, settings description, and README
+
+### v1.5.9
+- **Fix wrong API domain** — token-info was fetching from wrong domain; corrected to `api.mekongtunnel.dev`
+
+### v1.5.8
+- **README update** — changelog and documentation refreshed
+
+### v1.5.7
+- **Fix "Open Live Server in Browser" command** — now starts the Live Server automatically if it isn't running yet, instead of showing "Live Server is not running"
+
+### v1.5.6
+- **README update** — documentation updated with full feature list, login flow, and changelog history
+
+### v1.5.5
+- **Markdown-only project detection** — Live Server automatically sets Markdown mode when the workspace root contains `.md` files but no `index.html`; no manual toggle needed
+- **Markdown sidebar nav** — rendered `.md` pages now include a sidebar listing all sibling Markdown files in the same directory, with the active file highlighted; `README.md` and `index.md` are sorted to the top
+- **Active editor auto-root** — starting Live Server from the command palette now roots to the active editor's directory when it's an `.html` or `.md` file, so the served URL matches the open file
+
+### v1.5.4
+- **Expiry options expanded** — tunnel expiry selector now includes 30 min, 12 h, 24 h, 7 days, 2 weeks, and 1 month options
+- **Live Server file watcher extended** — watcher now covers `.ts`, `.json`, `.svg`, and image files in addition to `.html`, `.css`, and `.js`; changes to any tracked file trigger a reload
+- **Markdown mode live-reload subtitle** — activity log sub-text and status pill update dynamically to reflect whether the server is in HTML or Markdown mode
 
 ### v1.5.3
 - **Markdown tunnel guard** — tunneling is blocked when the Live Server is in Markdown mode; the tunnel button is hidden in the Live Server tab and the Tunnel tab shows an error if the same port is entered

@@ -95,7 +95,7 @@ function readSavedAuth(): { token: string; email: string } | null {
 async function fetchUserInfo(token: string): Promise<{ email: string; plan: string } | null> {
   return new Promise(resolve => {
     const req = https.request(
-      { hostname: 'api.angkorsearch.dev', path: '/api/auth/token-info', method: 'GET',
+      { hostname: 'api.mekongtunnel.dev', path: '/api/auth/token-info', method: 'GET',
         headers: { 'Authorization': 'Bearer ' + token } },
       res => {
         let body = ''
@@ -120,12 +120,27 @@ function getInstallScriptUrl(): string {
     : 'https://mekongtunnel.dev/install.sh'
 }
 
+/** Minimal HTTPS helper — returns parsed JSON or null on error */
+function httpsJson(method: string, hostname: string, path: string): Promise<any> {
+  return new Promise(resolve => {
+    const req = https.request({ hostname, path, method }, (res: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      let body = ''
+      res.on('data', (d: { toString(): string }) => { body += d.toString() })
+      res.on('end', () => { try { resolve(JSON.parse(body)) } catch { resolve(null) } })
+    })
+    req.on('error', () => resolve(null))
+    req.setTimeout(10000, () => { req.destroy(); resolve(null) })
+    req.end()
+  })
+}
+
 /** Refresh cachedAuth from disk + API; call after login / logout / startup */
 async function refreshAuth(): Promise<void> {
   const saved = readSavedAuth()
   if (!saved) { cachedAuth = null; return }
   const info = await fetchUserInfo(saved.token)
-  cachedAuth = { token: saved.token, email: info?.email || saved.email, plan: info?.plan || '' }
+  const email = info?.email || saved.email || saved.token.slice(0, 10) + '…'
+  cachedAuth = { token: saved.token, email, plan: info?.plan || '' }
 }
 
 /** Try connecting to 127.0.0.1:port — resolves true if something is listening */
@@ -410,33 +425,48 @@ class MekongWebviewProvider implements vscode.WebviewViewProvider {
           findMekong().then(bin => { cachedMekongBin = bin; panelProvider?.sendState() })
           break
         case 'login': {
-          // Spawn `mekong login` in a new terminal and watch config for changes
-          if (cachedMekongBin === undefined) cachedMekongBin = await findMekong()
-          const loginBin = cachedMekongBin
-          if (!loginBin) {
-            vscode.window.showErrorMessage('Install mekong CLI first, then log in.')
-            break
-          }
-          const term = vscode.window.createTerminal({ name: 'Mekong Login', hideFromUser: false })
-          term.show()
-          term.sendText(`"${loginBin}" login`)
-          // Watch ~/.mekong/ for config changes after login completes
-          const mekongDir = path.join(os.homedir(), '.mekong')
-          if (!fs.existsSync(mekongDir)) fs.mkdirSync(mekongDir, { recursive: true })
-          let loginDebounce: NodeJS.Timeout | null = null
-          const loginWatcher = fs.watch(mekongDir, { persistent: false }, () => {
-            if (loginDebounce) clearTimeout(loginDebounce)
-            loginDebounce = setTimeout(async () => {
-              const saved = readSavedAuth()
-              if (saved?.token) {
-                loginWatcher.close()
+          // Device auth flow — opens browser, polls API, saves token when approved
+          try {
+            // 1. Create a device session
+            const createRes = await httpsJson('POST', 'api.mekongtunnel.dev', '/api/cli/device')
+            const sessionId: string = createRes?.data?.session_id
+            const loginUrl: string  = createRes?.data?.login_url
+            if (!sessionId || !loginUrl) throw new Error('Server did not return a session')
+
+            // 2. Open browser
+            vscode.env.openExternal(vscode.Uri.parse(loginUrl))
+            panelProvider?.sendState()
+
+            // 3. Poll for approval (recursive via setTimeout)
+            const pollMs  = Math.max((createRes?.data?.poll_interval ?? 3) * 1000, 3000)
+            const deadline = Date.now() + 5 * 60 * 1000
+            const schedPoll = (): void => { (setTimeout as (fn: () => void, ms: number) => void)(() => { void pollOnce() }, pollMs) }
+            const pollOnce = async (): Promise<void> => {
+              if (Date.now() > deadline) {
+                webviewView.webview.postMessage({ type: 'loginFailed', reason: 'Login timed out. Click Log in to try again.' })
+                return
+              }
+              const r = await httpsJson('GET', 'api.mekongtunnel.dev', '/api/cli/device?session_id=' + sessionId)
+              const status: string = r?.data?.status
+              const token: string  = r?.data?.token
+              if (status === 'approved' && token) {
+                // 4. Save token, refresh auth panel
+                const cfgDir = path.join(os.homedir(), '.mekong')
+                if (!fs.existsSync(cfgDir)) fs.mkdirSync(cfgDir, { recursive: true })
+                fs.writeFileSync(path.join(cfgDir, 'config.json'), JSON.stringify({ token }, null, 2), { mode: 0o600 })
                 await refreshAuth()
                 panelProvider?.sendState()
+              } else if (status === 'expired') {
+                webviewView.webview.postMessage({ type: 'loginFailed', reason: 'Session expired. Click Log in to try again.' })
+              } else {
+                schedPoll()
               }
-            }, 500)
-          })
-          // Stop watching after 10 minutes
-          setTimeout(() => { try { loginWatcher.close() } catch {} }, 10 * 60 * 1000)
+            }
+            schedPoll()
+          } catch (err: any) {
+            vscode.window.showErrorMessage('Login failed: ' + (err?.message ?? String(err)))
+            panelProvider?.sendState()
+          }
           break
         }
         case 'logout': {
@@ -1295,7 +1325,10 @@ export function activate(context: vscode.ExtensionContext) {
   // ── Open Live Server in browser ─────────────────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('mekong.openLiveInBrowser', () => {
-      if (!liveServer) { vscode.window.showWarningMessage('Live Server is not running.'); return }
+      if (!liveServer) {
+        vscode.commands.executeCommand('mekong.startLiveServer')
+        return
+      }
       vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${liveServer.port}`))
     })
   )

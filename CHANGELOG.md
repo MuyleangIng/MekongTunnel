@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v1.6.5 - 2026-04-24
+
+Highlights:
+
+- `mekong uninstall` now auto-retries with `sudo` when binary is in a protected path (e.g. `/usr/local/bin`)
+- Added `uninstall` to help text and command list
+
 ## v1.6.4 - 2026-04-24
 
 Highlights:

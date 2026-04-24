@@ -570,6 +570,7 @@ func printMainHelp() {
 	fmt.Fprintln(os.Stderr, "  rm          Clear daemon logs                          (reserved tunnels are protected)")
 	fmt.Fprintln(os.Stderr, "  rm -f <n>   Force-clear logs for a named reserved tunnel")
 	fmt.Fprintln(os.Stderr, "  update      Update mekong to the latest version")
+	fmt.Fprintln(os.Stderr, "  uninstall   Remove mekong binary and config from this machine")
 	fmt.Fprintln(os.Stderr, "  version     Show current version                       (-v)")
 	fmt.Fprintln(os.Stderr, "  completion  Print shell completion script               (zsh|bash)")
 	fmt.Fprintln(os.Stderr, "")

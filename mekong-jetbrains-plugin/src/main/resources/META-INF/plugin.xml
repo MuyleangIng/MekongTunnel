@@ -1,0 +1,57 @@
+<idea-plugin>
+    <id>dev.mekongtunnel.mekong-tunnel</id>
+    <name>Mekong Tunnel</name>
+    <vendor email="muyleanging@gmail.com" url="https://mekongtunnel.dev">KhmerStack</vendor>
+    <version>1.0.2</version>
+
+    <description><![CDATA[
+        <b>Mekong Tunnel</b> — Expose your local dev server to the internet with one click.<br><br>
+        <ul>
+            <li>Start / stop a public tunnel from the side panel</li>
+            <li>Auto-detects the port and framework</li>
+            <li>Supports tunnel expiry (30m, 1h, 7d, 1mo…)</li>
+            <li>Copy or open the public URL instantly</li>
+            <li>Login with your Mekong account for a reserved subdomain</li>
+            <li>Live Server — serve HTML &amp; Markdown with hot reload</li>
+            <li>Activity log shows all tunnel events</li>
+        </ul>
+        <br>
+        Install the <b>mekong</b> CLI first: <a href="https://mekongtunnel.dev">mekongtunnel.dev</a>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <b>1.0.2</b>
+        <ul>
+            <li>Fix Windows binary detection — now correctly finds mekong.exe at %LOCALAPPDATA%\Programs\mekong\</li>
+        </ul>
+        <b>1.0.1</b>
+        <ul>
+            <li>Fix deprecated URL constructor (use URI.toURL())</li>
+            <li>Dark/light theme support — all colors now adapt to IDE theme</li>
+            <li>Device-based browser login flow — no terminal required</li>
+            <li>Fixed plugin icon in Installed Plugins list</li>
+        </ul>
+        <b>1.0.0</b> — Initial release: tunnel start/stop, live server, login, activity log, status bar widget.
+    ]]></change-notes>
+
+    <!-- Works in ALL JetBrains IDEs: WebStorm, IntelliJ, PyCharm, GoLand, PhpStorm, Rider, etc. -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow
+            id="Mekong Tunnel"
+            anchor="right"
+            secondary="false"
+            icon="/icons/mekong.svg"
+            factoryClass="dev.mekongtunnel.MekongToolWindowFactory"
+            canCloseContents="false"/>
+
+        <applicationService
+            serviceImplementation="dev.mekongtunnel.MekongService"/>
+
+        <statusBarWidgetFactory
+            id="MekongStatusBar"
+            implementation="dev.mekongtunnel.MekongStatusBarFactory"
+            order="after positionWidget"/>
+    </extensions>
+</idea-plugin>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <!-- Yellow rounded square background -->
+  <rect width="40" height="40" rx="9" fill="#F5C500"/>
+  <!-- Dark tunnel oval -->
+  <ellipse cx="20" cy="20" rx="14" ry="11" fill="#1a1a1a"/>
+  <!-- Inner tunnel highlight -->
+  <ellipse cx="20" cy="20" rx="10" ry="7" fill="#F5C500" opacity="0.15"/>
+  <!-- River/wave path through tunnel -->
+  <path d="M 7 20 Q 12 16 20 20 Q 28 24 33 20" stroke="#F5C500" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <!-- Dashed arc on top of tunnel -->
+  <path d="M 9 17 A 12 10 0 0 1 31 17" stroke="#F5C500" stroke-width="1.5" fill="none" stroke-dasharray="3 2.5" stroke-linecap="round" opacity="0.8"/>
+</svg>

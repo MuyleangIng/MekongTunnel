@@ -432,6 +432,9 @@ func main() {
 		case "update":
 			selfUpdate()
 			return
+		case "uninstall":
+			runUninstall()
+			return
 		case "login":
 			if err := runLogin(); err != nil {
 				fmt.Fprintf(os.Stderr, "%s  ✖  Login failed: %v%s\n", red, err, reset)
@@ -2199,7 +2202,8 @@ func parseReleaseChecksum(r io.Reader, assetName string) (string, error) {
 		if len(fields) < 2 {
 			continue
 		}
-		if fields[1] == assetName {
+		// Match on basename so "dist/mekong-darwin-arm64" and "mekong-darwin-arm64" both work
+		if filepath.Base(fields[1]) == assetName {
 			return fields[0], nil
 		}
 	}
@@ -2283,4 +2287,79 @@ func shouldRetryUpdateDownload(err error) bool {
 		strings.Contains(msg, "connection reset") ||
 		strings.Contains(msg, "unexpected EOF") ||
 		strings.Contains(msg, "checksum mismatch")
+}
+
+// runUninstall removes the mekong binary and config directory from the system.
+func runUninstall() {
+	fmt.Printf("%s  Uninstalling Mekong Tunnel CLI...%s\n\n", gray, reset)
+
+	// ── 1. Find and remove the binary ────────────────────────────────────────
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s  ✖  Cannot find executable: %v%s\n", red, err, reset)
+		os.Exit(1)
+	}
+	self, _ = filepath.EvalSymlinks(self)
+
+	if runtime.GOOS == "windows" {
+		// On Windows we cannot delete a running .exe; rename it so the dir can
+		// be cleaned up on next reboot, then tell the user to re-run.
+		trash := self + ".uninstall"
+		if err := os.Rename(self, trash); err != nil {
+			fmt.Fprintf(os.Stderr, "%s  ✖  Could not remove binary (try running as Administrator): %v%s\n", red, err, reset)
+			os.Exit(1)
+		}
+		// Remove the install dir (AppData\Local\Programs\mekong)
+		installDir := filepath.Dir(self)
+		_ = os.RemoveAll(installDir)
+
+		// Remove from user PATH
+		removeFromWindowsUserPath(installDir)
+		fmt.Printf("%s  ✔  Binary removed%s\n", green, reset)
+	} else {
+		if err := os.Remove(self); err != nil {
+			fmt.Fprintf(os.Stderr, "%s  ✖  Could not remove binary (try sudo): %v%s\n", red, err, reset)
+			os.Exit(1)
+		}
+		fmt.Printf("%s  ✔  Binary removed: %s%s\n", green, self, reset)
+	}
+
+	// ── 2. Remove config directory (~/.mekong) ────────────────────────────────
+	cfgDir := filepath.Join(os.Getenv("HOME"), ".mekong")
+	if runtime.GOOS == "windows" {
+		cfgDir = filepath.Join(os.Getenv("USERPROFILE"), ".mekong")
+	}
+	if _, err := os.Stat(cfgDir); err == nil {
+		if err := os.RemoveAll(cfgDir); err != nil {
+			fmt.Fprintf(os.Stderr, "%s  ✖  Could not remove config dir %s: %v%s\n", red, cfgDir, err, reset)
+		} else {
+			fmt.Printf("%s  ✔  Config removed: %s%s\n", green, cfgDir, reset)
+		}
+	}
+
+	fmt.Printf("\n%s  ✔  Mekong Tunnel CLI uninstalled successfully.%s\n", green, reset)
+	if runtime.GOOS != "windows" {
+		fmt.Printf("     To reinstall: %scurl -fsSL https://mekongtunnel.dev/install.sh | sh%s\n", cyan, reset)
+	} else {
+		fmt.Printf("     To reinstall: %sirm https://mekongtunnel.dev/install.ps1 | iex%s\n", cyan, reset)
+	}
+}
+
+// removeFromWindowsUserPath removes a directory from the user-level PATH registry key on Windows.
+func removeFromWindowsUserPath(dir string) {
+	// Use PowerShell to read + update the user PATH registry value
+	psScript := fmt.Sprintf(`
+$dir = '%s'
+$path = [Environment]::GetEnvironmentVariable('PATH', 'User')
+$parts = $path -split ';' | Where-Object { $_ -ne $dir -and $_ -ne '' }
+[Environment]::SetEnvironmentVariable('PATH', ($parts -join ';'), 'User')
+`, dir)
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s  ✖  Could not update PATH: %v%s\n", red, err, reset)
+	} else {
+		fmt.Printf("%s  ✔  Removed from PATH%s\n", green, reset)
+	}
 }

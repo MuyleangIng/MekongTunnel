@@ -74,6 +74,7 @@ if ! bash scripts/extract_changelog_section.sh "$tag" CHANGELOG.md >/dev/null 2>
   exit 1
 fi
 
+rm -rf "$out_dir"
 mkdir -p "$out_dir"
 
 ldflags="-s -w -X main.version=${tag}"

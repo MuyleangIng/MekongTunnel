@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.6.9 - 2026-04-24
+
+Highlights:
+
+- Fixed `mekong update` returning HTTP 403 from GitHub API — now sends a proper `User-Agent: mekong-cli/<version>` header that GitHub requires
+
 ## v1.6.8 - 2026-04-24
 
 Highlights:

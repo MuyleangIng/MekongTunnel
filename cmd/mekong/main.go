@@ -2177,7 +2177,13 @@ func sudoInstallBinary(src, dst string) error {
 }
 
 func latestReleaseTag(client *http.Client) (string, error) {
-	resp, err := client.Get("https://api.github.com/repos/MuyleangIng/MekongTunnel/releases/latest") //nolint:noctx
+	req, err := http.NewRequest("GET", "https://api.github.com/repos/MuyleangIng/MekongTunnel/releases/latest", nil) //nolint:noctx
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "mekong-cli/"+version)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}

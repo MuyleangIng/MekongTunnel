@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.6.6 - 2026-04-24
+
+Highlights:
+
+- `mekong update` now auto-retries with `sudo` on macOS when the binary is installed in a protected path (e.g. `/usr/local/bin`) — no more manual `sudo mekong update`
+
 ## v1.6.5 - 2026-04-24
 
 Highlights:

@@ -2138,23 +2138,26 @@ func selfUpdate() {
 		fmt.Fprintf(os.Stderr, "%s  ✖  Download failed: %v%s\n", red, err, reset)
 		os.Exit(1)
 	}
+	if runtime.GOOS == "windows" {
+		// Windows locks running executables — schedule the swap via PowerShell after we exit.
+		if err := windowsScheduledReplace(tmpPath, currentBinary, latest); err != nil {
+			os.Remove(tmpPath)
+			fmt.Fprintf(os.Stderr, "%s  ✖  Update failed: %v%s\n", red, err, reset)
+			os.Exit(1)
+		}
+		// tmpPath is intentionally NOT removed here — PowerShell will clean it up.
+		return
+	}
+
 	defer os.Remove(tmpPath)
 
 	if err := os.Rename(tmpPath, currentBinary); err != nil {
 		if errors.Is(err, os.ErrPermission) {
-			switch runtime.GOOS {
-			case "windows":
-				fmt.Printf("%s  →  Permission denied — mekong is installed in a protected folder.%s\n", yellow, reset)
-				fmt.Printf("%s      Run PowerShell as Administrator and retry: mekong update%s\n", gray, reset)
-				fmt.Fprintf(os.Stderr, "%s  ✖  Update failed: %v%s\n", red, err, reset)
+			fmt.Printf("%s  →  Permission denied — mekong is installed in a protected path (%s).%s\n", yellow, currentBinary, reset)
+			fmt.Printf("%s      Your password is required to replace the binary (same as running sudo).%s\n", gray, reset)
+			if err := sudoInstallBinary(tmpPath, currentBinary); err != nil {
+				fmt.Fprintf(os.Stderr, "%s  ✖  sudo replace failed: %v%s\n", red, err, reset)
 				os.Exit(1)
-			default:
-				fmt.Printf("%s  →  Permission denied — mekong is installed in a protected path (%s).%s\n", yellow, currentBinary, reset)
-				fmt.Printf("%s      Your password is required to replace the binary (same as running sudo).%s\n", gray, reset)
-				if err := sudoInstallBinary(tmpPath, currentBinary); err != nil {
-					fmt.Fprintf(os.Stderr, "%s  ✖  sudo replace failed: %v%s\n", red, err, reset)
-					os.Exit(1)
-				}
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "%s  ✖  Replace failed: %v%s\n", red, err, reset)
@@ -2163,6 +2166,46 @@ func selfUpdate() {
 	}
 
 	fmt.Printf("%s  ✔  Updated to %s — restart mekong to use the new version.%s\n", green, latest, reset)
+}
+
+// windowsScheduledReplace copies the downloaded binary beside the destination,
+// then launches a hidden PowerShell that waits for this process to exit before
+// swapping the files. This works around Windows file-locking on running .exe files.
+func windowsScheduledReplace(src, dst, version string) error {
+	pending := dst + ".pending"
+	if err := copyBinaryFile(src, pending); err != nil {
+		return fmt.Errorf("copy to pending: %w", err)
+	}
+	pid := os.Getpid()
+	// PowerShell: wait for this PID to exit, move pending->dst, remove temp src.
+	script := fmt.Sprintf(
+		`$p=%d; while(Get-Process -Id $p -EA SilentlyContinue){Start-Sleep -Milliseconds 200}; `+
+			`Move-Item -Force '%s' '%s'; Remove-Item -Force '%s' -EA SilentlyContinue`,
+		pid, pending, dst, src,
+	)
+	cmd := exec.Command("powershell", "-WindowStyle", "Hidden", "-NonInteractive", "-Command", script)
+	if err := cmd.Start(); err != nil {
+		os.Remove(pending)
+		return fmt.Errorf("launch updater: %w", err)
+	}
+	fmt.Printf("%s  ✔  Downloading complete — update to %s will apply when this window closes. Open a new terminal to use the new version.%s\n", green, version, reset)
+	os.Exit(0)
+	return nil
+}
+
+func copyBinaryFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // sudoInstallBinary copies src to dst using sudo cp + chmod so that the

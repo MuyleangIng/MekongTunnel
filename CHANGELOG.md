@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.6.12 - 2026-04-24
+
+Highlights:
+
+- Fixed `mekong update` on Windows — Windows locks running `.exe` files so rename always failed even as Administrator; now schedules the binary swap via a hidden PowerShell process that runs after mekong exits, no Administrator needed
+
 ## v1.6.11 - 2026-04-24
 
 Highlights:

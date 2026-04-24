@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v1.6.4 - 2026-04-24
+
+Highlights:
+
+- Added `mekong uninstall` command — removes binary, config dir, and PATH entry on all platforms (macOS, Linux, Windows)
+- Fixed `mekong update` checksum mismatch — parser now handles filenames with path prefixes (`dist/mekong-darwin-arm64`)
+- Fixed release script to clean old dist directory before rebuilding to prevent stale checksum files
+
 ## v1.6.3 - 2026-04-24
 
 Highlights:

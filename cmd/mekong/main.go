@@ -2136,11 +2136,35 @@ func selfUpdate() {
 	defer os.Remove(tmpPath)
 
 	if err := os.Rename(tmpPath, currentBinary); err != nil {
-		fmt.Fprintf(os.Stderr, "%s  ✖  Replace failed: %v%s\n", red, err, reset)
-		os.Exit(1)
+		if errors.Is(err, os.ErrPermission) && runtime.GOOS != "windows" {
+			fmt.Printf("%s  →  Permission denied — retrying with sudo...%s\n", gray, reset)
+			if err := sudoInstallBinary(tmpPath, currentBinary); err != nil {
+				fmt.Fprintf(os.Stderr, "%s  ✖  sudo replace failed: %v%s\n", red, err, reset)
+				os.Exit(1)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "%s  ✖  Replace failed: %v%s\n", red, err, reset)
+			os.Exit(1)
+		}
 	}
 
 	fmt.Printf("%s  ✔  Updated to %s — restart mekong to use the new version.%s\n", green, latest, reset)
+}
+
+// sudoInstallBinary copies src to dst using sudo cp + chmod so that the
+// caller does not need to run the entire update command as root.
+func sudoInstallBinary(src, dst string) error {
+	cmd := exec.Command("sudo", "cp", src, dst)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	chmod := exec.Command("sudo", "chmod", "755", dst)
+	chmod.Stdout = os.Stdout
+	chmod.Stderr = os.Stderr
+	return chmod.Run()
 }
 
 func latestReleaseTag(client *http.Client) (string, error) {

@@ -2208,6 +2208,8 @@ func releaseAssetName() (string, bool) {
 		return "mekong-linux-arm64", true
 	case "windows/amd64":
 		return "mekong-windows-amd64.exe", true
+	case "windows/arm64":
+		return "mekong-windows-arm64.exe", true
 	default:
 		return "", false
 	}

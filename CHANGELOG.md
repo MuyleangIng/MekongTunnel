@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.6.8 - 2026-04-24
+
+Highlights:
+
+- Fixed `mekong update` on Windows ARM64 — was reporting "Unsupported platform: windows/arm64" instead of downloading the correct binary
+
 ## v1.6.7 - 2026-04-24
 
 Highlights:

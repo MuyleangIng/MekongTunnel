@@ -2177,29 +2177,32 @@ func sudoInstallBinary(src, dst string) error {
 }
 
 func latestReleaseTag(client *http.Client) (string, error) {
-	req, err := http.NewRequest("GET", "https://api.github.com/repos/MuyleangIng/MekongTunnel/releases/latest", nil) //nolint:noctx
+	// Use the release redirect instead of the API to avoid the 60 req/hr rate limit.
+	req, err := http.NewRequest("GET", "https://github.com/MuyleangIng/MekongTunnel/releases/latest", nil) //nolint:noctx
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "mekong-cli/"+version)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := client.Do(req)
+	// Do not follow the redirect — we just want the Location header.
+	noRedirectClient := *client
+	noRedirectClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := noRedirectClient.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API returned HTTP %d", resp.StatusCode)
+	location := resp.Header.Get("Location")
+	if location == "" {
+		return "", fmt.Errorf("no redirect location from GitHub releases page (HTTP %d)", resp.StatusCode)
 	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
+	// Location is like: https://github.com/owner/repo/releases/tag/v1.6.9
+	parts := strings.Split(location, "/tag/")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("unexpected redirect location: %s", location)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(release.TagName), nil
+	return strings.TrimSpace(parts[1]), nil
 }
 
 func releaseAssetName() (string, bool) {

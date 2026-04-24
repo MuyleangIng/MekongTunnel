@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.6.10 - 2026-04-24
+
+Highlights:
+
+- Fixed `mekong update`, `install.sh`, and `install.ps1` hitting GitHub API rate limit (HTTP 403) — now uses the GitHub release redirect URL instead of the API, which has no rate limit
+
 ## v1.6.9 - 2026-04-24
 
 Highlights:

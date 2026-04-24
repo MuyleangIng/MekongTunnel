@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v1.6.3 - 2026-04-24
+
+Highlights:
+
+- Fixed Windows binary detection in JetBrains plugin — now correctly finds `mekong.exe` at `%LOCALAPPDATA%\Programs\mekong\`
+- Fixed wrong domain in VS Code extension — token-info API was calling `api.angkorsearch.dev` instead of `api.mekongtunnel.dev`
+- VS Code extension v1.5.10: all `angkorsearch.dev` references replaced with `mekongtunnel.dev`
+
 ## v1.6.2 - 2026-04-17
 
 Highlights:

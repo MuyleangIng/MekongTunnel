@@ -56,7 +56,7 @@ func TestRunDomainAddCommand(t *testing.T) {
 	oldDo := apiDo
 	t.Cleanup(func() { apiDo = oldDo })
 	t.Setenv("MEKONG_TOKEN", "mkt_test")
-	authAPIBase = "https://api.angkorsearch.dev"
+	authAPIBase = "https://api.mekongtunnel.dev"
 
 	apiDo = func(r *http.Request) (*http.Response, error) {
 		if got := r.Header.Get("Authorization"); got != "Bearer mkt_test" {
@@ -66,13 +66,13 @@ func TestRunDomainAddCommand(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/cli/domains":
 			return &http.Response{
 				StatusCode: http.StatusCreated,
-				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"id":"dom_123","domain":"app.example.com","status":"pending","verification_token":"abc123","created_at":"2026-03-25T00:00:00Z","cname_target":"proxy.angkorsearch.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"id":"dom_123","domain":"app.example.com","status":"pending","verification_token":"abc123","created_at":"2026-03-25T00:00:00Z","cname_target":"proxy.mekongtunnel.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123"}}`)),
 				Header:     make(http.Header),
 			}, nil
 		case r.Method == http.MethodPost && r.URL.Path == "/api/cli/domains/dom_123/verify":
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"verified":false,"status":"failed","cname_ok":false,"txt_ok":false,"address_ok":false,"cname_target":"proxy.angkorsearch.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123","https_ok":false,"ready":false,"readiness_status":"pending_dns","message":"DNS verification failed."}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"verified":false,"status":"failed","cname_ok":false,"txt_ok":false,"address_ok":false,"cname_target":"proxy.mekongtunnel.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123","https_ok":false,"ready":false,"readiness_status":"pending_dns","message":"DNS verification failed."}}`)),
 				Header:     make(http.Header),
 			}, nil
 		default:
@@ -92,7 +92,7 @@ func TestRunDomainTargetCommand(t *testing.T) {
 	oldDo := apiDo
 	t.Cleanup(func() { apiDo = oldDo })
 	t.Setenv("MEKONG_TOKEN", "mkt_test")
-	authAPIBase = "https://api.angkorsearch.dev"
+	authAPIBase = "https://api.mekongtunnel.dev"
 
 	apiDo = func(r *http.Request) (*http.Response, error) {
 		if got := r.Header.Get("Authorization"); got != "Bearer mkt_test" {
@@ -102,7 +102,7 @@ func TestRunDomainTargetCommand(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/cli/domains":
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":[{"id":"dom_123","domain":"app.example.com","status":"verified","verification_token":"abc123","created_at":"2026-03-25T00:00:00Z","cname_target":"proxy.angkorsearch.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123"}]}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":[{"id":"dom_123","domain":"app.example.com","status":"verified","verification_token":"abc123","created_at":"2026-03-25T00:00:00Z","cname_target":"proxy.mekongtunnel.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123"}]}`)),
 				Header:     make(http.Header),
 			}, nil
 		case r.Method == http.MethodPatch && r.URL.Path == "/api/cli/domains/dom_123/target":
@@ -128,7 +128,7 @@ func TestRunDomainConnectCommand(t *testing.T) {
 	oldDo := apiDo
 	t.Cleanup(func() { apiDo = oldDo })
 	t.Setenv("MEKONG_TOKEN", "mkt_test")
-	authAPIBase = "https://api.angkorsearch.dev"
+	authAPIBase = "https://api.mekongtunnel.dev"
 
 	var calls []string
 	verifyCalls := 0
@@ -147,7 +147,7 @@ func TestRunDomainConnectCommand(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/cli/domains":
 			return &http.Response{
 				StatusCode: http.StatusCreated,
-				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"id":"dom_123","domain":"app.example.com","status":"pending","verification_token":"abc123","created_at":"2026-03-25T00:00:00Z","cname_target":"proxy.angkorsearch.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"id":"dom_123","domain":"app.example.com","status":"pending","verification_token":"abc123","created_at":"2026-03-25T00:00:00Z","cname_target":"proxy.mekongtunnel.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123"}}`)),
 				Header:     make(http.Header),
 			}, nil
 		case r.Method == http.MethodPatch && r.URL.Path == "/api/cli/domains/dom_123/target":
@@ -161,13 +161,13 @@ func TestRunDomainConnectCommand(t *testing.T) {
 			if verifyCalls == 1 {
 				return &http.Response{
 					StatusCode: http.StatusOK,
-					Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"verified":false,"status":"failed","cname_ok":false,"txt_ok":false,"address_ok":false,"cname_target":"proxy.angkorsearch.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123","https_ok":false,"ready":false,"readiness_status":"pending_dns","message":"DNS verification failed."}}`)),
+					Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"verified":false,"status":"failed","cname_ok":false,"txt_ok":false,"address_ok":false,"cname_target":"proxy.mekongtunnel.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123","https_ok":false,"ready":false,"readiness_status":"pending_dns","message":"DNS verification failed."}}`)),
 					Header:     make(http.Header),
 				}, nil
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"verified":true,"status":"verified","cname_ok":true,"txt_ok":false,"address_ok":false,"cname_target":"proxy.angkorsearch.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123","https_ok":true,"ready":true,"readiness_status":"ready","message":"Domain verified via CNAME record and HTTPS is ready."}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":{"verified":true,"status":"verified","cname_ok":true,"txt_ok":false,"address_ok":false,"cname_target":"proxy.mekongtunnel.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123","https_ok":true,"ready":true,"readiness_status":"ready","message":"Domain verified via CNAME record and HTTPS is ready."}}`)),
 				Header:     make(http.Header),
 			}, nil
 		default:
@@ -188,7 +188,7 @@ func TestRunDomainConnectCommand(t *testing.T) {
 func TestDoctorTXTCheckSkipsWhenCNAMEAlreadyValid(t *testing.T) {
 	record := customDomainRecord{
 		Domain:      "app.example.com",
-		CNAMETarget: "proxy.angkorsearch.dev",
+		CNAMETarget: "proxy.mekongtunnel.dev",
 		TXTName:     "_mekongtunnel-verify.app.example.com",
 		TXTValue:    "mekong-verify=abc123",
 	}
@@ -208,7 +208,7 @@ func TestDoctorTXTCheckSkipsWhenCNAMEAlreadyValid(t *testing.T) {
 func TestDoctorTXTCheckFailsWhenCNAMEMissingAndTXTMissing(t *testing.T) {
 	record := customDomainRecord{
 		Domain:      "app.example.com",
-		CNAMETarget: "proxy.angkorsearch.dev",
+		CNAMETarget: "proxy.mekongtunnel.dev",
 		TXTName:     "_mekongtunnel-verify.app.example.com",
 		TXTValue:    "mekong-verify=abc123",
 	}
@@ -228,7 +228,7 @@ func TestDoctorTXTCheckFailsWhenCNAMEMissingAndTXTMissing(t *testing.T) {
 func TestDoctorTXTCheckSkipsWhenAddressAlreadyValid(t *testing.T) {
 	record := customDomainRecord{
 		Domain:      "app.example.com",
-		CNAMETarget: "proxy.angkorsearch.dev",
+		CNAMETarget: "proxy.mekongtunnel.dev",
 		TXTName:     "_mekongtunnel-verify.app.example.com",
 		TXTValue:    "mekong-verify=abc123",
 	}
@@ -245,7 +245,7 @@ func TestDoctorTXTCheckSkipsWhenAddressAlreadyValid(t *testing.T) {
 func TestDoctorCNAMECheckSkipsApexDomains(t *testing.T) {
 	got, ok := doctorCNAMECheck(customDomainRecord{
 		Domain:      "example.com",
-		CNAMETarget: "proxy.angkorsearch.dev",
+		CNAMETarget: "proxy.mekongtunnel.dev",
 	}, "", errors.New("no such host"))
 
 	if ok {
@@ -265,14 +265,14 @@ func TestRunDomainDeleteCommandShowsCleanupNotes(t *testing.T) {
 	oldDo := apiDo
 	t.Cleanup(func() { apiDo = oldDo })
 	t.Setenv("MEKONG_TOKEN", "mkt_test")
-	authAPIBase = "https://api.angkorsearch.dev"
+	authAPIBase = "https://api.mekongtunnel.dev"
 
 	apiDo = func(r *http.Request) (*http.Response, error) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/cli/domains":
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":[{"id":"dom_123","domain":"app.example.com","status":"verified","verification_token":"abc123","target_subdomain":"myapp","created_at":"2026-03-25T00:00:00Z","cname_target":"proxy.angkorsearch.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123"}]}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true,"data":[{"id":"dom_123","domain":"app.example.com","status":"verified","verification_token":"abc123","target_subdomain":"myapp","created_at":"2026-03-25T00:00:00Z","cname_target":"proxy.mekongtunnel.dev","txt_name":"_mekongtunnel-verify.app.example.com","txt_value":"mekong-verify=abc123"}]}`)),
 				Header:     make(http.Header),
 			}, nil
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/cli/domains/dom_123":

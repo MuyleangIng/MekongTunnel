@@ -5,1172 +5,361 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src __CSP_SOURCE__ https: data:; style-src 'unsafe-inline'; script-src __CSP_SOURCE__;">
 <style>
+/* Mekong Tunnel sidebar — mekongtunnel.dev palette:
+   dark = river teal + temple gold, light = cream + deep gold. */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-:root {
-  --accent: var(--vscode-textLink-foreground, #3794ff);
-  --accent-strong: var(--vscode-button-background, #0e639c);
-  --accent-hover: var(--vscode-button-hoverBackground, #1177bb);
-  --success: #22c55e;
-  --success-soft: rgba(34, 197, 94, 0.12);
-  --danger: #ef4444;
-  --danger-soft: rgba(239, 68, 68, 0.12);
-  --page-bg: var(--vscode-sideBar-background, #1e1e1e);
-  --card-bg: var(--vscode-editorWidget-background, var(--page-bg));
-  --card-muted: var(--vscode-input-background, rgba(127, 127, 127, 0.1));
-  --card-hover: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.12));
-  --border: var(--vscode-panel-border, rgba(255, 255, 255, 0.14));
-  --input-border: var(--vscode-input-border, rgba(255, 255, 255, 0.18));
-  --fg: var(--vscode-foreground, #f3f4f6);
-  --fg-muted: var(--vscode-descriptionForeground, #c2cedd);
-  --fg-soft: color-mix(in srgb, var(--fg-muted) 82%, var(--page-bg) 18%);
-}
-
-body {
-  font-family: var(--vscode-font-family);
-  font-size: 12px;
-  color: var(--fg);
-  background: var(--page-bg);
-  overflow-x: hidden;
-}
-
-button,
-input,
-select {
-  font: inherit;
-}
-
-.panel-wrap {
-  padding: 8px;
-}
-
-.shell {
-  position: relative;
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
-  overflow: hidden;
-}
-
-.header {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.logo {
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  border: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  box-shadow: none;
-}
-
-.logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-}
-
-.brand {
-  min-width: 0;
-  flex: 1;
-}
-
-.h-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--fg);
-}
-
-.h-sub {
-  margin-top: 1px;
-  font-size: 11px;
-  color: var(--fg-muted);
-}
-
-.head-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 9px;
-  border-radius: 999px;
-  border: 1px solid rgba(55, 148, 255, 0.22);
-  background: rgba(55, 148, 255, 0.12);
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  flex-shrink: 0;
-}
-
-.status-bar {
-  padding: 12px 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border);
-}
-
-.status-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 1;
-}
-
-.status-copy {
-  min-width: 0;
-}
-
-.dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.18);
-  flex-shrink: 0;
-  transition: background 0.2s ease, box-shadow 0.2s ease;
-}
-
-.dot.green {
-  background: var(--success);
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
-}
-
-.dot.amber {
-  background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(55, 148, 255, 0.14);
-}
-
-.s-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--fg);
-}
-
-.s-sub {
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--fg-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.mini-btn {
-  height: 28px;
-  padding: 0 11px;
-  border-radius: 8px;
-  border: 1px solid var(--input-border);
-  background: var(--vscode-button-secondaryBackground, var(--card-muted));
-  color: var(--vscode-button-secondaryForeground, var(--fg));
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-  white-space: nowrap;
-}
-
-.mini-btn:hover {
-  background: var(--vscode-button-secondaryHoverBackground, var(--card-hover));
-  color: var(--fg);
-}
-
-.mini-btn:disabled {
-  opacity: 0.7;
-  cursor: default;
-}
-
-.mini-btn.danger {
-  color: #fca5a5;
-  border-color: rgba(239, 68, 68, 0.26);
-}
-
-.mini-btn.danger:hover {
-  background: var(--danger-soft);
-  color: #fecaca;
-}
-
-.account-card,
-.notice-card,
-.sec,
-.status-card,
-.alog,
-.log-link {
-  margin: 10px 16px 0;
-}
-
-.account-card {
-  padding: 11px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card-muted);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  transition: border-color 0.18s ease, background 0.18s ease;
-}
-
-.account-card.signed-in {
-  border-color: rgba(34, 197, 94, 0.22);
-  background: var(--success-soft);
-}
-
-.account-card.signing-in {
-  border-color: rgba(55, 148, 255, 0.22);
-  background: rgba(55, 148, 255, 0.08);
-}
-
-.acct-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--fg);
-  font-size: 11px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.acct-copy {
-  min-width: 0;
-  flex: 1;
-}
-
-.acct-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.acct-sub {
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--fg-muted);
-}
-
-.notice-card {
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card-muted);
-}
-
-.notice-card.warn {
-  border-color: rgba(239, 68, 68, 0.22);
-  background: rgba(239, 68, 68, 0.07);
-}
-
-.notice-card.amber {
-  border-color: rgba(55, 148, 255, 0.22);
-  background: rgba(55, 148, 255, 0.08);
-}
-
-.notice-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 7px;
-}
-
-.notice-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--fg);
-}
-
-.notice-body {
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--fg-muted);
-}
-
-.platform-badge {
-  margin-left: auto;
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  color: var(--fg-muted);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.code-label {
-  margin-top: 9px;
-  margin-bottom: 6px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
-}
-
-.code-block {
-  position: relative;
-  width: 100%;
-  padding: 9px 34px 9px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--vscode-textCodeBlock-background, var(--card-bg));
-  color: var(--accent);
-  font-size: 11px;
-  line-height: 1.5;
-  font-family: var(--vscode-editor-font-family, monospace);
-  word-break: break-word;
-  cursor: pointer;
-}
-
-.code-block:hover {
-  border-color: rgba(14, 165, 233, 0.22);
-}
-
-.code-copy {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  color: var(--fg-muted);
-  font-size: 12px;
-}
-
-.copied-hint {
-  margin-top: 6px;
-  font-size: 11px;
-  color: var(--success);
-  font-weight: 600;
-}
-
-.notice-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.notice-actions button {
-  flex: 1;
-}
-
-.mode-tabs {
-  margin: 14px 16px 0;
-  display: flex;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--card-muted);
-}
-
-.mode-tab {
-  flex: 1;
-  height: 36px;
-  border: 0;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.mode-tab.active {
-  background: var(--card-bg);
-  color: var(--fg);
-  box-shadow: inset 0 -2px 0 var(--accent);
-}
-
-.mode-sep {
-  width: 1px;
-  background: var(--border);
-}
-
-.screen {
-  padding-bottom: 4px;
-}
-
-.sec {
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card-muted);
-}
-
-.lbl {
-  margin-bottom: 7px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
-}
-
-.row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.port-in,
-.sel {
-  width: 100%;
-  min-width: 0;
-  height: 36px;
-  padding: 0 11px;
-  border-radius: 10px;
-  border: 1px solid var(--input-border);
-  background: var(--vscode-input-background, rgba(255, 255, 255, 0.04));
-  color: var(--vscode-input-foreground, var(--fg));
-  outline: none;
-}
-
-.port-in:focus,
-.sel:focus {
-  border-color: rgba(14, 165, 233, 0.4);
-}
-
-.port-in.error {
-  border-color: rgba(239, 68, 68, 0.5);
-}
-
-.sm-btn {
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid var(--input-border);
-  background: var(--vscode-button-secondaryBackground, var(--card-bg));
-  color: var(--vscode-button-secondaryForeground, var(--fg));
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.sm-btn:hover {
-  background: var(--vscode-button-secondaryHoverBackground, var(--card-hover));
-  color: var(--fg);
-}
-
-.note {
-  margin-top: 7px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--fg-muted);
-  min-height: 16px;
-}
-
-.note.ok {
-  color: #86efac;
-}
-
-.note.err {
-  color: #fca5a5;
-}
-
-.info-card {
-  padding: 11px 12px;
-  border-radius: 12px;
-  background: var(--card-muted);
-  border: 1px solid var(--border);
-}
-
-.info-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg);
-}
-
-.info-text {
-  margin-top: 4px;
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--fg-muted);
-}
-
-.start-btn,
-.stop-btn,
-.sub-act,
-.url-act,
-.log-link,
-.primary-btn,
-.ghost-btn {
-  transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.start-btn,
-.primary-btn {
-  width: 100%;
-  height: 40px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  background: var(--accent-strong);
-  color: var(--vscode-button-foreground, #ffffff);
-  cursor: pointer;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-}
-
-.start-btn:hover,
-.primary-btn:hover {
-  background: var(--accent-hover);
-}
-
-.success-btn {
-  background: var(--success);
-  color: #ffffff;
-}
-
-.success-btn:hover {
-  background: color-mix(in srgb, var(--success) 88%, black 12%);
-}
-
-.start-btn:disabled,
-.primary-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.ghost-btn {
-  width: 100%;
-  height: 32px;
-  border-radius: 10px;
-  border: 1px solid var(--input-border);
-  background: var(--vscode-button-secondaryBackground, var(--card-bg));
-  color: var(--vscode-button-secondaryForeground, var(--fg));
-  cursor: pointer;
-}
-
-.ghost-btn:hover {
-  background: var(--vscode-button-secondaryHoverBackground, var(--card-hover));
-}
-
-.stop-btn {
-  width: 100%;
-  height: 38px;
-  border-radius: 12px;
-  border: 1px solid rgba(239, 68, 68, 0.28);
-  background: var(--danger-soft);
-  color: #fca5a5;
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.stop-btn:hover {
-  opacity: 0.9;
-}
-
-.connecting-card {
-  margin: 10px 16px 0;
-  padding: 14px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(55, 148, 255, 0.22);
-  background: rgba(55, 148, 255, 0.08);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.spinner {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid rgba(55, 148, 255, 0.2);
-  border-top-color: var(--accent);
-  animation: spin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.activity-pill {
-  margin: 10px 16px 0;
-  padding: 11px 12px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  background: var(--success-soft);
-  border: 1px solid rgba(34, 197, 94, 0.22);
-}
-
-.green-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--success);
-  flex-shrink: 0;
-}
-
-.pill-copy {
-  min-width: 0;
-}
-
-.pill-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #bbf7d0;
-}
-
-.pill-sub {
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--fg-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pub-url-card {
-  margin: 10px 16px 0;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card-muted);
-}
-
-.pub-url-card.amber {
-  border-color: var(--border);
-  background: var(--card-muted);
-}
-
-.pub-badge {
-  margin-bottom: 7px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
-}
-
-.pub-url {
-  font-size: 12px;
-  line-height: 1.55;
-  color: #7dd3fc;
-  font-family: var(--vscode-editor-font-family, monospace);
-  word-break: break-word;
-}
-
-.pub-url-card.amber .pub-url {
-  color: var(--accent);
-}
-
-.url-acts,
-.stack-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.url-acts {
-  margin-top: 10px;
-}
-
-.url-act,
-.sub-act {
-  width: 100%;
-  min-height: 34px;
-  padding: 0 11px;
-  border-radius: 10px;
-  border: 1px solid var(--input-border);
-  background: var(--vscode-button-secondaryBackground, var(--card-bg));
-  color: var(--fg);
-  cursor: pointer;
-}
-
-.url-act:disabled,
-.sub-act:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-.url-act:hover,
-.sub-act:hover {
-  background: var(--vscode-button-secondaryHoverBackground, var(--card-hover));
-}
-
-.url-act.copied {
-  border-color: rgba(34, 197, 94, 0.26);
-  color: #bbf7d0;
-}
-
-.sub-act.copied {
-  border-color: rgba(34, 197, 94, 0.26);
-  color: #bbf7d0;
-}
-
-.stack-actions {
-  margin: 10px 16px 0;
-  flex-direction: column;
-}
-
-.sub-act-danger {
-  border-color: rgba(239, 68, 68, 0.26);
-  background: rgba(239, 68, 68, 0.08);
-  color: #fecaca;
-}
-
-.sub-act-danger:hover {
-  background: rgba(239, 68, 68, 0.12);
-}
-
-.status-card {
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card-muted);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.status-card.active {
-  border-color: rgba(34, 197, 94, 0.22);
-  background: var(--success-soft);
-}
-
-.state-pill {
-  margin-left: auto;
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  color: var(--fg-muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.log-link {
-  width: calc(100% - 32px);
-  height: 34px;
-  border-radius: 10px;
-  border: 1px solid var(--input-border);
-  background: var(--vscode-button-secondaryBackground, var(--card-bg));
-  color: var(--vscode-button-secondaryForeground, var(--fg));
-  cursor: pointer;
-}
-
-.log-link:hover {
-  background: var(--vscode-button-secondaryHoverBackground, var(--card-hover));
-  color: var(--fg);
-}
-
-.alog {
-  margin-bottom: 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--card-muted);
-}
-
-.alog-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: var(--card-bg);
-  cursor: pointer;
-}
-
-.alog-header:hover {
-  background: var(--card-hover);
-}
-
-.alog-title {
-  flex: 1;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
-}
-
-.alog-arrow {
-  color: var(--fg-muted);
-}
-
-.alog-body {
-  max-height: 132px;
-  overflow-y: auto;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-}
-
-.alog-empty {
-  padding: 12px;
-  color: var(--fg-soft);
-  font-style: italic;
-}
-
-.alog-row {
-  display: flex;
-  gap: 8px;
-  padding: 4px 12px;
-  line-height: 1.5;
-}
-
-.alog-row:hover {
-  background: var(--card-hover);
-}
-
-.alog-ts {
-  color: rgba(255, 255, 255, 0.24);
-  flex-shrink: 0;
-}
-
-.alog-msg {
-  color: rgba(255, 255, 255, 0.74);
-}
-
-.pub-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 7px;
-}
-
-.pub-card-top .pub-badge {
-  margin-bottom: 0;
-}
-
-.pub-tag {
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(34, 197, 94, 0.24);
-  background: rgba(34, 197, 94, 0.12);
-  color: #86efac;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.pub-help {
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--fg-muted);
-}
-
-.pub-url-card.pending {
-  border-color: rgba(55, 148, 255, 0.22);
-  background: rgba(55, 148, 255, 0.08);
-}
-
-.pub-url-card.pending .pub-url {
-  color: var(--accent);
-}
-
-.pub-url-card.pending .pub-tag {
-  border-color: rgba(55, 148, 255, 0.24);
-  background: rgba(55, 148, 255, 0.12);
-  color: #c6e2ff;
-}
-
-.alog-row.ok .alog-msg {
-  color: #86efac;
-}
-
-.alog-row.warn .alog-msg {
-  color: #c6e2ff;
-}
-
-.alog-row.err .alog-msg {
-  color: #fca5a5;
-}
-
-.chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.port-chip {
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(34, 197, 94, 0.28);
-  background: rgba(34, 197, 94, 0.1);
-  color: #86efac;
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.port-chip.alt {
-  border-color: rgba(55, 148, 255, 0.28);
-  background: rgba(55, 148, 255, 0.1);
-  color: #c6e2ff;
-}
+:root, body.vscode-dark, body.vscode-high-contrast {
+  --gold: #f5c451; --gold-ink: #061419; --river: #2dd4bf; --code: #7dd3c8;
+  --ok: #4ade80; --bad: #f87171; --tint: 255, 255, 255;
+}
+body.vscode-light, body.vscode-high-contrast-light {
+  --gold: #a15f00; --gold-ink: #fffdf8; --river: #0f766e; --code: #0f5fa8;
+  --ok: #15803d; --bad: #b91c1c; --tint: 0, 0, 0;
+}
+:root, body {
+  --bg: var(--vscode-sideBar-background, #0b1f26);
+  --fg: var(--vscode-foreground, #e8eef0);
+  --muted: var(--vscode-descriptionForeground, #94aab0);
+  --soft: rgba(var(--tint), .045);
+  --soft-2: rgba(var(--tint), .085);
+  --line: rgba(var(--tint), .1);
+  --line-2: rgba(var(--tint), .17);
+  --gold-soft: color-mix(in srgb, var(--gold) 13%, transparent);
+  --gold-line: color-mix(in srgb, var(--gold) 34%, transparent);
+  --ok-soft: color-mix(in srgb, var(--ok) 12%, transparent);
+  --ok-line: color-mix(in srgb, var(--ok) 32%, transparent);
+  --bad-soft: color-mix(in srgb, var(--bad) 11%, transparent);
+  --bad-line: color-mix(in srgb, var(--bad) 32%, transparent);
+  --mono: var(--vscode-editor-font-family, ui-monospace, Menlo, monospace);
+}
+body { font-family: var(--vscode-font-family); font-size: 12px; line-height: 1.45; color: var(--fg); background: var(--bg); overflow-x: hidden; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+:focus-visible { outline: 2px solid var(--gold-line); outline-offset: 1px; }
+[hidden] { display: none !important; }
+.ic { width: 14px; height: 14px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ic.sm { width: 13px; height: 13px; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--muted); }
+
+.wrap { padding: 10px 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Header: brand + account in one row ─────────────────── */
+.header { display: flex; align-items: center; gap: 8px; }
+.logo { width: 26px; height: 26px; flex-shrink: 0; }
+.logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.brand { min-width: 0; flex: 1; }
+.h-title { font-size: 13px; font-weight: 700; letter-spacing: -.01em; display: flex; align-items: center; gap: 6px; }
+.h-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--gold-line); background: var(--gold-soft); color: var(--gold); white-space: nowrap; }
+.pill.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
+.avatar { width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; background: linear-gradient(135deg, var(--gold), color-mix(in srgb, var(--gold) 55%, var(--river))); color: var(--gold-ink); }
+
+/* ── Buttons ────────────────────────────────────────────── */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--soft-2); font-size: 12px; font-weight: 600; white-space: nowrap; transition: background .15s, border-color .15s, color .15s, filter .15s; }
+.btn:hover:not(:disabled) { border-color: var(--gold-line); }
+.btn.block { width: 100%; }
+.btn.lg { height: 34px; border-radius: 10px; }
+.btn.sm { height: 26px; padding: 0 9px; border-radius: 8px; font-size: 11.5px; }
+.btn.primary { background: var(--gold); border-color: transparent; color: var(--gold-ink); font-weight: 700; }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn.danger { color: var(--bad); border-color: var(--bad-line); background: var(--bad-soft); }
+.btn.danger:hover:not(:disabled) { border-color: var(--bad); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover:not(:disabled) { color: var(--fg); background: var(--soft-2); }
+.icon-btn { width: 26px; height: 26px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; border: 0; background: transparent; color: var(--muted); }
+.icon-btn:hover:not(:disabled) { color: var(--fg); background: var(--soft-2); }
+.icon-btn.danger:hover:not(:disabled) { color: var(--bad); background: var(--bad-soft); }
+.icon-btn.done { color: var(--ok); }
+.btn-row { display: flex; gap: 6px; }
+.btn-row > .btn { flex: 1; min-width: 0; }
+
+/* ── Tabs ───────────────────────────────────────────────── */
+.tabs { display: flex; gap: 3px; padding: 3px; border-radius: 11px; border: 1px solid var(--line); background: var(--soft); }
+.tab { flex: 1; height: 28px; border: 0; border-radius: 8px; background: transparent; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-weight: 600; }
+.tab:hover { color: var(--fg); }
+.tab.active { background: var(--bg); color: var(--fg); box-shadow: 0 0 0 1px var(--line-2); }
+.tab.active .ic { color: var(--gold); }
+.tab-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+
+/* ── Cards ──────────────────────────────────────────────── */
+.card { border: 1px solid var(--line); background: var(--soft); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.card.ok { border-color: var(--ok-line); background: var(--ok-soft); }
+.card.gold { border-color: var(--gold-line); background: var(--gold-soft); }
+.card.bad { border-color: var(--bad-line); background: var(--bad-soft); }
+.card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.card-title { font-size: 12px; font-weight: 700; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-text { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.card-text strong { color: var(--fg); }
+.lbl { margin-bottom: 4px; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.screen { display: flex; flex-direction: column; gap: 8px; }
+
+.dot { display: block; position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex-shrink: 0; box-shadow: 0 0 0 3px var(--ok-soft); }
+.dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--ok); animation: ping 1.8s cubic-bezier(0,0,.2,1) infinite; }
+@keyframes ping { 75%, 100% { transform: scale(2.4); opacity: 0; } }
+.spinner { display: block; width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--gold-soft); border-top-color: var(--gold); animation: spin .8s linear infinite; flex-shrink: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* One-line URL with icon actions */
+.urlrow { display: flex; align-items: center; gap: 2px; min-width: 0; min-height: 32px; padding: 3px 3px 3px 9px; border-radius: 9px; border: 1px solid var(--line); background: var(--vscode-textCodeBlock-background, var(--soft-2)); }
+.urlrow .url { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11.5px; line-height: 1.4; color: var(--code); word-break: break-all; border: 0; background: none; text-align: left; padding: 0; }
+.urlrow .url:hover { text-decoration: underline; }
+.urlrow .url .host { color: var(--muted); }
+.urlrow .url b { font-weight: 700; }
+.urlrow.pending .url { color: var(--muted); font-style: italic; text-decoration: none; cursor: default; }
+.row-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+
+/* Inputs */
+.row { display: flex; gap: 6px; align-items: center; }
+.field { width: 100%; min-width: 0; height: 30px; padding: 0 9px; border-radius: 9px; border: 1px solid var(--vscode-input-border, var(--line-2)); background: var(--vscode-input-background, var(--soft)); color: var(--vscode-input-foreground, var(--fg)); outline: none; }
+.field:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+.field.error { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+.port-in { font-family: var(--mono); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 250px) { .grid2 { grid-template-columns: 1fr; } }
+.note { font-size: 11px; color: var(--muted); }
+.note:empty { display: none; }
+.note.ok { color: var(--ok); }
+.note.err { color: var(--bad); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip-row:empty { display: none; }
+.port-chip { height: 22px; padding: 0 8px; border-radius: 999px; font-family: var(--mono); font-size: 10.5px; font-weight: 600; border: 1px solid var(--ok-line); background: var(--ok-soft); color: var(--ok); }
+.port-chip.alt { border-color: var(--gold-line); background: var(--gold-soft); color: var(--gold); }
+
+/* Toggle row */
+.toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.switch { position: relative; width: 28px; height: 16px; border-radius: 999px; background: var(--soft-2); border: 1px solid var(--line-2); flex-shrink: 0; transition: background .15s; }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+.toggle input:checked + .switch { background: var(--gold); border-color: transparent; }
+.toggle input:checked + .switch::after { transform: translateX(12px); background: var(--gold-ink); }
+.toggle input:focus-visible + .switch { outline: 2px solid var(--gold-line); outline-offset: 1px; }
+.toggle-copy { min-width: 0; flex: 1; }
+.toggle-title { font-size: 11.5px; font-weight: 600; }
+.toggle-sub { font-size: 10.5px; color: var(--muted); }
+
+/* Code block (install / dev command) */
+.code { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 9px; border-radius: 8px; text-align: left; border: 1px solid var(--line); background: var(--vscode-textCodeBlock-background, var(--soft-2)); font-family: var(--mono); font-size: 11px; color: var(--code); word-break: break-all; }
+button.code:hover { border-color: var(--gold-line); }
+.code > span:first-child { flex: 1; min-width: 0; }
+.code.copied .ic { color: var(--ok); }
+
+/* Activity */
+.alog { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.alog-header { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 10px; border: 0; background: var(--soft); color: var(--muted); text-align: left; }
+.alog-header:hover { background: var(--soft-2); }
+.alog-title { flex: 1; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.alog-count { font-size: 10px; }
+.alog-arrow { transition: transform .15s; }
+.alog.collapsed .alog-arrow { transform: rotate(-90deg); }
+.alog-body { max-height: 130px; overflow-y: auto; font-family: var(--mono); font-size: 10.5px; padding: 4px 0; border-top: 1px solid var(--line); }
+.alog.collapsed .alog-body { display: none; }
+.alog-empty { padding: 4px 10px; color: var(--muted); font-style: italic; }
+.alog-row { display: flex; gap: 8px; padding: 2px 10px; }
+.alog-ts { color: var(--muted); opacity: .7; flex-shrink: 0; }
+.alog-msg { opacity: .85; word-break: break-word; }
+.alog-row.ok .alog-msg { color: var(--ok); opacity: 1; }
+.alog-row.warn .alog-msg { color: var(--gold); opacity: 1; }
+.alog-row.err .alog-msg { color: var(--bad); opacity: 1; }
+.footer { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.footer a { color: var(--muted); text-decoration: none; cursor: pointer; font-size: 11px; }
+.footer a:hover { color: var(--gold); }
 </style>
 </head>
 <body>
-<div class="panel-wrap">
-  <div class="shell">
-    <div class="header">
-      <div class="logo">
-        <img id="brand-logo" src="__LOGO_URI__" alt="Mekong Tunnel logo">
-      </div>
-      <div class="brand">
-        <div class="h-title">Mekong Tunnel</div>
-        <div class="h-sub">mekongtunnel.dev</div>
-      </div>
-      <div class="head-pill" id="acct-plan" style="display:none"></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L8.5 4.64A1 1 0 0 0 7 5.5Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+  <symbol id="i-tower" viewBox="0 0 24 24"><path d="M12 13v8M9 21h6"/><circle cx="12" cy="11" r="2"/><path d="M7.8 6.8a6 6 0 0 0 0 8.4M16.2 6.8a6 6 0 0 1 0 8.4M5 4a10 10 0 0 0 0 14M19 4a10 10 0 0 1 0 14"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6L13 3Z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7S2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0V7ZM12 16v5"/></symbol>
+  <symbol id="i-login" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3.5M4 4v4h4M4 13a8 8 0 0 0 14.9 3.5M20 20v-4h-4"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></symbol>
+</svg>
+
+<div class="wrap">
+  <!-- Header: brand + account -->
+  <div class="header">
+    <div class="logo"><img id="brand-logo" src="__LOGO_URI__" alt="Mekong Tunnel"></div>
+    <div class="brand">
+      <div class="h-title">Mekong Tunnel <span class="pill" id="acct-plan" hidden></span></div>
+      <div class="h-sub" id="acct-sub">Not logged in</div>
     </div>
+    <div class="avatar" id="acct-avatar" hidden></div>
+    <button class="btn primary sm" id="acct-login-btn"><svg class="ic sm"><use href="#i-login"/></svg><span class="btn-label">Log in</span></button>
+    <button class="icon-btn danger" id="acct-logout-btn" title="Log out" aria-label="Log out" hidden><svg class="ic"><use href="#i-logout"/></svg></button>
+  </div>
 
-    <div class="status-bar">
-      <div class="status-left">
-        <div class="dot" id="main-dot"></div>
-        <div class="status-copy">
-          <div class="s-label" id="main-label">No active tunnel</div>
-          <div class="s-sub" id="main-sub">Ready to connect</div>
-        </div>
-      </div>
-      <button class="mini-btn" id="acct-login-btn">Log in</button>
-      <button class="mini-btn danger" id="acct-logout-btn" style="display:none">Log out</button>
+  <!-- CLI missing -->
+  <div class="card bad" id="mekong-missing" hidden>
+    <div class="card-head">
+      <svg class="ic" style="color:var(--bad)"><use href="#i-warn"/></svg>
+      <div class="card-title">mekong CLI not found</div>
+      <span class="pill" id="install-platform-badge"></span>
     </div>
-
-    <div class="account-card" id="acct-card">
-      <div class="acct-avatar" id="acct-avatar">MK</div>
-      <div class="acct-copy">
-        <div class="acct-name" id="acct-name">Not logged in</div>
-        <div class="acct-sub" id="acct-sub">Login for a reserved subdomain</div>
-      </div>
-    </div>
-
-    <div class="notice-card warn" id="mekong-missing" style="display:none">
-      <div class="notice-head">
-        <span>&#9888;</span>
-        <div class="notice-title">mekong CLI not installed</div>
-        <div class="platform-badge" id="install-platform-badge"></div>
-      </div>
-      <div class="notice-body">
-        Tunneling needs the <strong style="color:var(--fg)">mekong</strong> CLI. Run the install command on your own computer, then click <strong style="color:var(--fg)">Re-check</strong>. Live Server and preview still work without it.
-      </div>
-
-      <div id="install-unix" style="display:none">
-        <div class="code-label">Click to copy install command</div>
-        <button class="code-block" id="install-cmd-block" title="Click to copy">
-          <span id="install-cmd-text"></span>
-          <span class="code-copy" id="install-copy-icon">&#x2398;</span>
-        </button>
-        <div class="copied-hint" id="install-copied-hint" style="display:none">&#10003; Copied to clipboard</div>
-      </div>
-
-      <div id="install-windows" style="display:none; margin-top:10px" class="notice-body">
-        Run the PowerShell install command on your own computer, then come back and click <strong style="color:var(--fg)">Re-check</strong>.
-      </div>
-
-      <div class="notice-actions">
-        <button class="primary-btn" id="install-btn">Open Install Script</button>
-        <button class="ghost-btn" id="recheck-btn">Re-check</button>
-      </div>
-    </div>
-
-    <div class="notice-card amber" id="port-warning" style="display:none">
-      <div class="notice-head">
-        <span>&#128268;</span>
-        <div class="notice-title">Dev server not running</div>
-      </div>
-      <div class="notice-body">
-        Nothing is listening on <strong id="warn-port" style="color:var(--fg)"></strong>. Start your app first, or continue anyway.
-      </div>
-      <div class="code-label">Suggested command</div>
-      <div class="code-block" style="cursor:default; color:var(--fg)" id="warn-cmd"></div>
-      <div class="notice-actions">
-        <button class="primary-btn" id="warn-anyway-btn">Start anyway</button>
-        <button class="ghost-btn" id="warn-cancel-btn">Cancel</button>
-      </div>
-    </div>
-
-    <div class="mode-tabs">
-      <button class="mode-tab active" id="tab-tunnel">Tunnel</button>
-      <div class="mode-sep"></div>
-      <button class="mode-tab" id="tab-live">Live Server<span id="tab-live-dot" style="width:6px;height:6px;border-radius:50%;background:#3fb950;margin-left:6px;flex-shrink:0;vertical-align:middle;position:relative;top:-1px;display:none"></span></button>
-    </div>
-
-    <section class="screen" id="tunnel-screen">
-      <div class="sec" id="config-section">
-        <div class="lbl">Local port</div>
-        <div class="row">
-          <input class="port-in" type="number" id="port-input" placeholder="3000" min="1" max="65535">
-          <button class="sm-btn" id="detect-btn">Detect</button>
-        </div>
-        <div class="note" id="framework-hint"></div>
-      </div>
-
-      <div class="sec" id="expire-section">
-        <div class="lbl">Expiry</div>
-        <select class="sel" id="expire-select">
-          <option value="">No expiry (session only)</option>
-          <option value="30m">30 minutes</option>
-          <option value="1h">1 hour</option>
-          <option value="6h">6 hours</option>
-          <option value="12h">12 hours</option>
-          <option value="24h">24 hours (1 day)</option>
-          <option value="2d">2 days</option>
-          <option value="7d">7 days (1 week)</option>
-          <option value="2w">2 weeks</option>
-          <option value="1mo">1 month</option>
-        </select>
-      </div>
-
-      <div class="info-card" style="margin:10px 16px 0">
-        <div class="info-title">Public URL</div>
-        <div class="info-text" id="tunnel-note-text">A public URL is generated when the tunnel starts.</div>
-      </div>
-
-      <div class="sec" id="start-section">
-        <button class="start-btn" id="start-btn">Start tunnel</button>
-      </div>
-
-      <div class="connecting-card" id="connecting-box" style="display:none">
-        <div class="spinner"></div>
-        <div>
-          <div class="pill-title" style="color:var(--accent)">Connecting tunnel</div>
-          <div class="pill-sub">Waiting for Mekong to return the public URL</div>
-        </div>
-      </div>
-
-      <div id="url-section" style="display:none">
-        <div class="activity-pill">
-          <div class="green-dot"></div>
-          <div class="pill-copy">
-            <div class="pill-title">Tunnel active</div>
-            <div class="pill-sub">Traffic is now being forwarded to your local app.</div>
-          </div>
-        </div>
-
-        <div class="pub-url-card">
-          <div class="pub-badge">Public URL</div>
-          <div class="pub-url" id="url-text"></div>
-          <div class="url-acts">
-            <button class="url-act" id="copy-btn">Copy</button>
-            <button class="url-act" id="open-btn">Open</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="sec" id="stop-section" style="display:none">
-        <button class="stop-btn" id="stop-btn">Stop tunnel</button>
-      </div>
-    </section>
-
-    <section class="screen" id="live-screen" style="display:none">
-      <div class="status-card" id="ls-status-card">
-        <div class="status-left">
-          <div class="dot" id="ls-dot"></div>
-          <div class="status-copy">
-            <div class="s-label" id="ls-label">Not running</div>
-            <div class="s-sub" id="ls-sub">Start to serve HTML or Markdown files with live reload.</div>
-          </div>
-        </div>
-        <div class="state-pill" id="ls-off-label">Off</div>
-      </div>
-
-      <div id="ls-start-section">
-        <div class="info-card" style="margin:10px 16px 0">
-          <div class="info-title">Preview modes</div>
-          <div class="info-text">Open your HTML or Markdown project in a browser or inside a built-in VS Code preview panel. Markdown files are rendered with live reload.</div>
-        </div>
-
-        <div class="sec">
-          <button class="start-btn success-btn" id="ls-start-btn">Open with Live Server</button>
-        </div>
-
-        <div class="sec">
-          <button class="ghost-btn" id="ls-start-preview-btn">Open with Mekong Preview</button>
-        </div>
-      </div>
-
-      <div id="ls-running-section" style="display:none">
-        <div class="activity-pill">
-          <div class="green-dot"></div>
-          <div class="pill-copy">
-            <div class="pill-title">Live reload active</div>
-            <div class="pill-sub" id="ls-live-reload-sub">HTML, CSS, JS, and asset changes will refresh automatically.</div>
-          </div>
-        </div>
-
-        <div class="pub-url-card amber">
-          <div class="pub-badge">Local URL</div>
-          <div class="pub-url" id="ls-url-text"></div>
-          <div class="url-acts">
-            <button class="url-act" id="ls-copy-btn">Copy</button>
-            <button class="url-act" id="ls-open-btn">Open</button>
-          </div>
-        </div>
-
-        <div id="ls-public-section" style="display:none">
-          <div class="pub-url-card" id="ls-public-card">
-            <div class="pub-card-top">
-              <div class="pub-badge">Public URL</div>
-              <div class="pub-tag" id="ls-public-tag">Live Server Tunnel</div>
-            </div>
-            <div class="pub-url" id="ls-public-url-text"></div>
-            <div class="pub-help" id="ls-public-help">Auto-generated by Mekong Tunnel for this Live Server.</div>
-            <div class="url-acts">
-              <button class="url-act" id="ls-public-copy-btn">Copy</button>
-              <button class="url-act" id="ls-public-open-btn">Open</button>
-              <button class="url-act" id="ls-public-share-btn">Share</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="sec" style="padding-bottom:0">
-          <button class="ghost-btn" id="ls-preview-btn" style="display:flex;align-items:center;justify-content:center;gap:7px">
-            <svg width="15" height="13" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="18" height="11" rx="2"/><path d="M6 15h8M10 12v3"/></svg>
-            Open Preview Panel
-          </button>
-        </div>
-
-        <div class="stack-actions" id="ls-tunnel-wrap">
-          <button class="sub-act" id="ls-tunnel-btn">Tunnel to public URL</button>
-          <button class="sub-act sub-act-danger" id="ls-stop-tunnel-btn" style="display:none">Stop public tunnel</button>
-        </div>
-
-        <div class="sec">
-          <button class="stop-btn" id="ls-stop-btn">Stop live server</button>
-        </div>
-      </div>
-    </section>
-
-    <button class="log-link" id="log-btn">View output log</button>
-
-    <div class="alog" id="activity-log">
-      <div class="alog-header" id="log-toggle">
-        <div class="alog-title">Activity Log</div>
-        <div class="alog-arrow" id="log-toggle-icon">&#9662;</div>
-      </div>
-      <div class="alog-body" id="log-entries">
-        <div class="alog-empty" id="log-empty">No activity yet</div>
-      </div>
+    <div class="card-text">Tunnels need the <strong>mekong</strong> CLI. Run this in a terminal, then press <strong>Re-check</strong>. Live Server works without it.</div>
+    <button class="code" id="install-cmd-block" title="Click to copy"><span id="install-cmd-text"></span><svg class="ic sm"><use href="#i-copy"/></svg></button>
+    <div class="btn-row">
+      <button class="btn primary" id="install-btn"><svg class="ic sm"><use href="#i-download"/></svg>Install script</button>
+      <button class="btn" id="recheck-btn"><svg class="ic sm"><use href="#i-refresh"/></svg>Re-check</button>
     </div>
   </div>
-</div>
 
-<button id="ls-header-close-btn" style="display:none"></button>
+  <!-- Port not listening -->
+  <div class="card gold" id="port-warning" hidden>
+    <div class="card-head">
+      <svg class="ic" style="color:var(--gold)"><use href="#i-plug"/></svg>
+      <div class="card-title">Nothing running on <span class="mono" id="warn-port"></span></div>
+    </div>
+    <div class="card-text">Start your app first, for example:</div>
+    <div class="code" id="warn-cmd"></div>
+    <div class="btn-row">
+      <button class="btn primary" id="warn-anyway-btn">Start anyway</button>
+      <button class="btn" id="warn-cancel-btn">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs" role="tablist">
+    <button class="tab active" id="tab-tunnel" role="tab"><svg class="ic sm"><use href="#i-tower"/></svg>Tunnel<span class="tab-dot" id="tab-tunnel-dot" hidden></span></button>
+    <button class="tab" id="tab-live" role="tab"><svg class="ic sm"><use href="#i-bolt"/></svg>Live Server<span class="tab-dot" id="tab-live-dot" hidden></span></button>
+  </div>
+
+  <!-- ── Tunnel ───────────────────────────────────────── -->
+  <section class="screen" id="tunnel-screen">
+    <!-- idle: setup -->
+    <div class="card" id="tunnel-setup">
+      <div class="grid2">
+        <div>
+          <div class="lbl">Port</div>
+          <div class="row">
+            <input class="field port-in" type="number" id="port-input" placeholder="3000" min="1" max="65535">
+            <button class="icon-btn" id="detect-btn" title="Find running dev servers" aria-label="Detect port"><svg class="ic"><use href="#i-search"/></svg></button>
+          </div>
+        </div>
+        <div>
+          <div class="lbl">Expires</div>
+          <select class="field" id="expire-select">
+            <option value="">Plan default</option>
+            <option value="1h">1 hour</option>
+            <option value="6h">6 hours</option>
+            <option value="24h">1 day</option>
+            <option value="7d">7 days</option>
+          </select>
+        </div>
+      </div>
+      <div class="note" id="framework-hint"></div>
+      <div class="chip-row" id="port-picker"></div>
+      <label class="toggle" title="Visitors go straight to your app, without the Mekong warning page">
+        <input type="checkbox" id="skip-warning">
+        <span class="switch"></span>
+        <span class="toggle-copy">
+          <span class="toggle-title">Skip browser warning</span>
+          <span class="toggle-sub" style="display:block">Visitors open your app directly</span>
+        </span>
+      </label>
+      <button class="btn primary lg block" id="start-btn"><svg class="ic"><use href="#i-play"/></svg><span class="btn-label">Start tunnel</span></button>
+    </div>
+
+    <!-- connecting / running -->
+    <div class="card" id="tunnel-live" hidden>
+      <div class="card-head">
+        <span id="tunnel-state-icon" style="display:flex"><span class="dot"></span></span>
+        <div class="card-title" id="tunnel-state">Live</div>
+        <span class="muted mono" id="tunnel-port"></span>
+      </div>
+      <div class="urlrow" id="tunnel-urlrow">
+        <button class="url" id="url-text" title="Open in browser"></button>
+        <button class="icon-btn" id="copy-btn" title="Copy URL" aria-label="Copy URL"><svg class="ic"><use href="#i-copy"/></svg></button>
+        <button class="icon-btn" id="open-btn" title="Open in browser" aria-label="Open in browser"><svg class="ic"><use href="#i-open"/></svg></button>
+      </div>
+      <div class="row" style="justify-content:space-between">
+        <span class="note" id="tunnel-skip-note"></span>
+        <button class="btn danger sm" id="stop-btn"><svg class="ic sm"><use href="#i-stop"/></svg>Stop</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Live Server ──────────────────────────────────── -->
+  <section class="screen" id="live-screen" hidden>
+    <div class="card" id="ls-idle">
+      <div class="card-text">Serve this folder with auto-reload. Works for HTML and Markdown — or right-click a file.</div>
+      <div class="btn-row">
+        <button class="btn primary" id="ls-start-btn"><svg class="ic sm"><use href="#i-globe"/></svg>Browser</button>
+        <button class="btn" id="ls-start-preview-btn"><svg class="ic sm"><use href="#i-eye"/></svg>VS Code</button>
+      </div>
+    </div>
+
+    <div class="card" id="ls-running" hidden>
+      <div class="card-head">
+        <span class="dot"></span>
+        <div class="card-title" id="ls-label">Live Server</div>
+        <button class="btn danger sm" id="ls-stop-btn"><svg class="ic sm"><use href="#i-stop"/></svg>Stop</button>
+      </div>
+
+      <div>
+        <div class="lbl">On this computer</div>
+        <div class="urlrow">
+          <button class="url" id="ls-url-text" title="Open in browser"></button>
+          <button class="icon-btn" id="ls-copy-btn" title="Copy URL" aria-label="Copy URL"><svg class="ic"><use href="#i-copy"/></svg></button>
+          <button class="icon-btn" id="ls-preview-btn" title="Preview in VS Code" aria-label="Preview in VS Code"><svg class="ic"><use href="#i-eye"/></svg></button>
+          <button class="icon-btn" id="ls-open-btn" title="Open in browser" aria-label="Open in browser"><svg class="ic"><use href="#i-open"/></svg></button>
+        </div>
+      </div>
+
+      <div>
+        <div class="lbl row-label"><span>Public link</span><span class="pill ok" id="ls-public-tag" hidden>Live</span></div>
+        <label class="toggle" id="ls-skip-row" style="margin-bottom:8px" title="Visitors go straight to your page, without the Mekong warning page">
+          <input type="checkbox" id="ls-skip-warning">
+          <span class="switch"></span>
+          <span class="toggle-copy">
+            <span class="toggle-title">Skip browser warning</span>
+            <span class="toggle-sub" style="display:block">Visitors open your page directly</span>
+          </span>
+        </label>
+        <button class="btn block" id="ls-tunnel-btn"><svg class="ic sm"><use href="#i-tower"/></svg><span class="btn-label">Share publicly</span></button>
+        <div id="ls-public" hidden>
+          <div class="urlrow" id="ls-public-row">
+            <button class="url" id="ls-public-url-text" title="Open in browser"></button>
+            <button class="icon-btn" id="ls-public-copy-btn" title="Copy URL" aria-label="Copy public URL"><svg class="ic"><use href="#i-copy"/></svg></button>
+            <button class="icon-btn" id="ls-public-open-btn" title="Open in browser" aria-label="Open public URL"><svg class="ic"><use href="#i-open"/></svg></button>
+            <button class="icon-btn danger" id="ls-stop-tunnel-btn" title="Stop sharing" aria-label="Stop sharing"><svg class="ic"><use href="#i-stop"/></svg></button>
+          </div>
+        </div>
+      </div>
+      <div class="note" id="ls-public-skip-note"></div>
+      <div class="note" id="ls-live-reload-sub"></div>
+    </div>
+  </section>
+
+  <!-- Activity -->
+  <div class="alog collapsed" id="activity-log">
+    <button class="alog-header" id="log-toggle">
+      <span class="alog-title">Activity</span>
+      <span class="alog-count" id="log-count"></span>
+      <svg class="ic sm alog-arrow"><use href="#i-chev"/></svg>
+    </button>
+    <div class="alog-body" id="log-entries"><div class="alog-empty" id="log-empty">No activity yet</div></div>
+  </div>
+
+  <div class="footer">
+    <button class="btn ghost sm" id="log-btn"><svg class="ic sm"><use href="#i-term"/></svg>Output</button>
+    <span><a id="link-dashboard">Dashboard</a> · <a id="link-docs">Docs</a></span>
+  </div>
+</div>
 
 <script src="__SCRIPT_URI__"></script>
 </body>

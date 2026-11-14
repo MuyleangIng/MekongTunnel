@@ -58,7 +58,7 @@ ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/mekong_github_actions
 
 ```bash
 ssh-copy-id -p 2222 -i ~/.ssh/mekong_github_actions.pub root@139.59.108.158
-ssh-copy-id -p 2222 -i ~/.ssh/mekong_github_actions.pub root@proxy.angkorsearch.dev
+ssh-copy-id -p 2222 -i ~/.ssh/mekong_github_actions.pub root@proxy.mekongtunnel.dev
 ```
 
 - Paste the private key file content into the GitHub secret named `DEPLOY_SSH_KEY`:
@@ -89,14 +89,14 @@ cat .env.prod
 `TUNNEL_ENV_FILE` should contain the real tunnel server env file, for example:
 
 ```env
-DOMAIN=proxy.angkorsearch.dev
+DOMAIN=proxy.mekongtunnel.dev
 SSH_ADDR=:22
 HTTP_ADDR=127.0.0.1:8081
 HTTPS_ADDR=127.0.0.1:8443
 STATS_ADDR=127.0.0.1:9090
 HOST_KEY_PATH=/opt/mekongtunnel/host_key
-TLS_CERT=/etc/letsencrypt/live/proxy.angkorsearch.dev/fullchain.pem
-TLS_KEY=/etc/letsencrypt/live/proxy.angkorsearch.dev/privkey.pem
+TLS_CERT=/etc/letsencrypt/live/proxy.mekongtunnel.dev/fullchain.pem
+TLS_KEY=/etc/letsencrypt/live/proxy.mekongtunnel.dev/privkey.pem
 DATABASE_URL=postgres://USER:PASS@HOST:5432/DB?sslmode=disable
 ```
 
@@ -141,8 +141,8 @@ When `API_ENV_FILE` is omitted:
 | `API_SSH_PORT` | API only | Admin SSH port for the API host, for example `2222` |
 | `API_REMOTE_DIR` | API only | Remote install directory, for example `/opt/mekong/api` |
 | `API_SERVICE_NAME` | API only | Remote `systemd` service name, for example `mekong-api` |
-| `PUBLIC_API_BASE` | API only | Public base URL used for post-deploy checks, for example `https://api.angkorsearch.dev` |
-| `TUNNEL_REMOTE_HOST` | Tunnel only | SSH target for the tunnel host, for example `root@proxy.angkorsearch.dev` |
+| `PUBLIC_API_BASE` | API only | Public base URL used for post-deploy checks, for example `https://api.mekongtunnel.dev` |
+| `TUNNEL_REMOTE_HOST` | Tunnel only | SSH target for the tunnel host, for example `root@proxy.mekongtunnel.dev` |
 | `TUNNEL_SSH_PORT` | Tunnel only | Admin SSH port for the tunnel host, usually `2222` |
 | `TUNNEL_REMOTE_APP_DIR` | Tunnel only | Remote app dir, for example `/opt/mekongtunnel` |
 | `TUNNEL_SERVICE_NAME` | Tunnel only | Tunnel `systemd` service name, usually `mekongtunnel.service` |
@@ -159,9 +159,9 @@ API_REMOTE_HOST=root@139.59.108.158
 API_SSH_PORT=2222
 API_REMOTE_DIR=/opt/mekong/api
 API_SERVICE_NAME=mekong-api
-PUBLIC_API_BASE=https://api.angkorsearch.dev
+PUBLIC_API_BASE=https://api.mekongtunnel.dev
 
-TUNNEL_REMOTE_HOST=root@proxy.angkorsearch.dev
+TUNNEL_REMOTE_HOST=root@proxy.mekongtunnel.dev
 TUNNEL_SSH_PORT=2222
 TUNNEL_REMOTE_APP_DIR=/opt/mekongtunnel
 TUNNEL_SERVICE_NAME=mekongtunnel.service

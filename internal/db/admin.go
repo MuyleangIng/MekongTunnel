@@ -201,7 +201,8 @@ func (db *DB) CreateAbuseEvent(ctx context.Context, eventType, ip, subdomain, de
 
 func (db *DB) GetPlanConfigs(ctx context.Context) ([]*models.PlanConfig, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT plan_id, config, updated_at, updated_by FROM plan_configs ORDER BY plan_id`)
+		SELECT plan_id, config, updated_at, updated_by FROM plan_configs
+		ORDER BY COALESCE(array_position(ARRAY['free','student','pro','org'], plan_id), 99), plan_id`)
 	if err != nil {
 		return nil, err
 	}

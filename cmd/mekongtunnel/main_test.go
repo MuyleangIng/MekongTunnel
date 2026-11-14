@@ -8,7 +8,7 @@ func TestDeriveAPIBaseURL(t *testing.T) {
 		domain string
 		want   string
 	}{
-		{name: "proxy domain", domain: "proxy.angkorsearch.dev", want: "https://api.angkorsearch.dev"},
+		{name: "proxy domain", domain: "proxy.mekongtunnel.dev", want: "https://api.mekongtunnel.dev"},
 		{name: "plain host", domain: "example.com", want: "https://api.example.com"},
 		{name: "api host stays api", domain: "api.example.com", want: "https://api.example.com"},
 		{name: "empty", domain: "", want: ""},

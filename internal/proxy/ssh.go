@@ -228,6 +228,11 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 		channel.Close()
 		return
 	}
+	if err := s.enforceTunnelLimits(ctx, tun); err != nil {
+		fmt.Fprintf(channel, "\r\n  ERROR: %s\r\n\r\n", err)
+		channel.Close()
+		return
+	}
 
 	s.reportTunnelOpen(tun)
 
@@ -425,6 +430,43 @@ func (s *Server) claimTrustedDeploySubdomain(tun *tunnel.Tunnel, currentSub stri
 	return requested, nil
 }
 
+// enforceTunnelLimits applies the per-plan active-tunnel limit for signed-in
+// users and the optional per-IP limit for tunnels opened without an account.
+// The new tunnel is already registered, so it is excluded from the counts.
+func (s *Server) enforceTunnelLimits(ctx context.Context, tun *tunnel.Tunnel) error {
+	if userID := tun.UserID(); userID != "" {
+		provider, ok := s.tokenValidator.(TunnelLimitProvider)
+		if !ok {
+			return nil
+		}
+		limit, planName, err := provider.MaxActiveTunnelsForUser(ctx, userID)
+		if err != nil || limit < 0 {
+			return nil // fail open: never block tunnels because a lookup failed
+		}
+		open := s.countTunnels(func(t *tunnel.Tunnel) bool { return t != tun && t.UserID() == userID })
+		if open >= limit {
+			return fmt.Errorf("your %s plan allows %d active tunnel%s and you already have %d open. Stop one with `mekong stop <port>`, or apply for the Student plan at https://mekongtunnel.dev/pricing", planName, limit, plural(limit), open)
+		}
+		return nil
+	}
+	if s.anonMaxTunnelsPerIP > 0 {
+		open := s.countTunnels(func(t *tunnel.Tunnel) bool {
+			return t != tun && t.UserID() == "" && t.ClientIP == tun.ClientIP
+		})
+		if open >= s.anonMaxTunnelsPerIP {
+			return fmt.Errorf("the Free plan allows %d active tunnel%s at a time and you already have %d open. Stop one with `mekong stop <port>`, or log in and apply for the Student plan at https://mekongtunnel.dev/pricing", s.anonMaxTunnelsPerIP, plural(s.anonMaxTunnelsPerIP), open)
+		}
+	}
+	return nil
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
 func (s *Server) claimReservedSubdomain(ctx context.Context, tun *tunnel.Tunnel, currentSub string) (string, error) {
 	requested := tun.GetRequestedSubdomain()
 	if requested != "" && s.tokenValidator == nil {
@@ -449,20 +491,19 @@ func (s *Server) claimReservedSubdomain(ctx context.Context, tun *tunnel.Tunnel,
 	}
 	tun.SetUserID(userID)
 
-	target := ""
-	if requested != "" {
-		reserved, err := s.tokenValidator.GetReservedSubdomainForUser(ctx, userID, requested)
-		if err != nil {
-			return currentSub, fmt.Errorf("could not verify reserved subdomain %q", requested)
-		}
-		if reserved == "" {
-			return currentSub, fmt.Errorf("reserved subdomain %q was not found in your account or is assigned to another team member", requested)
-		}
-		target = reserved
-	} else {
-		reserved, _ := s.tokenValidator.GetFirstReservedSubdomain(ctx, userID)
-		target = reserved
+	// Without --subdomain the tunnel keeps its random name; the token only
+	// links it to the account (dashboard, logs, plan limits).
+	if requested == "" {
+		return currentSub, nil
 	}
+	reserved, err := s.tokenValidator.GetReservedSubdomainForUser(ctx, userID, requested)
+	if err != nil {
+		return currentSub, fmt.Errorf("could not verify reserved subdomain %q", requested)
+	}
+	if reserved == "" {
+		return currentSub, fmt.Errorf("reserved subdomain %q was not found in your account or is assigned to another team member", requested)
+	}
+	target := reserved
 
 	if target == "" || target == currentSub {
 		return currentSub, nil

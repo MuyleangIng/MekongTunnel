@@ -19,7 +19,7 @@ All 7 issues have been implemented and deployed.
 | 6 | P1 | `GET /api/org/{id}/members` returned all rows unpagenated | Added `ListOrgMembersPage` with LIMIT/OFFSET; handler supports `?limit=&offset=` query params | `db/org_system.go`, `handlers/org.go` |
 | 7 | P2 | `POST /api/donations/submit` had no spam protection | Added `RateLimitIP` 5/min | `server.go` |
 
-**Deployment:** `scripts/deploy-api.sh` completed — binary v1.5.7-dirty deployed to `api.angkorsearch.dev`. Health check, `/api/cli/subdomains` 401 check, and `/api/cli/domains` 401 check all passed.
+**Deployment:** `scripts/deploy-api.sh` completed — binary v1.5.7-dirty deployed to `api.mekongtunnel.dev`. Health check, `/api/cli/subdomains` 401 check, and `/api/cli/domains` 401 check all passed.
 
 ---
 

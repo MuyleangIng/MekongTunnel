@@ -9,9 +9,9 @@ API_REMOTE_HOST=root@139.59.108.158
 API_SSH_PORT=2222
 API_REMOTE_DIR=/opt/mekong/api
 API_SERVICE_NAME=mekong-api
-PUBLIC_API_BASE=https://api.angkorsearch.dev
+PUBLIC_API_BASE=https://api.mekongtunnel.dev
 
-TUNNEL_REMOTE_HOST=root@proxy.angkorsearch.dev
+TUNNEL_REMOTE_HOST=root@proxy.mekongtunnel.dev
 TUNNEL_SSH_PORT=2222
 TUNNEL_REMOTE_APP_DIR=/opt/mekongtunnel
 TUNNEL_SERVICE_NAME=mekongtunnel.service

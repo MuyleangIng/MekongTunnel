@@ -142,6 +142,12 @@ func main() {
 		srv.SetAPIBaseURL(apiURL)
 		log.Printf("Tunnel API sync enabled via %s", apiURL)
 	}
+	if v := strings.TrimSpace(os.Getenv("MAX_ANON_TUNNELS_PER_IP")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			srv.SetAnonMaxTunnelsPerIP(n)
+			log.Printf("Tunnels without an account limited to %d per IP", n)
+		}
+	}
 	tunnelSecret := strings.TrimSpace(os.Getenv("TUNNEL_EDGE_SECRET"))
 	if tunnelSecret != "" {
 		srv.SetAPISecret(tunnelSecret)

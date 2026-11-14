@@ -48,6 +48,14 @@ type TokenValidator interface {
 	GetTunnelLastSeen(ctx context.Context, subdomain string) (*time.Time, error)
 }
 
+// TunnelLimitProvider is optionally implemented by a TokenValidator to cap how
+// many tunnels one signed-in account may keep open at once (from its plan).
+type TunnelLimitProvider interface {
+	// MaxActiveTunnelsForUser returns the plan limit (negative = unlimited)
+	// and the plan's display name for error messages.
+	MaxActiveTunnelsForUser(ctx context.Context, userID string) (limit int, planName string, err error)
+}
+
 // Server manages SSH tunnels and HTTP proxying.
 // It holds the tunnel registry, per-IP connection counts, SSH connections
 // (for forced closure on IP block), and the abuse tracker.
@@ -77,6 +85,10 @@ type Server struct {
 	apiClient  *http.Client
 	apiSecret  string // X-Tunnel-Secret header value for internal tunnel-edge writes
 
+	// anonMaxTunnelsPerIP caps tunnels opened without a valid account token,
+	// per client IP (0 = no extra limit). Signed-in users follow their plan.
+	anonMaxTunnelsPerIP int
+
 	// DeployDir is the directory where static deployments are stored.
 	// If set, unknown subdomains will be checked here before returning 404.
 	DeployDir string
@@ -86,6 +98,27 @@ type Server struct {
 // Call this after New() when DATABASE_URL is available.
 func (s *Server) SetTokenValidator(v TokenValidator) {
 	s.tokenValidator = v
+}
+
+// SetAnonMaxTunnelsPerIP limits tunnels opened without an account token, per IP (0 = off).
+func (s *Server) SetAnonMaxTunnelsPerIP(n int) {
+	if n < 0 {
+		n = 0
+	}
+	s.anonMaxTunnelsPerIP = n
+}
+
+// countTunnels returns how many registered tunnels match keep.
+func (s *Server) countTunnels(keep func(*tunnel.Tunnel) bool) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for _, t := range s.tunnels {
+		if keep(t) {
+			n++
+		}
+	}
+	return n
 }
 
 // SetAPIBaseURL enables tunnel lifecycle sync into the API service.
@@ -171,7 +204,7 @@ func New(hostKeyPath string, domain string, maxTunnelsPerIP int, maxTotalTunnels
 	return s, nil
 }
 
-// Domain returns the configured domain name (e.g. "proxy.angkorsearch.dev").
+// Domain returns the configured domain name (e.g. "proxy.mekongtunnel.dev").
 func (s *Server) Domain() string {
 	return s.domain
 }

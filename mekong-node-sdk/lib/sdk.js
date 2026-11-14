@@ -24,8 +24,8 @@ const fs   = require('fs')
 const path = require('path')
 const http = require('https')
 
-const API_BASE = 'https://api.angkorsearch.dev'
-const WEB_BASE = 'https://angkorsearch.dev'
+const API_BASE = 'https://api.mekongtunnel.dev'
+const WEB_BASE = 'https://mekongtunnel.dev'
 
 // ── Config helpers ────────────────────────────────────────────────────────────
 
@@ -172,7 +172,7 @@ function expose (port, opts = {}) {
 // ── login() ──────────────────────────────────────────────────────────────────
 
 /**
- * Open browser → angkorsearch.dev login page → poll until token received.
+ * Open browser → mekongtunnel.dev login page → poll until token received.
  * Saves token to ~/.mekong/config.json.
  * Returns the token string.
  *

@@ -365,17 +365,22 @@ class MekongWebviewProvider implements vscode.WebviewViewProvider {
               type:      'portWarning',
               port:      msg.port,
               expire:    msg.expire,
+              skipWarning: !!msg.skipWarning,
               framework: detected?.framework ?? null,
               cmd:       devCommand(detected?.framework ?? ''),
             })
             return
           }
-          await vscode.commands.executeCommand('mekong.startTunnel', msg.port, msg.expire)
+          await vscode.commands.executeCommand('mekong.startTunnel', msg.port, msg.expire, !!msg.skipWarning, true)
           break
         }
         case 'startForce':
           // User confirmed "start anyway" despite port not responding
-          await vscode.commands.executeCommand('mekong.startTunnel', msg.port, msg.expire)
+          await vscode.commands.executeCommand('mekong.startTunnel', msg.port, msg.expire, !!msg.skipWarning, true)
+          break
+        case 'setSkipWarning':
+          await vscode.workspace.getConfiguration('mekong').update('skipBrowserWarning', !!msg.value, vscode.ConfigurationTarget.Global)
+          panelProvider?.sendState()
           break
         case 'stop':
           await vscode.commands.executeCommand('mekong.stopTunnel')
@@ -412,6 +417,15 @@ class MekongWebviewProvider implements vscode.WebviewViewProvider {
         case 'openOutput':
           outputChannel?.show()
           break
+        case 'openLink': {
+          const links: Record<string, string> = {
+            dashboard: 'https://mekongtunnel.dev/dashboard',
+            docs: 'https://docs.mekongtunnel.dev',
+          }
+          const target = links[String(msg.target)]
+          if (target) vscode.env.openExternal(vscode.Uri.parse(target))
+          break
+        }
         case 'install': {
           vscode.env.openExternal(vscode.Uri.parse(getInstallScriptUrl()))
           break
@@ -451,9 +465,17 @@ class MekongWebviewProvider implements vscode.WebviewViewProvider {
               const token: string  = r?.data?.token
               if (status === 'approved' && token) {
                 // 4. Save token, refresh auth panel
+                // Same file `mekong login` writes; keep any other fields in it.
                 const cfgDir = path.join(os.homedir(), '.mekong')
+                const cfgFile = path.join(cfgDir, 'config.json')
                 if (!fs.existsSync(cfgDir)) fs.mkdirSync(cfgDir, { recursive: true })
-                fs.writeFileSync(path.join(cfgDir, 'config.json'), JSON.stringify({ token }, null, 2), { mode: 0o600 })
+                let existing: Record<string, unknown> = {}
+                try { existing = JSON.parse(fs.readFileSync(cfgFile, 'utf8')) } catch {}
+                const next: Record<string, unknown> = { ...existing, token }
+                if (r?.data?.email) next.email = r.data.email
+                if (r?.data?.user_id) next.user_id = r.data.user_id
+                fs.writeFileSync(cfgFile, JSON.stringify(next, null, 2), { mode: 0o600 })
+                vscode.window.showInformationMessage('Signed in to Mekong Tunnel.')
                 await refreshAuth()
                 panelProvider?.sendState()
               } else if (status === 'expired') {
@@ -498,7 +520,7 @@ class MekongWebviewProvider implements vscode.WebviewViewProvider {
           break
         case 'tunnelLive':
           if (liveServer) {
-            await vscode.commands.executeCommand('mekong.startTunnel', liveServer.port)
+            await vscode.commands.executeCommand('mekong.startTunnel', liveServer.port, undefined, !!msg.skipWarning)
           }
           break
         case 'stopLiveTunnel':
@@ -567,6 +589,7 @@ class MekongWebviewProvider implements vscode.WebviewViewProvider {
       loggedIn:        !!cachedAuth,
       userEmail:       cachedAuth?.email ?? '',
       userPlan:        cachedAuth?.plan ?? '',
+      skipWarning:     !!vscode.workspace.getConfiguration('mekong').get<boolean>('skipBrowserWarning'),
     })
   }
 
@@ -677,7 +700,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 #side-tools{width:40px;background:#252526;border-left:1px solid #3c3c3c;display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:2px;flex-shrink:0}
 .st-btn{width:32px;height:32px;border-radius:6px;background:transparent;border:none;color:#888;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s}
 .st-btn:hover{background:rgba(255,255,255,.08);color:#ddd}
-.st-btn.on{color:#007acc}
+.st-btn.on{color:#f5c451}
 .st-sep{width:24px;height:1px;background:#3c3c3c;margin:3px 0}
 
 /* ── Picker overlay ─────────────────────────────────────────────────── */
@@ -690,7 +713,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 .pk-close:hover{background:rgba(255,255,255,.08);color:#ddd}
 .pk-search{padding:9px 14px;border-bottom:1px solid #3c3c3c;flex-shrink:0}
 .pk-search input{width:100%;background:#3c3c3c;border:1px solid #555;border-radius:6px;padding:6px 10px;color:#ccc;font-size:12px;outline:none;font-family:inherit}
-.pk-search input:focus{border-color:#007acc}
+.pk-search input:focus{border-color:#f5c451}
 #pk-content{overflow-y:auto;flex:1;padding:8px 0}
 .pk-top-card{margin:8px 14px;padding:10px 14px;background:#2d2d2d;border:1px solid #3c3c3c;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:all .15s}
 .pk-top-card:hover{background:#383838;border-color:#555}
@@ -698,7 +721,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 .pk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:6px;padding:0 12px 10px}
 .pk-card{background:#2d2d2d;border:1px solid #3c3c3c;border-radius:8px;padding:10px 6px 8px;text-align:center;cursor:pointer;transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:3px}
 .pk-card:hover{background:#383838;border-color:#555}
-.pk-card.sel{border-color:#007acc;background:rgba(0,122,204,.1)}
+.pk-card.sel{border-color:#f5c451;background:rgba(245,196,81,.1)}
 .pk-name{font-size:10px;font-weight:600;color:#ccc;line-height:1.3}
 .pk-size{font-size:9px;color:#777;font-family:monospace;margin-top:1px}
 .pk-card.hidden,.pk-group-label.hidden,.pk-grid.hidden{display:none}
@@ -1024,7 +1047,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // ── Start Tunnel ───────────────────────────────────────────────────────────
   context.subscriptions.push(
-    vscode.commands.registerCommand('mekong.startTunnel', async (portArg?: number, expireArg?: string) => {
+    vscode.commands.registerCommand('mekong.startTunnel', async (portArg?: number, expireArg?: string, skipWarningArg?: boolean, portChecked?: boolean) => {
       if (tunnelProcess) {
         vscode.window.showWarningMessage('Mekong tunnel is already active.')
         return
@@ -1062,8 +1085,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
 
-      // Warn if nothing is listening on the port (command palette path)
-      const listening = await isPortListening(port)
+      // Warn if nothing is listening on the port (command palette path;
+      // the sidebar already asked)
+      const listening = portChecked || await isPortListening(port)
       if (!listening) {
         const detected = detectPort()
         const cmd = devCommand(detected?.framework ?? '')
@@ -1084,9 +1108,11 @@ export function activate(context: vscode.ExtensionContext) {
       const token = config.get<string>('apiToken') || process.env.MEKONG_TOKEN || readSavedToken()
       if (token && token.trim()) args.push('--token', token.trim())
       if (!config.get<boolean>('showQr')) args.push('--no-qr')
+      if (skipWarningArg ?? config.get<boolean>('skipBrowserWarning')) args.push('--skip-browser-warning')
 
       outputChannel!.appendLine(`[mekong] Starting tunnel → localhost:${port}`)
-      outputChannel!.appendLine(`[mekong] ${mekongBin} ${args.join(' ')}\n`)
+      const shownArgs = args.map((a, i) => args[i - 1] === '--token' ? a.slice(0, 8) + '…' : a)
+      outputChannel!.appendLine(`[mekong] ${mekongBin} ${shownArgs.join(' ')}\n`)
 
       publicUrl = null
       tunnelPort = port
@@ -1113,7 +1139,7 @@ export function activate(context: vscode.ExtensionContext) {
             setStatus('running', publicUrl)
             panelProvider?.sendState()
             vscode.window.showInformationMessage(
-              `🌐 Tunnel live: ${publicUrl}`, 'Copy URL', 'Open'
+              `Tunnel live: ${publicUrl}`, 'Copy URL', 'Open'
             ).then(action => {
               if (action === 'Copy URL') vscode.env.clipboard.writeText(publicUrl!)
               else if (action === 'Open') vscode.env.openExternal(vscode.Uri.parse(publicUrl!))
@@ -1247,7 +1273,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Open VS Code preview panel (split to the right)
         await vscode.commands.executeCommand('mekong.openLivePreview', liveServer.port, openPath)
         vscode.window.showInformationMessage(
-          `⚡ Live Server + Preview: ${liveUrl}`,
+          `Live Server + preview: ${liveUrl}`,
           'Open in Browser', 'Stop'
         ).then(action => {
           if (action === 'Open in Browser') vscode.env.openExternal(vscode.Uri.parse(liveUrl))
@@ -1257,7 +1283,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Open in external browser
         vscode.env.openExternal(vscode.Uri.parse(liveUrl))
         vscode.window.showInformationMessage(
-          `⚡ Live Server: ${liveUrl}`,
+          `Live Server: ${liveUrl}`,
           'Preview Panel', 'Stop', 'Tunnel'
         ).then(action => {
           if (action === 'Preview Panel') vscode.commands.executeCommand('mekong.openLivePreview', liveServer?.port)

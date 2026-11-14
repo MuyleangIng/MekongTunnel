@@ -244,10 +244,10 @@ mekong-cli --with "next dev" --port 3000
 [server] ...
 ✔  Port 3000 is ready. Starting tunnel...
 [tunnel] ✔  Tunnel is live!
-[tunnel]    URL  https://happy-tiger-a1b2c3d4.proxy.angkorsearch.dev
+[tunnel]    URL  https://happy-tiger-a1b2c3d4.proxy.mekongtunnel.dev
 
 ╔══════════════════════════════════════════════════╗
-║  Public URL: https://happy-tiger-a1b2c3d4.proxy.angkorsearch.dev  ║
+║  Public URL: https://happy-tiger-a1b2c3d4.proxy.mekongtunnel.dev  ║
 ╚══════════════════════════════════════════════════╝
 ```
 

@@ -45,6 +45,9 @@ type tunnelLogClaims struct {
 type TunnelsHandler struct {
 	DB              *db.DB
 	TunnelServerURL string
+	// TunnelSecret (TUNNEL_EDGE_SECRET) authorises calls to the tunnel server's
+	// stats port when it runs on another machine.
+	TunnelSecret string
 	StatsClient     *http.Client
 	StreamClient    *http.Client
 	JWTSecret       string
@@ -210,6 +213,7 @@ func (h *TunnelsHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 		response.InternalError(w, err)
 		return
 	}
+	h.signTunnelRequest(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -463,6 +467,7 @@ func (h *TunnelsHandler) fetchLiveTunnels(ctx context.Context, userID, subdomain
 	if err != nil {
 		return nil, err
 	}
+	h.signTunnelRequest(req)
 
 	resp, err := h.statsClient().Do(req)
 	if err != nil {
@@ -492,6 +497,7 @@ func (h *TunnelsHandler) proxyTunnelLogs(ctx context.Context, subdomain string, 
 	if err != nil {
 		return nil, err
 	}
+	h.signTunnelRequest(req)
 
 	client := h.statsClient()
 	if stream {
@@ -595,6 +601,14 @@ func (h *TunnelsHandler) validateLogToken(tokenStr, tunnelID string) (*tunnelLog
 		return nil, fmt.Errorf("wrong tunnel")
 	}
 	return claims, nil
+}
+
+// signTunnelRequest adds the shared secret the tunnel server's stats port
+// expects from non-loopback callers.
+func (h *TunnelsHandler) signTunnelRequest(req *http.Request) {
+	if secret := strings.TrimSpace(h.TunnelSecret); secret != "" {
+		req.Header.Set("X-Tunnel-Secret", secret)
+	}
 }
 
 func (h *TunnelsHandler) statsClient() *http.Client {

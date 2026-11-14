@@ -8,7 +8,7 @@ import (
 func TestRenderNewsletterBodyHTMLReplacesUnsubscribePlaceholders(t *testing.T) {
 	const token = "preview-token"
 	html, autoAppended := renderNewsletterBodyHTML(
-		"https://angkorsearch.dev",
+		"https://mekongtunnel.dev",
 		`<p>Hello</p><a href="{{unsubscribe_url}}">Unsubscribe</a><span>{{unsubscribe_token}}</span>`,
 		token,
 	)
@@ -27,7 +27,7 @@ func TestRenderNewsletterBodyHTMLReplacesUnsubscribePlaceholders(t *testing.T) {
 func TestRenderNewsletterBodyHTMLAutoAppendsFooterBeforeClosingBody(t *testing.T) {
 	const token = "preview-token"
 	html, autoAppended := renderNewsletterBodyHTML(
-		"https://angkorsearch.dev",
+		"https://mekongtunnel.dev",
 		`<html><body><p>Hello</p></body></html>`,
 		token,
 	)

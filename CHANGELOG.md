@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v1.6.16 - 2026-11-14
+
+Highlights:
+
+- Tunnels you start while logged in now appear in your dashboard even without `--subdomain` (the CLI always sends your login token; the tunnel keeps its random name)
+- Server: a token without `--subdomain` links the tunnel to your account instead of moving it onto your first reserved subdomain
+- Server: per-plan active tunnel limits (Free 4, Student 6) and `MAX_ANON_TUNNELS_PER_IP` for anonymous tunnels
+- Server: tunnel logs and live stats work when the API runs on a separate host (shared-secret check on the stats port)
+- Reserved subdomain names must be 3–63 characters
+
 ## v1.6.15 - 2026-04-24
 
 Highlights:
@@ -85,8 +95,8 @@ Highlights:
 Highlights:
 
 - Fixed Windows binary detection in JetBrains plugin — now correctly finds `mekong.exe` at `%LOCALAPPDATA%\Programs\mekong\`
-- Fixed wrong domain in VS Code extension — token-info API was calling `api.angkorsearch.dev` instead of `api.mekongtunnel.dev`
-- VS Code extension v1.5.10: all `angkorsearch.dev` references replaced with `mekongtunnel.dev`
+- Fixed wrong domain in VS Code extension — token-info API was calling `api.mekongtunnel.dev` instead of `api.mekongtunnel.dev`
+- VS Code extension v1.5.10: all `mekongtunnel.dev` references replaced with `mekongtunnel.dev`
 
 ## v1.6.2 - 2026-04-17
 
@@ -131,7 +141,7 @@ Highlights:
 
 - Added `mekong deploy` for hosted static, Next.js, and PHP project uploads, including `mekong deploy list` and `mekong deploy stop`
 - Updated the CLI help output, help topics, and shell completions so `deploy` is advertised in `mekong`, `mekong help`, and completion scripts
-- Switched public reserved-subdomain help text from the old `angkorsearch.dev` wording to `mekongtunnel.dev`
+- Switched public reserved-subdomain help text from the old `mekongtunnel.dev` wording to `mekongtunnel.dev`
 - Added hosted deployment backend support on the API and tunnel edge using app-server file serving plus SSH reverse tunnels instead of the older rsync/Caddy flow
 - Restored active hosted deployments on API startup and exposed per-deployment logs for the dashboard and server-side troubleshooting
 - Built fresh multi-platform client binaries with `main.version=v1.6.0`

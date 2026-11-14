@@ -147,8 +147,8 @@ await test('expose() with token passes --token flag', async () => {
   try {
     tunnel = await mekong.expose(port, { token, noQr: true, timeout: 20000 })
     assert.ok(
-      tunnel.url.includes('.proxy.angkorsearch.dev'),
-      'URL should be on the default proxy.angkorsearch.dev tunnel domain'
+      tunnel.url.includes('.proxy.mekongtunnel.dev'),
+      'URL should be on the default proxy.mekongtunnel.dev tunnel domain'
     )
   } catch (err) {
     if (err.message?.includes('not found') || err.message?.includes('ENOENT')) {

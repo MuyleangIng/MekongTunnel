@@ -1,10 +1,10 @@
 # MekongTunnel Production Setup
 
 > Current production layout:
-> `angkorsearch.dev` = web UI
-> `api.angkorsearch.dev` = REST API
-> `proxy.angkorsearch.dev` = tunnel SSH + HTTPS entrypoint
-> `*.proxy.angkorsearch.dev` = generated public tunnel URLs
+> `mekongtunnel.dev` = web UI
+> `api.mekongtunnel.dev` = REST API
+> `proxy.mekongtunnel.dev` = tunnel SSH + HTTPS entrypoint
+> `*.proxy.mekongtunnel.dev` = generated public tunnel URLs
 > `*.mekongtunnel.dev` = optional branded custom-domain wildcard
 
 ## Docs Map
@@ -19,9 +19,9 @@
 
 Use three separate concerns:
 
-1. UI on `angkorsearch.dev`
-2. API on `api.angkorsearch.dev`
-3. Tunnel edge on `proxy.angkorsearch.dev`
+1. UI on `mekongtunnel.dev`
+2. API on `api.mekongtunnel.dev`
+3. Tunnel edge on `proxy.mekongtunnel.dev`
 
 The repo now supports:
 
@@ -49,27 +49,27 @@ Keep your existing UI/API records if they already work:
 
 | Type | Name | Value |
 |------|------|-------|
-| A / CNAME | `angkorsearch.dev` | your frontend host |
-| A / CNAME | `api.angkorsearch.dev` | your API host |
+| A / CNAME | `mekongtunnel.dev` | your frontend host |
+| A / CNAME | `api.mekongtunnel.dev` | your API host |
 
 Point the tunnel edge to the proxy server:
 
 | Type | Name | Value |
 |------|------|-------|
-| A | `proxy.angkorsearch.dev` | `YOUR_PROXY_SERVER_IP` |
-| A | `*.proxy.angkorsearch.dev` | `YOUR_PROXY_SERVER_IP` |
+| A | `proxy.mekongtunnel.dev` | `YOUR_PROXY_SERVER_IP` |
+| A | `*.proxy.mekongtunnel.dev` | `YOUR_PROXY_SERVER_IP` |
 
 Optional branded wildcard:
 
 | Type | Name | Value |
 |------|------|-------|
-| CNAME | `*.mekongtunnel.dev` | `proxy.angkorsearch.dev` |
+| CNAME | `*.mekongtunnel.dev` | `proxy.mekongtunnel.dev` |
 
 Quick checks:
 
 ```bash
-dig +short proxy.angkorsearch.dev
-dig +short test.proxy.angkorsearch.dev
+dig +short proxy.mekongtunnel.dev
+dig +short test.proxy.mekongtunnel.dev
 dig +short app.mekongtunnel.dev
 ```
 
@@ -108,7 +108,7 @@ systemctl restart ssh.service
 From a second terminal, verify before closing your original session:
 
 ```bash
-ssh -p 2222 root@proxy.angkorsearch.dev
+ssh -p 2222 root@proxy.mekongtunnel.dev
 ```
 
 ---
@@ -121,8 +121,8 @@ Issue the certificate that covers the proxy entrypoint and generated tunnel URLs
 
 ```bash
 certbot certonly --manual --preferred-challenges dns \
-  -d proxy.angkorsearch.dev \
-  -d '*.proxy.angkorsearch.dev'
+  -d proxy.mekongtunnel.dev \
+  -d '*.proxy.mekongtunnel.dev'
 ```
 
 ### Optional branded wildcard
@@ -138,8 +138,8 @@ certbot certonly --manual --preferred-challenges dns \
 Expected certificate paths:
 
 ```bash
-/etc/letsencrypt/live/proxy.angkorsearch.dev/fullchain.pem
-/etc/letsencrypt/live/proxy.angkorsearch.dev/privkey.pem
+/etc/letsencrypt/live/proxy.mekongtunnel.dev/fullchain.pem
+/etc/letsencrypt/live/proxy.mekongtunnel.dev/privkey.pem
 /etc/letsencrypt/live/mekongtunnel.dev/fullchain.pem
 /etc/letsencrypt/live/mekongtunnel.dev/privkey.pem
 ```
@@ -165,14 +165,14 @@ cp .env.prod.example .env.prod
 Minimum tunnel-side values:
 
 ```env
-DOMAIN=proxy.angkorsearch.dev
+DOMAIN=proxy.mekongtunnel.dev
 SSH_ADDR=:22
 HTTP_ADDR=127.0.0.1:8081
 HTTPS_ADDR=127.0.0.1:8443
 STATS_ADDR=127.0.0.1:9090
 HOST_KEY_PATH=/opt/mekongtunnel/host_key
-TLS_CERT=/etc/letsencrypt/live/proxy.angkorsearch.dev/fullchain.pem
-TLS_KEY=/etc/letsencrypt/live/proxy.angkorsearch.dev/privkey.pem
+TLS_CERT=/etc/letsencrypt/live/proxy.mekongtunnel.dev/fullchain.pem
+TLS_KEY=/etc/letsencrypt/live/proxy.mekongtunnel.dev/privkey.pem
 DATABASE_URL=postgres://USER:PASS@HOST:5432/DB?sslmode=disable
 ```
 
@@ -285,9 +285,9 @@ mekong subdomains
 
 Expected `mekong doctor` checks:
 
-- DNS resolves `proxy.angkorsearch.dev`
+- DNS resolves `proxy.mekongtunnel.dev`
 - SSH port `22` reachable
-- API health on `https://api.angkorsearch.dev/api/health`
+- API health on `https://api.mekongtunnel.dev/api/health`
 - saved credentials and token validation if logged in
 
 ---
@@ -338,8 +338,8 @@ mekong doctor app.example.com
 
 If DNS is not ready, the CLI prints the required records:
 
-- apex/root domains such as `example.com`: `A/AAAA @ -> same IPs as proxy.angkorsearch.dev`
-- subdomains such as `app.example.com`: `CNAME app -> proxy.angkorsearch.dev`
+- apex/root domains such as `example.com`: `A/AAAA @ -> same IPs as proxy.mekongtunnel.dev`
+- subdomains such as `app.example.com`: `CNAME app -> proxy.mekongtunnel.dev`
 - TXT fallback: `_mekongtunnel-verify.app.example.com -> mekong-verify=...`
 
 Rule of thumb:
@@ -448,7 +448,7 @@ mekong doctor app.example.com
 For root domains, also compare the proxy IPs directly:
 
 ```bash
-dig +short proxy.angkorsearch.dev
+dig +short proxy.mekongtunnel.dev
 dig +short app.example.com
 ```
 

@@ -4,3 +4,5 @@ out/maps/**
 node_modules/**
 tsconfig.json
 /tmp/**
+out/**/*.map
+*.vsix

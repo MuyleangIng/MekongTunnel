@@ -273,6 +273,35 @@ func (db *DB) GetSubdomainCountByScope(ctx context.Context, userID, teamID strin
 	return count, err
 }
 
+// MaxActiveTunnelsForUser returns the plan's maxTunnels for a user (negative =
+// unlimited; admins are always unlimited). Implements proxy.TunnelLimitProvider.
+func (db *DB) MaxActiveTunnelsForUser(ctx context.Context, userID string) (int, string, error) {
+	var plan string
+	var isAdmin bool
+	if err := db.Pool.QueryRow(ctx, `SELECT plan, is_admin FROM users WHERE id = $1`, userID).Scan(&plan, &isAdmin); err != nil {
+		return -1, "", err
+	}
+	if isAdmin {
+		return -1, plan, nil
+	}
+	var raw []byte
+	if err := db.Pool.QueryRow(ctx, `SELECT config FROM plan_configs WHERE plan_id = $1`, plan).Scan(&raw); err != nil {
+		return -1, plan, err
+	}
+	var cfg struct {
+		Name       string   `json:"name"`
+		MaxTunnels *float64 `json:"maxTunnels"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.MaxTunnels == nil {
+		return -1, plan, err
+	}
+	name := cfg.Name
+	if name == "" {
+		name = plan
+	}
+	return int(*cfg.MaxTunnels), name, nil
+}
+
 // GetSubdomainLimit returns the maxReservedSubdomains for a user's plan (-1 = unlimited).
 func (db *DB) GetSubdomainLimit(ctx context.Context, userPlan string) (int, error) {
 	var raw []byte

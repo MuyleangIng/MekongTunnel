@@ -214,6 +214,7 @@ func (s *Server) registerRoutes() {
 	tunnelsH := &handlers.TunnelsHandler{
 		DB:              s.db,
 		TunnelServerURL: s.cfg.TunnelServerURL,
+		TunnelSecret:    s.cfg.TunnelEdgeSecret,
 		StatsClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -326,6 +327,19 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/auth/2fa/enable", chain(authH.Enable2FA, authRequired))
 	s.mux.HandleFunc("POST /api/auth/2fa/disable", chain(authH.Disable2FA, authRequired))
 	s.mux.HandleFunc("POST /api/auth/2fa/verify", chain(authH.Verify2FA, twoFAVerifyRate))
+
+	// ── Passkeys (WebAuthn) ─────────────────────────────────────
+	if passkeyH, err := handlers.NewPasskeyHandler(authH); err != nil {
+		log.Printf("[api] passkeys disabled: %v", err)
+	} else {
+		s.mux.HandleFunc("POST /api/auth/passkeys/login/begin", chain(passkeyH.BeginLogin, loginRate))
+		s.mux.HandleFunc("POST /api/auth/passkeys/login/finish", chain(passkeyH.FinishLogin, loginRate))
+		s.mux.HandleFunc("GET /api/auth/passkeys", chain(passkeyH.List, authRequired))
+		s.mux.HandleFunc("POST /api/auth/passkeys/register/begin", chain(passkeyH.BeginRegistration, authRequired))
+		s.mux.HandleFunc("POST /api/auth/passkeys/register/finish", chain(passkeyH.FinishRegistration, authRequired))
+		s.mux.HandleFunc("PATCH /api/auth/passkeys/{id}", chain(passkeyH.Rename, authRequired))
+		s.mux.HandleFunc("DELETE /api/auth/passkeys/{id}", chain(passkeyH.Delete, authRequired))
+	}
 
 	// ── API Tokens ──────────────────────────────────────────────
 	s.mux.HandleFunc("GET /api/tokens", chain(tokensH.ListTokens, authRequired))

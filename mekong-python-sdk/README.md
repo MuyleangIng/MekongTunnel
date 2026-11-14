@@ -11,7 +11,7 @@
 
 ## How it works
 
-`mekong-tunnel` installs framework-specific commands that start your dev server **and** open a public tunnel on `proxy.angkorsearch.dev` by default — all in a single command.
+`mekong-tunnel` installs framework-specific commands that start your dev server **and** open a public tunnel on `proxy.mekongtunnel.dev` by default — all in a single command.
 
 ```
 uvicorn-mekong main:app --reload
@@ -23,10 +23,10 @@ uvicorn-mekong main:app --reload
 [uvicorn] INFO:     Uvicorn running on http://127.0.0.1:8000
 ✔  uvicorn is up on port 8000.
 [tunnel]  ✔  Tunnel is live!
-[tunnel]     URL  https://happy-tiger-a1b2c3d4.proxy.angkorsearch.dev
+[tunnel]     URL  https://happy-tiger-a1b2c3d4.proxy.mekongtunnel.dev
 
 ╔═══════════════════════════════════════════════════════════════╗
-║  Public URL: https://happy-tiger-a1b2c3d4.proxy.angkorsearch.dev   ║
+║  Public URL: https://happy-tiger-a1b2c3d4.proxy.mekongtunnel.dev   ║
 ╚═══════════════════════════════════════════════════════════════╝
 ```
 

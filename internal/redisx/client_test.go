@@ -43,7 +43,7 @@ func TestServerConfigCache(t *testing.T) {
 		AnnouncementEnabled:   true,
 		AnnouncementText:      "hello",
 		AnnouncementColor:     "green",
-		AnnouncementLink:      "https://angkorsearch.dev",
+		AnnouncementLink:      "https://mekongtunnel.dev",
 		AnnouncementLinkLabel: "Open",
 	}
 

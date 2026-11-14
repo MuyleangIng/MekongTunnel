@@ -10,10 +10,10 @@ func TestResolveTunnelSessionToken(t *testing.T) {
 		want               string
 	}{
 		{
-			name:               "no reserved subdomain keeps random tunnel",
+			name:               "random tunnel still forwards token",
 			apiToken:           "mkt_saved",
 			requestedSubdomain: "",
-			want:               "",
+			want:               "mkt_saved",
 		},
 		{
 			name:               "reserved subdomain forwards token",

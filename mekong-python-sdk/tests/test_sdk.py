@@ -147,7 +147,7 @@ class TestExpose:
         try:
             tunnel = mekong.expose(port, no_qr=True, timeout=20)
             assert tunnel.url.startswith("https://"), f"Expected https URL, got: {tunnel.url}"
-            assert ".proxy.angkorsearch.dev" in tunnel.url
+            assert ".proxy.mekongtunnel.dev" in tunnel.url
         finally:
             if tunnel: tunnel.stop()
             server.server_close()

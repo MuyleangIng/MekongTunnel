@@ -72,7 +72,7 @@ func main() {
 
 	// Resend (preferred on cloud — no SMTP port restrictions)
 	resendKey := getEnv("RESEND_API_KEY", "")
-	resendFrom := getEnv("RESEND_FROM", "Mekong Tunnel <noreply@angkorsearch.dev>")
+	resendFrom := getEnv("RESEND_FROM", "Mekong Tunnel <noreply@mekongtunnel.dev>")
 
 	// SMTP fallback
 	smtpHost := getEnv("SMTP_HOST", "smtp.gmail.com")

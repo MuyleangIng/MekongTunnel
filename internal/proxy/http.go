@@ -786,256 +786,211 @@ func suggestedMekongCommand(tun *tunnel.Tunnel) string {
 	return command
 }
 
+// pageBaseCSS is the shared look for every page the tunnel edge renders
+// (shared-tunnel notice, offline / not-found / status pages): MekongTunnel's
+// glass card on a deep river-teal background, light/dark aware, phone friendly.
+const pageBaseCSS = `
+    :root {
+      color-scheme: dark light;
+      --bg: #061419; --bg-2: #040e12;
+      --card: rgba(11, 31, 38, 0.62); --card-border: rgba(255, 255, 255, 0.10);
+      --sunken: rgba(0, 0, 0, 0.24); --hairline: rgba(255, 255, 255, 0.09);
+      --text: #e8eef0; --muted: #94aab0; --gold: #f5c451; --river: #2dd4bf;
+      --danger: #f87171; --ok: #34d399;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f7f1e6; --bg-2: #efe4d2;
+        --card: rgba(255, 253, 248, 0.78); --card-border: rgba(161, 95, 0, 0.16);
+        --sunken: rgba(239, 228, 210, 0.55); --hairline: rgba(161, 95, 0, 0.14);
+        --text: #201b16; --muted: #6a6f7d; --gold: #a15f00; --river: #0f766e;
+        --danger: #b91c1c; --ok: #047857;
+        --shadow: 0 24px 60px rgba(32, 27, 22, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    html { background: var(--bg-2); }
+    body {
+      min-height: 100vh;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Khmer", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, color-mix(in srgb, var(--river) 18%, transparent), transparent 60%),
+        radial-gradient(ellipse 50% 40% at 95% 5%, color-mix(in srgb, var(--gold) 12%, transparent), transparent 60%),
+        linear-gradient(180deg, var(--bg), var(--bg-2));
+      background-repeat: no-repeat;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 28px 16px 40px;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; }
+    code, pre, .mono { font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace; }
+    .topbar { width: 100%; max-width: 640px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 800; letter-spacing: 0.02em; }
+    .brand-mark {
+      width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--river) 30%, transparent), color-mix(in srgb, var(--gold) 26%, transparent));
+      border: 1px solid var(--card-border);
+    }
+    .brand-mark svg { width: 18px; height: 18px; color: var(--gold); }
+    .brand-name span:first-child { background: linear-gradient(90deg, var(--gold), var(--river)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .topbar-link { font-size: 12px; color: var(--muted); text-decoration: none; }
+    .topbar-link:hover { color: var(--text); }
+    .card {
+      position: relative; width: 100%; max-width: 640px; overflow: hidden;
+      background: var(--card); border: 1px solid var(--card-border); border-radius: 24px;
+      box-shadow: var(--shadow);
+      -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%);
+      padding: 30px 28px;
+    }
+    .card::before {
+      content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent, var(--gold)), transparent);
+    }
+    .badge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 18px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 5px 11px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--accent, var(--gold));
+      background: color-mix(in srgb, var(--accent, var(--gold)) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent, var(--gold)) 30%, transparent);
+    }
+    .pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+    .chip { font-size: 11px; color: var(--muted); border: 1px solid var(--hairline); background: var(--sunken); border-radius: 8px; padding: 4px 8px; }
+    .hero-icon {
+      width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; margin-bottom: 16px;
+      color: var(--accent, var(--gold));
+      background: color-mix(in srgb, var(--accent, var(--gold)) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent, var(--gold)) 30%, transparent);
+    }
+    .hero-icon svg { width: 26px; height: 26px; }
+    h1 { margin: 0 0 10px; font-size: clamp(24px, 4.6vw, 32px); line-height: 1.15; letter-spacing: -0.02em; }
+    .lead { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.7; }
+    .lead strong { color: var(--text); display: block; margin-bottom: 4px; }
+    .panel { margin-top: 20px; border: 1px solid var(--hairline); background: var(--sunken); border-radius: 16px; padding: 14px 16px; }
+    .label { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      border-radius: 14px; padding: 13px 20px; font-size: 15px; font-weight: 700; text-decoration: none;
+      transition: transform .15s ease, filter .15s ease, background .15s ease;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { color: #061419; background: linear-gradient(90deg, #f5c451, #fcd980); box-shadow: 0 8px 28px rgba(245, 196, 81, 0.28); }
+    .btn-primary:hover { filter: brightness(1.06); }
+    .btn-ghost { color: var(--text); border: 1px solid var(--card-border); background: var(--sunken); }
+    .btn-ghost:hover { border-color: color-mix(in srgb, var(--river) 45%, transparent); }
+    .footnote { margin: 18px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
+    details.dev { margin-top: 18px; border: 1px dashed color-mix(in srgb, var(--river) 35%, transparent); border-radius: 16px; background: color-mix(in srgb, var(--river) 6%, transparent); }
+    details.dev summary { cursor: pointer; list-style: none; padding: 13px 16px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    details.dev summary::-webkit-details-marker { display: none; }
+    details.dev summary .chev { margin-left: auto; transition: transform .2s ease; color: var(--muted); }
+    details.dev[open] summary .chev { transform: rotate(90deg); }
+    details.dev .dev-body { padding: 0 16px 14px; font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .snippet { margin: 8px 0 12px; display: block; padding: 10px 12px; border-radius: 10px; background: var(--sunken); border: 1px solid var(--hairline); color: var(--river); font-size: 12.5px; overflow-x: auto; white-space: pre; }
+    .snippet .p { color: var(--gold); user-select: none; }
+    .site-foot { margin-top: 22px; font-size: 12px; color: var(--muted); }
+    .site-foot a { color: var(--gold); text-decoration: none; }
+    @media (max-width: 520px) {
+      body { padding: 18px 12px 32px; }
+      .card { padding: 24px 18px; border-radius: 20px; }
+      .btn { width: 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+`
+
+const pageBrandSVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"/><path d="M2 19c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"/><path d="M12 3 7 9h10z"/></svg>`
+
 var warningPageTemplate = template.Must(template.New("warning-page").Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
   <title>MekongTunnel | Shared tunnel notice</title>
-  <style>
-    :root {
-      --bg: #f6f2eb;
-      --panel: #ffffff;
-      --ink: #171615;
-      --muted: #6d655c;
-      --line: rgba(23, 22, 21, 0.12);
-      --accent: #0f766e;
-      --accent-soft: rgba(15, 118, 110, 0.08);
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, var(--accent-soft), transparent 32%),
-        linear-gradient(180deg, #faf8f4 0%, var(--bg) 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-    }
-    .shell {
-      width: min(680px, 100%);
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      background: var(--panel);
-      box-shadow: 0 18px 40px rgba(28, 24, 19, 0.08);
-    }
-    .content {
-      padding: 28px;
-    }
-    .brand {
-      margin: 0;
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: -0.03em;
-    }
-    .kicker {
-      margin: 8px 0 0;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-    }
-    h1 {
-      margin: 18px 0 14px;
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: clamp(32px, 6vw, 52px);
-      line-height: 1.02;
-      letter-spacing: -0.05em;
-    }
-    .copy,
-    .cancel-note,
-    .footnote {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.7;
-    }
-    .copy {
-      font-size: 16px;
-      max-width: 38rem;
-    }
-    .destination {
-      margin-top: 20px;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 16px;
-      background: #fcfcfb;
-    }
-    .label {
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--muted);
-      margin-bottom: 8px;
-      font-weight: 700;
-    }
-    code {
-      display: block;
-      font-family: "SFMono-Regular", "JetBrains Mono", monospace;
-      font-size: clamp(13px, 3.8vw, 15px);
-      line-height: 1.7;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-      color: #0f172a;
-    }
-    .cta-wrap {
-      margin-top: 22px;
-    }
-    .cta {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      text-decoration: none;
-      border-radius: 16px;
-      padding: 17px 22px;
-      background: linear-gradient(135deg, var(--accent) 0%, #155e75 100%);
-      color: white;
-      box-shadow: 0 12px 24px rgba(15,118,110,0.18);
-      transition: transform 120ms ease, opacity 120ms ease, box-shadow 120ms ease;
-    }
-    .cta:hover {
-      transform: translateY(-1px);
-      opacity: 0.94;
-    }
-    .cta.is-loading {
-      pointer-events: none;
-      opacity: 0.96;
-      box-shadow: 0 18px 36px rgba(15,118,110,0.22);
-    }
-    .cta-inner {
-      display: inline-flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .cta-spinner {
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      border: 2px solid rgba(255,255,255,0.34);
-      border-top-color: #ffffff;
-      display: none;
-      animation: mekong-spin 0.8s linear infinite;
-    }
-    .cta.is-loading .cta-spinner {
-      display: inline-flex;
-    }
-    .cta-label {
-      font-size: clamp(18px, 4vw, 22px);
-      font-weight: 800;
-      line-height: 1.1;
-      letter-spacing: -0.03em;
-    }
-    .cancel-note {
-      margin-top: 16px;
-      font-size: 14px;
-    }
-    .notice {
-      margin: 18px 0 0;
-      padding-left: 18px;
-      font-size: 14px;
-      color: var(--muted);
-      line-height: 1.65;
-    }
-    .notice-title {
-      font-size: 12px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: #3f3a34;
-      margin: 18px 0 8px;
-    }
-    .notice li + li {
-      margin-top: 8px;
-    }
-    .footnote {
-      margin-top: 14px;
-      font-size: 13px;
-    }
-    @keyframes mekong-spin {
-      to { transform: rotate(360deg); }
-    }
-    @media (max-width: 640px) {
-      body {
-        padding: 10px;
-        align-items: stretch;
-      }
-      .shell {
-        width: 100%;
-        border-radius: 20px;
-      }
-      .content {
-        padding: 20px 16px 18px;
-      }
-      h1 {
-        font-size: clamp(28px, 12vw, 44px);
-      }
-      .copy {
-        font-size: 15px;
-      }
-      .destination {
-        margin-top: 18px;
-        padding: 14px;
-        border-radius: 16px;
-      }
-      .cta {
-        padding: 16px 18px;
-        border-radius: 16px;
-      }
-      .cta-label {
-        font-size: clamp(16px, 6.8vw, 21px);
-      }
-      .notice {
-        margin-top: 16px;
-      }
-    }
-    @media (max-width: 380px) {
-      .brand {
-        font-size: 20px;
-      }
-      h1 {
-        font-size: 26px;
-      }
-      .cta-label {
-        font-size: 15px;
-      }
-    }
+  <style>` + pageBaseCSS + `
+    .dest { display: flex; align-items: center; gap: 12px; }
+    .dest-icon { flex: none; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--river) 14%, transparent); color: var(--river); }
+    .dest-icon svg { width: 20px; height: 20px; }
+    .dest-host { font-weight: 700; font-size: 16px; word-break: break-all; }
+    .dest-url { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); word-break: break-all; }
+    .cta-wrap { margin-top: 22px; display: flex; flex-direction: column; gap: 10px; }
+    .cta { width: 100%; }
+    .cta-inner { display: inline-flex; align-items: center; gap: 10px; }
+    .cta-spinner { display: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(6, 20, 25, 0.25); border-top-color: #061419; animation: spin .7s linear infinite; }
+    .cta.is-loading { pointer-events: none; filter: saturate(0.8); }
+    .cta.is-loading .cta-spinner { display: inline-block; }
+    .cta.is-loading .cta-arrow { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .cancel-note { margin: 0; text-align: center; font-size: 12.5px; color: var(--muted); }
+    .notice-title { margin-top: 24px; font-size: 13px; font-weight: 700; }
+    .notice { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+    .notice li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--muted); line-height: 1.55; }
+    .notice svg { flex: none; width: 18px; height: 18px; margin-top: 2px; color: var(--gold); }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <div class="content">
-      <p class="brand">MekongTunnel</p>
-      <p class="kicker">Shared tunnel notice</p>
-      <h1>You are about to open a shared tunnel.</h1>
-      <p class="copy">This URL points to an app being exposed from a developer machine through MekongTunnel. Continue only if you trust the person who shared it with you.</p>
-      <div class="destination">
-        <div class="label">Destination</div>
-        <code>{{.Redirect}}</code>
-      </div>
-      <div class="cta-wrap">
-        <a class="cta" href="{{.ContinueHref}}" data-destination="{{.Redirect}}" data-loading-label="Opening site...">
-          <span class="cta-inner">
-            <span class="cta-spinner" aria-hidden="true"></span>
-            <span class="cta-label">Continue to site</span>
-          </span>
-        </a>
-      </div>
-      <p class="cancel-note">If you do not trust this link, close this tab instead of continuing.</p>
-      <div class="notice-title">Before you continue</div>
-      <ul class="notice">
-        <li>This app is controlled by the person who shared the tunnel link.</li>
-        <li>The page behind this URL may change, restart, or go offline at any time.</li>
-        <li>Do not enter passwords, payment details, or private data unless you trust the sender.</li>
-      </ul>
-      <p class="footnote">You will not see this warning again for this tunnel for the next 24 hours.</p>
+  <header class="topbar">
+    <a class="brand" href="https://mekongtunnel.dev/"><span class="brand-mark">` + pageBrandSVG + `</span><span class="brand-name"><span>Mekong</span><span>Tunnel</span></span></a>
+    <a class="topbar-link" href="https://docs.mekongtunnel.dev/" rel="noopener">What is this?</a>
+  </header>
+
+  <main class="card" style="--accent: var(--gold)">
+    <div class="badge-row">
+      <span class="pill"><span class="pill-dot"></span><span class="kicker">Shared tunnel notice</span></span>
+      {{if .Subdomain}}<span class="chip mono">{{.Subdomain}}</span>{{end}}
     </div>
-  </div>
+
+    <div class="hero-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.4 7.5 9.5 4.3-1.1 7.5-5 7.5-9.5V6z"/><path d="M12 8v4.5"/><path d="M12 16h.01"/></svg>
+    </div>
+    <h1>You are about to open a shared tunnel.</h1>
+    <p class="lead">This URL points to an app running on someone's own computer, shared through MekongTunnel. Continue only if you trust the person who sent you this link.</p>
+
+    <div class="panel">
+      <div class="label">Destination</div>
+      <div class="dest">
+        <div class="dest-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/></svg></div>
+        <div>
+          <div class="dest-host mono">{{if .DestinationHost}}{{.DestinationHost}}{{else}}{{.Redirect}}{{end}}</div>
+          <code class="dest-url">{{.Redirect}}</code>
+        </div>
+      </div>
+    </div>
+
+    <div class="cta-wrap">
+      <a class="btn btn-primary cta" href="{{.ContinueHref}}" data-destination="{{.Redirect}}" data-loading-label="Opening site...">
+        <span class="cta-inner">
+          <span class="cta-spinner" aria-hidden="true"></span>
+          <span class="cta-label">Continue to site</span>
+          <span class="cta-arrow" aria-hidden="true">&rarr;</span>
+        </span>
+      </a>
+      <p class="cancel-note">Don't trust this link? Just close this tab.</p>
+    </div>
+
+    <div class="notice-title">Before you continue</div>
+    <ul class="notice">
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>This app is controlled by the person who shared the tunnel link, not by MekongTunnel.</span></li>
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg><span>The page behind this URL may change, restart, or go offline at any time.</span></li>
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span>Don't enter passwords, payment details, or private data unless you trust the sender.</span></li>
+    </ul>
+
+    <details class="dev">
+      <summary><span aria-hidden="true">&#9881;&#65039;</span> Is this your tunnel? Skip this page <span class="chev" aria-hidden="true">&rsaquo;</span></summary>
+      <div class="dev-body">
+        Start the tunnel with the skip flag so visitors go straight to your app:
+        <code class="snippet"><span class="p">$ </span>mekong 3000 --skip-browser-warning</code>
+        Calling it from code, a webhook or a script? Send this header (non-browser clients like <code>curl</code> never see this page):
+        <code class="snippet">mekongtunnel-skip-warning: 1</code>
+        Visitors who click <strong>Continue</strong> won't see this notice again for this tunnel for 24 hours.
+      </div>
+    </details>
+  </main>
+
+  <p class="site-foot">Secured by <a href="https://mekongtunnel.dev/">MekongTunnel</a> &middot; open-source tunnels from Cambodia</p>
+
   <script>
     document.addEventListener("click", function (event) {
       var link = event.target.closest("[data-loading-label]");
@@ -1057,515 +1012,141 @@ var warningPageTemplate = template.Must(template.New("warning-page").Parse(`<!DO
 var issuePageTemplate = template.Must(template.New("issue-page").Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
   <title>MekongTunnel | {{.Title}}</title>
-  <style>
-    :root {
-      --bg: #f6f2eb;
-      --panel: #ffffff;
-      --ink: #161514;
-      --muted: #6a6258;
-      --line: rgba(22, 21, 20, 0.12);
-      --accent: {{.Accent}};
-      --accent-soft: {{.AccentSoft}};
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top left, var(--accent-soft), transparent 32%),
-        linear-gradient(180deg, #faf8f4 0%, var(--bg) 100%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-    }
-    .shell {
-      width: min(760px, 100%);
-      border: 1px solid var(--line);
-      border-radius: 22px;
-      background: var(--panel);
-      box-shadow: 0 18px 40px rgba(28, 24, 19, 0.08);
-    }
-    .brand {
-      margin: 0;
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: -0.03em;
-    }
-    .status {
-      margin: 8px 0 0;
-      color: var(--accent);
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-    }
-    .content {
-      padding: 28px;
-    }
-    .code {
-      display: inline-flex;
-      align-items: center;
-      margin-top: 20px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(22,21,20,0.05);
-      color: var(--accent);
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-    }
-    h1 {
-      margin: 18px 0 14px;
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: clamp(32px, 6vw, 50px);
-      line-height: 1.02;
-      letter-spacing: -0.05em;
-    }
-    .summary {
-      margin: 0;
-      color: var(--muted);
-      font-size: 16px;
-      line-height: 1.75;
-      max-width: 42rem;
-      overflow-wrap: anywhere;
-    }
-    .summary strong {
-      display: block;
-      color: var(--ink);
-      font-weight: 800;
-      margin-bottom: 4px;
-      overflow-wrap: anywhere;
-    }
-    .flow {
-      margin-top: 22px;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      background: #fcfcfb;
-      padding: 18px 16px 16px;
-      overflow: hidden;
-    }
-    .flow-grid {
-      position: relative;
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-    }
-    .flow-line {
-      position: absolute;
-      top: 63px;
-      left: 12.5%;
-      right: 12.5%;
-      height: 4px;
-      border-radius: 999px;
-      background: #d1d5db;
-      overflow: hidden;
-    }
-    .flow-line-active {
-      display: block;
-      width: 66.666%;
-      height: 100%;
-      border-radius: inherit;
-      background: linear-gradient(90deg, #22c55e 0%, #86efac 50%, #22c55e 100%);
-      background-size: 200% 100%;
-      transition: width 220ms ease;
-      animation: mekong-flow-shift 2.8s linear infinite;
-    }
-    .flow-node {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      justify-items: center;
-      gap: 8px;
-      min-width: 0;
-      text-align: center;
-    }
+  <style>` + pageBaseCSS + `
+    .code { font-size: 11px; color: var(--muted); }
+    .flow { margin-top: 22px; padding: 20px 14px 16px; border: 1px solid var(--hairline); background: var(--sunken); border-radius: 18px; }
+    .flow-grid { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .flow-line { position: absolute; top: 23px; left: 12.5%; right: 12.5%; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--danger) 35%, transparent); }
+    .flow-line-active { display: block; height: 100%; width: 66.6%; border-radius: 2px; background: linear-gradient(90deg, var(--river), var(--ok)); box-shadow: 0 0 12px color-mix(in srgb, var(--river) 60%, transparent); transition: width .5s ease; }
+    .flow-node { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; }
     .flow-icon {
-      width: 46px;
-      height: 46px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: #ffffff;
-      display: grid;
-      place-items: center;
-      color: #9ca3af;
+      position: relative; z-index: 1; width: 48px; height: 48px; border-radius: 15px; display: grid; place-items: center;
+      background: var(--card); border: 1px solid var(--card-border);
     }
-    .flow-icon svg {
-      width: 22px;
-      height: 22px;
-      display: block;
-    }
-    .flow-node.active .flow-icon {
-      color: #22c55e;
-      border-color: rgba(34, 197, 94, 0.24);
-      box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.06);
-    }
-    .flow-node.failed .flow-icon {
-      color: #9ca3af;
-    }
-    .flow-indicator {
-      width: 100%;
-      height: 18px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .flow-dot {
-      width: 14px;
-      height: 14px;
-      border-radius: 999px;
-      border: 3px solid #fcfcfb;
-      background: #9ca3af;
-      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.28);
-    }
-    .flow-node.active .flow-dot {
-      background: #22c55e;
-      animation: mekong-pulse 1.8s ease-out infinite;
-    }
-    .flow-node.active .flow-cross {
-      display: none;
-    }
-    .flow-node.failed .flow-dot {
-      width: 22px;
-      height: 22px;
-      border: 2px solid #ef4444;
-      background: #ffffff;
-      color: #ef4444;
-      display: grid;
-      place-items: center;
-      box-shadow: 0 0 0 4px #fcfcfb;
-      animation: mekong-error-pulse 1.8s ease-in-out infinite;
-    }
-    .flow-cross {
-      font-size: 14px;
-      line-height: 1;
-      font-weight: 800;
-      transform: translateY(-1px);
-    }
-    .flow-label {
-      color: #3f3a34;
-      font-size: 13px;
-      font-weight: 700;
-      line-height: 1.35;
-      overflow-wrap: anywhere;
-    }
-    .flow-node.failed .flow-label {
-      color: #6b7280;
-    }
-    .retry-note {
-      margin: 14px 0 0;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.6;
-      overflow-wrap: anywhere;
-    }
-    .retry-note.is-ready {
-      color: #166534;
-    }
-    .retry-dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 999px;
-      background: #22c55e;
-      flex: 0 0 auto;
-      animation: mekong-retry-blink 1.6s ease-in-out infinite;
-    }
-    .retry-note.is-ready .retry-dot {
-      animation: none;
-      box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.12);
-    }
-    .facts {
-      margin-top: 22px;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      background: #fcfcfb;
-      padding: 16px;
-    }
-    .label {
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--muted);
-      font-weight: 700;
-      margin-bottom: 10px;
-    }
-    .facts dl {
-      margin: 0;
-      display: grid;
-      gap: 12px;
-    }
-    .facts div {
-      display: grid;
-      gap: 4px;
-    }
-    dt {
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 600;
-    }
-    dd {
-      margin: 0;
-      color: var(--ink);
-      font-family: "SFMono-Regular", "JetBrains Mono", monospace;
-      font-size: 14px;
-      line-height: 1.55;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-    }
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 14px;
-      margin-top: 24px;
-    }
-    .actions a {
-      text-decoration: none;
-      border-radius: 14px;
-      padding: 14px 18px;
-      font-weight: 700;
-      text-align: center;
-      overflow-wrap: anywhere;
-      transition: transform 120ms ease, opacity 120ms ease;
-    }
-    .actions a:hover { transform: translateY(-1px); opacity: 0.92; }
-    .primary {
-      background: linear-gradient(135deg, var(--accent) 0%, #1f2937 100%);
-      color: white;
-      box-shadow: 0 14px 32px rgba(16, 24, 40, 0.18);
-    }
-    .secondary {
-      border: 1px solid var(--line);
-      color: var(--ink);
-      background: #ffffff;
-    }
-    .help {
-      margin-top: 24px;
-      padding-top: 20px;
-      border-top: 1px solid var(--line);
-      display: grid;
-      gap: 20px;
-    }
-    .help-block h2 {
-      margin: 0 0 10px;
-      font-size: 15px;
-      letter-spacing: -0.02em;
-    }
-    .help-block p {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.7;
-      overflow-wrap: anywhere;
-    }
-    pre {
-      margin: 14px 0 0;
-      border-radius: 12px;
-      background: #151515;
-      color: #f8fafc;
-      padding: 14px 16px;
-      overflow-x: auto;
-      font-family: "SFMono-Regular", "JetBrains Mono", monospace;
-      font-size: 13px;
-      line-height: 1.6;
-    }
-    @keyframes mekong-flow-shift {
-      0% { background-position: 200% 0; }
-      100% { background-position: 0 0; }
-    }
-    @keyframes mekong-pulse {
-      0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.34); }
-      70% { box-shadow: 0 0 0 12px rgba(34, 197, 94, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
-    }
-    @keyframes mekong-error-pulse {
-      0%, 100% { transform: scale(1); box-shadow: 0 0 0 4px #fcfcfb, 0 0 0 0 rgba(239, 68, 68, 0.24); }
-      50% { transform: scale(1.06); box-shadow: 0 0 0 4px #fcfcfb, 0 0 0 10px rgba(239, 68, 68, 0); }
-    }
-    @keyframes mekong-retry-blink {
-      0%, 100% { opacity: 0.45; transform: scale(0.92); }
-      50% { opacity: 1; transform: scale(1); }
-    }
-    @media (max-width: 720px) {
-      body {
-        padding: 10px;
-        align-items: stretch;
-      }
-      .shell {
-        width: 100%;
-        border-radius: 20px;
-      }
-      .content {
-        padding: 20px 16px 18px;
-      }
-      h1 {
-        font-size: clamp(28px, 11vw, 42px);
-      }
-      .summary {
-        font-size: 15px;
-      }
-      .flow {
-        padding: 16px 10px 14px;
-      }
-      .flow-grid {
-        gap: 6px;
-      }
-      .flow-line {
-        top: 57px;
-      }
-      .flow-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 12px;
-      }
-      .flow-icon svg {
-        width: 19px;
-        height: 19px;
-      }
-      .flow-label {
-        font-size: 11px;
-      }
-      .flow-node.failed .flow-dot {
-        width: 20px;
-        height: 20px;
-      }
-      .facts {
-        padding: 14px;
-        border-radius: 16px;
-      }
-      .actions a {
-        width: 100%;
-        text-align: center;
-      }
+    .flow-icon svg { width: 22px; height: 22px; }
+    .flow-node.active .flow-icon { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); box-shadow: 0 0 22px -6px var(--ok); }
+    .flow-node.failed .flow-icon { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, transparent); animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 14%, transparent); } }
+    .flow-indicator { height: 14px; display: grid; place-items: center; }
+    .flow-dot { width: 14px; height: 14px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; line-height: 1; color: #fff; }
+    .flow-node.active .flow-dot { background: var(--ok); }
+    .flow-node.failed .flow-dot { background: var(--danger); }
+    .flow-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+    .flow-node.failed .flow-label { color: var(--danger); }
+    .retry-note { margin: 14px 0 0; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+    .retry-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); animation: blink 1.2s ease-in-out infinite; }
+    .retry-note.is-ready .retry-dot { background: var(--ok); animation: none; }
+    @keyframes blink { 50% { opacity: .25; } }
+    .facts dl { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 18px; }
+    .facts dt { font-size: 11px; color: var(--muted); }
+    .facts dd { margin: 2px 0 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; word-break: break-all; }
+    .actions { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 10px; }
+    .help { margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .help-block { border: 1px solid var(--hairline); border-radius: 16px; padding: 14px 16px; background: var(--sunken); }
+    .help-block h2 { margin: 0 0 6px; font-size: 13px; }
+    .help-block p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--muted); }
+    .help-block pre { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--hairline); color: var(--river); font-size: 12.5px; overflow-x: auto; }
+    @media (max-width: 420px) {
+      .flow { padding: 16px 8px 14px; }
+      .flow-icon { width: 40px; height: 40px; border-radius: 12px; }
+      .flow-line { top: 19px; }
+      .flow-label { font-size: 10.5px; }
     }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <div class="content">
-      <p class="brand">MekongTunnel</p>
-      <p class="status">{{.StatusLine}}</p>
-      <div class="code">{{.Code}}</div>
-      {{if .ShowConnectionFlow}}
-      <h1>{{.DashboardTitle}}</h1>
-      <div class="summary"><strong data-retry-title>{{.DashboardMessage}}</strong><span data-retry-text>{{.DashboardSubtext}}</span></div>
-      <div class="flow" aria-label="Tunnel connection status">
-        <div class="flow-grid">
-          <div class="flow-line" aria-hidden="true">
-            <span class="flow-line-active" data-flow-active></span>
+  <header class="topbar">
+    <a class="brand" href="https://mekongtunnel.dev/"><span class="brand-mark">` + pageBrandSVG + `</span><span class="brand-name"><span>Mekong</span><span>Tunnel</span></span></a>
+    <a class="topbar-link" href="https://docs.mekongtunnel.dev/" rel="noopener">Docs</a>
+  </header>
+
+  <main class="card" style="--accent: {{.Accent}}">
+    <div class="badge-row">
+      <span class="pill status"><span class="pill-dot"></span>{{.StatusLine}}</span>
+      <span class="chip mono code">{{.Code}}</span>
+    </div>
+
+    {{if .ShowConnectionFlow}}
+    <h1>{{.DashboardTitle}}</h1>
+    <p class="lead summary"><strong data-retry-title>{{.DashboardMessage}}</strong><span data-retry-text>{{.DashboardSubtext}}</span></p>
+    <div class="flow" aria-label="Tunnel connection status">
+      <div class="flow-grid">
+        <div class="flow-line" aria-hidden="true">
+          <span class="flow-line-active" data-flow-active></span>
+        </div>
+        <div class="flow-node active">
+          <div class="flow-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a14 14 0 0 1 0 18"></path><path d="M12 3a14 14 0 0 0 0 18"></path></svg>
           </div>
-          <div class="flow-node active">
-            <div class="flow-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9"></circle>
-                <path d="M3 12h18"></path>
-                <path d="M12 3a14 14 0 0 1 0 18"></path>
-                <path d="M12 3a14 14 0 0 0 0 18"></path>
-              </svg>
-            </div>
-            <div class="flow-indicator"><span class="flow-dot"></span></div>
-            <div class="flow-label">Internet</div>
+          <div class="flow-indicator"><span class="flow-dot"></span></div>
+          <div class="flow-label">Internet</div>
+        </div>
+        <div class="flow-node active">
+          <div class="flow-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"></rect><rect x="3" y="13" width="18" height="7" rx="2"></rect><path d="M7 7.5h.01"></path><path d="M7 16.5h.01"></path></svg>
           </div>
-          <div class="flow-node active">
-            <div class="flow-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M6.5 18h10a4 4 0 0 0 .7-7.94A5.5 5.5 0 0 0 6.2 9.7 3.8 3.8 0 0 0 6.5 18Z"></path>
-                <path d="M9 12h.01"></path>
-                <path d="M12 12h.01"></path>
-                <path d="M15 12h.01"></path>
-              </svg>
-            </div>
-            <div class="flow-indicator"><span class="flow-dot"></span></div>
-            <div class="flow-label">Mekong Edge</div>
+          <div class="flow-indicator"><span class="flow-dot"></span></div>
+          <div class="flow-label">Mekong Edge</div>
+        </div>
+        <div class="flow-node active">
+          <div class="flow-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="m8 10 3 2.5L8 15"></path><path d="M13 15h4"></path></svg>
           </div>
-          <div class="flow-node active">
-            <div class="flow-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="4" width="18" height="16" rx="2"></rect>
-                <path d="m8 10 3 2.5L8 15"></path>
-                <path d="M13 15h4"></path>
-              </svg>
-            </div>
-            <div class="flow-indicator"><span class="flow-dot"></span></div>
-            <div class="flow-label">Mekong Agent</div>
+          <div class="flow-indicator"><span class="flow-dot"></span></div>
+          <div class="flow-label">Mekong Agent</div>
+        </div>
+        <div class="flow-node failed" data-local-node>
+          <div class="flow-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 9-4 3 4 3"></path><path d="m16 9 4 3-4 3"></path><path d="m13.5 6-3 12"></path></svg>
           </div>
-          <div class="flow-node failed" data-local-node>
-            <div class="flow-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="4" y="4" width="16" height="6" rx="1.5"></rect>
-                <rect x="4" y="14" width="16" height="6" rx="1.5"></rect>
-                <path d="M8 7h.01"></path>
-                <path d="M8 17h.01"></path>
-              </svg>
-            </div>
-            <div class="flow-indicator"><span class="flow-dot"><span class="flow-cross">×</span></span></div>
-            <div class="flow-label">Local Service</div>
-          </div>
+          <div class="flow-indicator"><span class="flow-dot"><span class="flow-cross">&times;</span></span></div>
+          <div class="flow-label">Local Service</div>
         </div>
       </div>
       <p class="retry-note" data-retry-note><span class="retry-dot" aria-hidden="true"></span><span data-retry-status>Checking again every 2 seconds. This page will open your app automatically when localhost responds.</span></p>
-      {{else}}
-      <h1>{{.Title}}</h1>
-      <div class="summary">{{.Summary}}</div>
-      {{end}}
-      <div class="facts">
-        <div class="label">Connection details</div>
-        <dl>
-          <div>
-            <dt>Public host</dt>
-            <dd>{{.PublicHost}}</dd>
-          </div>
-          {{if .ReservedSub}}
-          <div>
-            <dt>Reserved subdomain target</dt>
-            <dd>{{.ReservedSub}}</dd>
-          </div>
-          {{end}}
-          {{if .LastSeenLabel}}
-          <div>
-            <dt>Last seen</dt>
-            <dd>{{.LastSeenLabel}}</dd>
-          </div>
-          {{end}}
-          {{if .LocalTarget}}
-          <div>
-            <dt>Expected local app</dt>
-            <dd>{{.LocalTarget}}</dd>
-          </div>
-          {{end}}
-          {{if .HostHeader}}
-          <div>
-            <dt>Host header override</dt>
-            <dd>{{.HostHeader}}</dd>
-          </div>
-          {{end}}
-        </dl>
+    </div>
+    {{else}}
+    <div class="hero-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"></path><path d="M12 3v7"></path><path d="m9 7 3 3 3-3"></path><path d="M2 19c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"></path></svg>
+    </div>
+    <h1>{{.Title}}</h1>
+    <p class="lead summary">{{.Summary}}</p>
+    {{end}}
+
+    <div class="panel facts">
+      <div class="label">Connection details</div>
+      <dl>
+        <div><dt>Public host</dt><dd>{{.PublicHost}}</dd></div>
+        {{if .ReservedSub}}<div><dt>Reserved subdomain target</dt><dd>{{.ReservedSub}}</dd></div>{{end}}
+        {{if .LastSeenLabel}}<div><dt>Last seen</dt><dd>{{.LastSeenLabel}}</dd></div>{{end}}
+        {{if .LocalTarget}}<div><dt>Expected local app</dt><dd>{{.LocalTarget}}</dd></div>{{end}}
+        {{if .HostHeader}}<div><dt>Host header override</dt><dd>{{.HostHeader}}</dd></div>{{end}}
+      </dl>
+    </div>
+
+    <div class="actions">
+      <a class="btn btn-primary primary" href="{{.PrimaryHref}}">{{.PrimaryLabel}}</a>
+      <a class="btn btn-ghost secondary" href="{{.SecondaryHref}}">{{.SecondaryLabel}}</a>
+    </div>
+
+    <div class="help">
+      <div class="help-block">
+        <h2>If you are visiting this page</h2>
+        <p>{{.VisitorTip}}</p>
       </div>
-      <div class="actions">
-        <a class="primary" href="{{.PrimaryHref}}">{{.PrimaryLabel}}</a>
-        <a class="secondary" href="{{.SecondaryHref}}">{{.SecondaryLabel}}</a>
-      </div>
-      <div class="help">
-        <div class="help-block">
-          <h2>If you are visiting this page</h2>
-          <p>{{.VisitorTip}}</p>
-        </div>
-        <div class="help-block">
-          <h2>If you are sharing this page</h2>
-          <p>{{.DeveloperTip}}</p>
-          {{if .Command}}<pre>{{.Command}}</pre>{{end}}
-        </div>
+      <div class="help-block">
+        <h2>If you are sharing this page</h2>
+        <p>{{.DeveloperTip}}</p>
+        {{if .Command}}<pre>{{.Command}}</pre>{{end}}
       </div>
     </div>
-  </div>
+  </main>
+
+  <p class="site-foot">Powered by <a href="https://mekongtunnel.dev/">MekongTunnel</a> &middot; open-source tunnels from Cambodia</p>
   {{if .ShowConnectionFlow}}
   <script>
     (function () {

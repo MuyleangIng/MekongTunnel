@@ -8,7 +8,7 @@
 #
 #  What it does:
 #    1. Build mekongtunnel locally for linux/amd64
-#    2. Upload binary and .env.prod to proxy.angkorsearch.dev:2222
+#    2. Upload binary and .env.prod to proxy.mekongtunnel.dev:2222
 #    3. Install /etc/systemd/system/mekongtunnel.service
 #    4. Optionally install a wildcard nginx vhost (for example *.mekongtunnel.dev)
 #    5. Restart and verify the tunnel service
@@ -20,7 +20,7 @@
 # ============================================================
 set -euo pipefail
 
-REMOTE_HOST="${REMOTE_HOST:-root@proxy.angkorsearch.dev}"
+REMOTE_HOST="${REMOTE_HOST:-root@proxy.mekongtunnel.dev}"
 REMOTE_SSH_PORT="${REMOTE_SSH_PORT:-2222}"
 REMOTE_APP_DIR="${REMOTE_APP_DIR:-/opt/mekongtunnel}"
 REMOTE_SERVICE_NAME="${REMOTE_SERVICE_NAME:-mekongtunnel.service}"

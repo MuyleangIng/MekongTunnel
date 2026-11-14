@@ -93,7 +93,7 @@ func TestRunDeleteCommand(t *testing.T) {
 	oldDo := apiDo
 	t.Cleanup(func() { apiDo = oldDo })
 	t.Setenv("MEKONG_TOKEN", "mkt_test")
-	authAPIBase = "https://api.angkorsearch.dev"
+	authAPIBase = "https://api.mekongtunnel.dev"
 
 	deleted := false
 	apiDo = func(r *http.Request) (*http.Response, error) {
@@ -135,7 +135,7 @@ func TestRunDeleteCommandNotFound(t *testing.T) {
 	oldDo := apiDo
 	t.Cleanup(func() { apiDo = oldDo })
 	t.Setenv("MEKONG_TOKEN", "mkt_test")
-	authAPIBase = "https://api.angkorsearch.dev"
+	authAPIBase = "https://api.mekongtunnel.dev"
 
 	apiDo = func(r *http.Request) (*http.Response, error) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/cli/subdomains" {
@@ -160,7 +160,7 @@ func TestRunSubdomainCommandReservesFromBareName(t *testing.T) {
 	oldDo := apiDo
 	t.Cleanup(func() { apiDo = oldDo })
 	t.Setenv("MEKONG_TOKEN", "mkt_test")
-	authAPIBase = "https://api.angkorsearch.dev"
+	authAPIBase = "https://api.mekongtunnel.dev"
 
 	created := false
 	apiDo = func(r *http.Request) (*http.Response, error) {
@@ -192,7 +192,7 @@ func TestRunSubdomainCommandDeletesWithVerb(t *testing.T) {
 	oldDo := apiDo
 	t.Cleanup(func() { apiDo = oldDo })
 	t.Setenv("MEKONG_TOKEN", "mkt_test")
-	authAPIBase = "https://api.angkorsearch.dev"
+	authAPIBase = "https://api.mekongtunnel.dev"
 
 	var calls []string
 	apiDo = func(r *http.Request) (*http.Response, error) {

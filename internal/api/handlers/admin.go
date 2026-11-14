@@ -257,7 +257,7 @@ func (h *AdminHandler) ResendVerification(w http.ResponseWriter, r *http.Request
 
 	frontendURL := h.FrontendURL
 	if frontendURL == "" {
-		frontendURL = "https://angkorsearch.dev"
+		frontendURL = "https://mekongtunnel.dev"
 	}
 
 	if h.Mailer != nil {

@@ -152,8 +152,8 @@ class TestFastAPITunnel:
         assert mekong_tunnel.url.startswith("https://"), \
             f"Expected https URL, got: {mekong_tunnel.url}"
 
-    def test_tunnel_url_is_proxy_angkorsearch_dev(self, mekong_tunnel):
-        assert ".proxy.angkorsearch.dev" in mekong_tunnel.url, \
+    def test_tunnel_url_is_proxy_mekongtunnel_dev(self, mekong_tunnel):
+        assert ".proxy.mekongtunnel.dev" in mekong_tunnel.url, \
             f"Unexpected domain in: {mekong_tunnel.url}"
 
     def test_tunnel_root_reachable(self, mekong_tunnel):

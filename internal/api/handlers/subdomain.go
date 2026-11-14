@@ -227,15 +227,9 @@ func (h *SubdomainHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	subdomain := strings.ToLower(strings.TrimSpace(body.Subdomain))
-	if subdomain == "" {
-		response.BadRequest(w, "subdomain is required")
+	if msg := validateSubdomainName(subdomain); msg != "" {
+		response.BadRequest(w, msg)
 		return
-	}
-	for _, c := range subdomain {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
-			response.BadRequest(w, "subdomain may only contain lowercase letters, digits, and hyphens")
-			return
-		}
 	}
 
 	ownerUserID := claims.UserID
@@ -318,15 +312,9 @@ func (h *SubdomainHandler) CreateCLI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	subdomain := strings.ToLower(strings.TrimSpace(body.Subdomain))
-	if subdomain == "" {
-		response.BadRequest(w, "subdomain is required")
+	if msg := validateSubdomainName(subdomain); msg != "" {
+		response.BadRequest(w, msg)
 		return
-	}
-	for _, c := range subdomain {
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
-			response.BadRequest(w, "subdomain may only contain lowercase letters, digits, and hyphens")
-			return
-		}
 	}
 
 	ownerUserID := user.ID
@@ -591,4 +579,25 @@ func (h *SubdomainHandler) Analytics(w http.ResponseWriter, r *http.Request) {
 		data = []*db.SubdomainAnalytics{}
 	}
 	response.Success(w, data)
+}
+
+// validateSubdomainName checks a reserved subdomain is a valid DNS label:
+// 3–63 characters, lowercase letters, digits and hyphens, and no hyphen at
+// either end. It returns a user-facing message, or "" when the name is fine.
+func validateSubdomainName(name string) string {
+	if name == "" {
+		return "subdomain is required"
+	}
+	if len(name) < 3 || len(name) > 63 {
+		return "subdomain must be 3–63 characters"
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return "subdomain may only contain lowercase letters, digits, and hyphens"
+		}
+	}
+	if name[0] == '-' || name[len(name)-1] == '-' {
+		return "subdomain cannot start or end with a hyphen"
+	}
+	return ""
 }

@@ -249,10 +249,12 @@ func readActiveTunnelStates() ([]tunnelState, error) {
 
 // isPIDAlive is defined in platform_unix.go / platform_windows.go
 
+// resolveTunnelSessionToken returns the token to send with a tunnel session.
+// It is always sent when logged in so random tunnels show up in the
+// dashboard; servers since v1.6.16 keep the random name unless --subdomain
+// is given.
 func resolveTunnelSessionToken(apiToken, requestedSubdomain string) string {
-	if strings.TrimSpace(requestedSubdomain) == "" {
-		return ""
-	}
+	_ = requestedSubdomain
 	return strings.TrimSpace(apiToken)
 }
 

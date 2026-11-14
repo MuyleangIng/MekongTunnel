@@ -11,9 +11,9 @@ This document defines the user-facing rules for the core `mekong` CLI.
 ## Domain Model
 
 - Marketing and installer URLs use `mekongtunnel.dev`.
-- The web app uses `angkorsearch.dev`.
-- The API uses `api.angkorsearch.dev`.
-- Default generated tunnel URLs use `*.proxy.angkorsearch.dev`.
+- The web app uses `mekongtunnel.dev`.
+- The API uses `api.mekongtunnel.dev`.
+- Default generated tunnel URLs use `*.proxy.mekongtunnel.dev`.
 - Branded wildcard domains such as `*.mekongtunnel.dev` are optional and should be described as optional.
 
 ## Auth Precedence

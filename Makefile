@@ -99,7 +99,7 @@ compose-dev-down:
 	docker compose --env-file .env.compose.dev -f docker-compose.yml -f docker-compose.dev.yml down
 
 compose-prod-up:
-	docker compose --env-file .env.compose.prod -f docker-compose.yml -f docker-compose.prod.yml up -d
+	docker compose --env-file .env.compose.prod -f docker-compose.yml -f docker-compose.prod.yml --profile tunnel up -d
 
 compose-prod-down:
 	docker compose --env-file .env.compose.prod -f docker-compose.yml -f docker-compose.prod.yml down

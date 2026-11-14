@@ -333,7 +333,7 @@ func receiptEmailHTML(receiptID, name, plan, method string, amountUSD float64, d
     <div style="background:#0d0d1a;border:1px solid #2a2a4a;border-radius:12px;padding:16px;margin-bottom:24px">
       <p style="margin:0;font-size:13px;color:#a0a0c0">Your <strong style="color:#f5a623">%s</strong> plan is now active. Log in to start using all features.</p>
     </div>
-    <a href="https://angkorsearch.dev/dashboard" style="display:inline-block;background:#f5a623;color:#fff;text-decoration:none;padding:12px 24px;border-radius:10px;font-weight:700;font-size:14px">Go to Dashboard →</a>
+    <a href="https://mekongtunnel.dev/dashboard" style="display:inline-block;background:#f5a623;color:#fff;text-decoration:none;padding:12px 24px;border-radius:10px;font-weight:700;font-size:14px">Go to Dashboard →</a>
     <p style="margin:24px 0 0;font-size:11px;color:#555;border-top:1px solid #2a2a4a;padding-top:16px">MekongTunnel · mekongtunnel.dev · This is your payment receipt — keep it for your records.</p>
   </div>
 </div></body></html>`,

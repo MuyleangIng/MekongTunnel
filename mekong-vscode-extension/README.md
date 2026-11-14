@@ -144,7 +144,7 @@ The extension reads your `package.json` and maps known frameworks to their defau
 ## Changelog
 
 ### v1.5.10
-- **Fix wrong domains** — replaced all `angkorsearch.dev` references with `mekongtunnel.dev` in API calls, settings description, and README
+- **Fix wrong domains** — replaced all `mekongtunnel.dev` references with `mekongtunnel.dev` in API calls, settings description, and README
 
 ### v1.5.9
 - **Fix wrong API domain** — token-info was fetching from wrong domain; corrected to `api.mekongtunnel.dev`

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/MuyleangIng/MekongTunnel/internal/api/middleware"
@@ -49,10 +51,24 @@ func (h *TeamHandler) GetTeam(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// allFeaturesFree gives every team the unlimited "org" limits. Off by default:
+// team limits follow each user's plan (Free has no teams; Student/Pro/Org do).
+// Set ALL_FEATURES_FREE=true to unlock teams for everyone.
+var allFeaturesFree = strings.TrimSpace(os.Getenv("ALL_FEATURES_FREE")) == "true"
+
+// effectiveTeamPlan maps a plan to the plan whose limits apply.
+func effectiveTeamPlan(plan string) string {
+	if allFeaturesFree {
+		return "org"
+	}
+	return plan
+}
+
 // teamLimit returns the max number of teams allowed for a plan.
 // -1 = unlimited, 0 = no teams allowed.
 // Teams are a Pro/Org-only feature; student and free plans have no access.
 func teamLimit(plan string, isAdmin bool) int {
+	plan = effectiveTeamPlan(plan)
 	if isAdmin {
 		return -1 // unlimited
 	}
@@ -69,6 +85,7 @@ func teamLimit(plan string, isAdmin bool) int {
 // memberSizeLimit returns the max number of members allowed per team based on the team's plan.
 // -1 = unlimited.
 func memberSizeLimit(plan string) int {
+	plan = effectiveTeamPlan(plan)
 	switch plan {
 	case "org":
 		return -1
@@ -263,6 +280,7 @@ func (h *TeamHandler) GetTeamStats(w http.ResponseWriter, r *http.Request) {
 
 // planTunnelLimit returns max active tunnels per member for a team plan.
 func planTunnelLimit(plan string) int {
+	plan = effectiveTeamPlan(plan)
 	switch plan {
 	case "org":
 		return -1
@@ -275,6 +293,7 @@ func planTunnelLimit(plan string) int {
 
 // planSubdomainLimit returns max assigned team-owned reserved subdomains per member.
 func planSubdomainLimit(plan string) int {
+	plan = effectiveTeamPlan(plan)
 	switch plan {
 	case "org":
 		return -1
@@ -287,6 +306,7 @@ func planSubdomainLimit(plan string) int {
 
 // teamRouteLimit returns the total team-owned reserved routes allowed for a team.
 func teamRouteLimit(plan string) int {
+	plan = effectiveTeamPlan(plan)
 	switch plan {
 	case "org":
 		return -1

@@ -103,3 +103,6 @@ SHA256SUMS-*.txt
 .claude/
 .cluade/
 log
+
+# Local deploy secrets
+.deploy-secrets

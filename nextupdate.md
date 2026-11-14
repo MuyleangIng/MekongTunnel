@@ -583,20 +583,20 @@ Priority:
 
 Verified live on 2026-03-28:
 
-- [x] `GET https://api.angkorsearch.dev/api/health`
-- [x] `HEAD https://angkorsearch.dev/admin/organizations`
-- [x] `HEAD https://angkorsearch.dev/admin/verify-requests`
-- [x] `HEAD https://angkorsearch.dev/dashboard/billing`
-- [x] `HEAD https://angkorsearch.dev/dashboard/org`
-- [x] `HEAD https://angkorsearch.dev/auth/login`
-- [x] `HEAD https://angkorsearch.dev/auth/verify-account`
-- [x] `HEAD https://angkorsearch.dev/login`
-- [x] `GET https://api.angkorsearch.dev/api/org/mine` returns `401` without auth
-- [x] `GET https://api.angkorsearch.dev/api/admin/verify-requests` returns `401` without auth
-- [x] `POST https://api.angkorsearch.dev/api/admin/organizations/{id}/import` returns `401` without auth
-- [x] `POST https://api.angkorsearch.dev/api/admin/organizations/{id}/import/preview` returns `401` without auth
-- [x] `GET https://api.angkorsearch.dev/api/org/{id}/teams` returns `401` without auth
-- [x] `POST https://api.angkorsearch.dev/api/org/create` returns `401` without auth
+- [x] `GET https://api.mekongtunnel.dev/api/health`
+- [x] `HEAD https://mekongtunnel.dev/admin/organizations`
+- [x] `HEAD https://mekongtunnel.dev/admin/verify-requests`
+- [x] `HEAD https://mekongtunnel.dev/dashboard/billing`
+- [x] `HEAD https://mekongtunnel.dev/dashboard/org`
+- [x] `HEAD https://mekongtunnel.dev/auth/login`
+- [x] `HEAD https://mekongtunnel.dev/auth/verify-account`
+- [x] `HEAD https://mekongtunnel.dev/login`
+- [x] `GET https://api.mekongtunnel.dev/api/org/mine` returns `401` without auth
+- [x] `GET https://api.mekongtunnel.dev/api/admin/verify-requests` returns `401` without auth
+- [x] `POST https://api.mekongtunnel.dev/api/admin/organizations/{id}/import` returns `401` without auth
+- [x] `POST https://api.mekongtunnel.dev/api/admin/organizations/{id}/import/preview` returns `401` without auth
+- [x] `GET https://api.mekongtunnel.dev/api/org/{id}/teams` returns `401` without auth
+- [x] `POST https://api.mekongtunnel.dev/api/org/create` returns `401` without auth
 - [x] Authenticated preview check on the owner account returned `200` with warning summary for an existing-user attach/update row
 - [x] Authenticated invalid-row preview check returned `200` with `error_rows=1` and `failed_csv` present
 - [x] Authenticated member permission check returned `403 owner or admin only` on `GET /api/org/{id}/members`

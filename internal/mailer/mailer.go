@@ -23,7 +23,7 @@ import (
 type Config struct {
 	// Resend (preferred — works on DigitalOcean, no port blocks)
 	ResendKey  string // RESEND_API_KEY  e.g. "re_..."
-	ResendFrom string // e.g. "Mekong Tunnel <noreply@angkorsearch.dev>"
+	ResendFrom string // e.g. "Mekong Tunnel <noreply@mekongtunnel.dev>"
 
 	// SMTP fallback (Gmail STARTTLS port 587)
 	Host string // default: smtp.gmail.com
@@ -317,7 +317,7 @@ func emailWrapper(title, preheader, bodyHTML string) string {
       <tr><td align="center" style="padding-top:24px">
         <p style="font-size:12px;color:#999;margin:0">
           &copy; Mekong Tunnel &nbsp;·&nbsp;
-          <a href="https://angkorsearch.dev" style="color:#999;text-decoration:none">angkorsearch.dev</a>
+          <a href="https://mekongtunnel.dev" style="color:#999;text-decoration:none">mekongtunnel.dev</a>
         </p>
       </td></tr>
     </table>

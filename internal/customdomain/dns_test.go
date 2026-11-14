@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuildDNSInstructionsApex(t *testing.T) {
-	got := BuildDNSInstructions("muyleanging.com", "proxy.angkorsearch.dev", "abc123", func(string) ([]net.IP, error) {
+	got := BuildDNSInstructions("muyleanging.com", "proxy.mekongtunnel.dev", "abc123", func(string) ([]net.IP, error) {
 		return []net.IP{
 			net.ParseIP("216.198.79.1"),
 			net.ParseIP("2001:db8::1"),
@@ -34,7 +34,7 @@ func TestBuildDNSInstructionsApex(t *testing.T) {
 }
 
 func TestBuildDNSInstructionsSubdomain(t *testing.T) {
-	got := BuildDNSInstructions("test.muyleanging.com", "proxy.angkorsearch.dev", "abc123", nil)
+	got := BuildDNSInstructions("test.muyleanging.com", "proxy.mekongtunnel.dev", "abc123", nil)
 
 	if got.Mode != ModeSubdomain {
 		t.Fatalf("BuildDNSInstructions() mode = %q, want %q", got.Mode, ModeSubdomain)
@@ -42,7 +42,7 @@ func TestBuildDNSInstructionsSubdomain(t *testing.T) {
 	if len(got.PrimaryRecords) != 1 {
 		t.Fatalf("BuildDNSInstructions() primary record count = %d, want 1", len(got.PrimaryRecords))
 	}
-	if got.PrimaryRecords[0].Type != "CNAME" || got.PrimaryRecords[0].Name != "test" || got.PrimaryRecords[0].Value != "proxy.angkorsearch.dev" {
+	if got.PrimaryRecords[0].Type != "CNAME" || got.PrimaryRecords[0].Name != "test" || got.PrimaryRecords[0].Value != "proxy.mekongtunnel.dev" {
 		t.Fatalf("BuildDNSInstructions() primary record = %#v", got.PrimaryRecords[0])
 	}
 	if len(got.FallbackRecords) != 1 {

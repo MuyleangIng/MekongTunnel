@@ -6,6 +6,7 @@
 package proxy
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -118,7 +119,9 @@ func (s *Server) GetStats(includeSubdomains bool) Stats {
 }
 
 // StatsHandler returns an http.Handler that routes the stats port.
-// Access is restricted to loopback addresses (127.0.0.1 / ::1).
+// Access is allowed from loopback (127.0.0.1 / ::1), or from any address that
+// presents the shared tunnel-edge secret in X-Tunnel-Secret (multi-host setups
+// where the API runs on another machine).
 //
 //   - GET /          → HTML dashboard (auto-refreshes every 3 s)
 //   - GET /api/stats → JSON snapshot (query ?subdomains=true to include subdomain list)
@@ -133,11 +136,16 @@ func (s *Server) StatsHandler() http.Handler {
 				host = r.RemoteAddr
 			}
 			ip := net.ParseIP(host)
-			if ip == nil || !ip.IsLoopback() {
-				http.Error(w, "Forbidden", http.StatusForbidden)
+			if ip != nil && ip.IsLoopback() {
+				next(w, r)
 				return
 			}
-			next(w, r)
+			if secret := strings.TrimSpace(s.apiSecret); secret != "" &&
+				subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Tunnel-Secret")), []byte(secret)) == 1 {
+				next(w, r)
+				return
+			}
+			http.Error(w, "Forbidden", http.StatusForbidden)
 		}
 	}
 

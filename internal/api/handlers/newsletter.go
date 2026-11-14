@@ -21,7 +21,7 @@ type NewsletterHandler struct {
 }
 
 const (
-	defaultNewsletterFrontendURL          = "https://angkorsearch.dev"
+	defaultNewsletterFrontendURL          = "https://mekongtunnel.dev"
 	newsletterPlaceholderUnsubscribeToken = "{{unsubscribe_token}}"
 	newsletterPlaceholderUnsubscribeURL   = "{{unsubscribe_url}}"
 )

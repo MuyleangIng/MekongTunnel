@@ -131,7 +131,7 @@ Use this command list:
 
 Recommended production webhook:
 
-- `https://api.angkorsearch.dev/api/telegram/webhook`
+- `https://api.mekongtunnel.dev/api/telegram/webhook`
 
 Recommended staging webhook:
 
@@ -220,7 +220,7 @@ Reuse the approval pattern of `mekong login` without forcing Telegram to become 
 1. User sends `/link` to the Telegram bot.
 2. Bot creates a `telegram_link_session`.
 3. Bot replies with an approval URL such as:
-   - `https://angkorsearch.dev/telegram-link?code=<opaque-code>`
+   - `https://mekongtunnel.dev/telegram-link?code=<opaque-code>`
 4. User opens the page.
 5. If the user is not logged in, the web app uses the normal Mekong login flow first.
 6. After login, the page shows:

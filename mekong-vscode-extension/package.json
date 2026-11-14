@@ -2,7 +2,7 @@
   "name": "mekong-tunnel",
   "displayName": "Mekong Tunnel",
   "description": "Expose your local dev server to the internet with one click — auto-detects port and framework",
-  "version": "1.5.10",
+  "version": "1.5.11",
   "publisher": "KhmerStack",
   "icon": "images/MekongNoBG.png",
   "galleryBanner": {
@@ -120,8 +120,8 @@
       "activitybar": [
         {
           "id": "mekong-sidebar",
-          "title": "MK",
-          "icon": "images/MekongNoBG.png"
+          "title": "Mekong Tunnel",
+          "icon": "images/activity.svg"
         }
       ]
     },
@@ -150,12 +150,17 @@
         "mekong.expire": {
           "type": "string",
           "default": "",
-          "description": "Tunnel expiry e.g. 2h, 1d, 1w"
+          "description": "Tunnel expiry e.g. 2h, 1d, 7d (server maximum is 7 days)"
         },
         "mekong.binaryPath": {
           "type": "string",
           "default": "",
           "description": "Custom path to mekong binary (leave empty for auto-detect)"
+        },
+        "mekong.skipBrowserWarning": {
+          "type": "boolean",
+          "default": false,
+          "description": "Skip the Mekong browser warning page so visitors open your app directly (passes --skip-browser-warning)"
         },
         "mekong.showQr": {
           "type": "boolean",

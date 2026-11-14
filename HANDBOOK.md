@@ -1,6 +1,6 @@
 # MekongTunnel — Project Handbook
 
-> Author: **Ing Muyleang** (អុឹង មួយលៀង) · KhmerStack · [angkorsearch.dev](https://angkorsearch.dev)
+> Author: **Ing Muyleang** (អុឹង មួយលៀង) · KhmerStack · [mekongtunnel.dev](https://mekongtunnel.dev)
 > Last updated: 2026-04-10 · Go v1.5.8 · npm v2.0.0 · PyPI v2.1.0 · VS Code v1.5.0
 
 ---
@@ -15,7 +15,7 @@
 6. [Go Server — MekongTunnel](#6-go-server--mekongtunnel)
 7. [Go CLI — mekong](#7-go-cli--mekong)
 8. [Backend REST API — All Endpoints](#8-backend-rest-api--all-endpoints)
-9. [Frontend — angkorsearch.dev](#9-frontend--angkorsearchdev)
+9. [Frontend — mekongtunnel.dev](#9-frontend--mekongtunneldev)
 10. [npm Package — mekong-cli](#10-npm-package--mekong-cli)
 11. [Python Package — mekong-tunnel](#11-python-package--mekong-tunnel)
 12. [VS Code Extension](#12-vs-code-extension)
@@ -37,17 +37,17 @@
 
 MekongTunnel is an **ngrok-style SSH tunneling service**. The current production layout separates the product into three public entrypoints:
 
-- `angkorsearch.dev` — web UI and CLI approval flow
-- `api.angkorsearch.dev` — REST API
-- `proxy.angkorsearch.dev` — SSH + HTTPS tunnel edge
+- `mekongtunnel.dev` — web UI and CLI approval flow
+- `api.mekongtunnel.dev` — REST API
+- `proxy.mekongtunnel.dev` — SSH + HTTPS tunnel edge
 
 Optional branded custom domains such as `app.mekongtunnel.dev` are served through the same proxy host when wildcard DNS and TLS are configured.
 
 ```
 Developer machine                  Proxy edge                     Public web/API
 ┌─────────────────┐   SSH tunnel   ┌───────────────────────────┐  ┌────────────────────────┐
-│ localhost:3000  │◄──────────────►│ proxy.angkorsearch.dev    │  │ angkorsearch.dev       │
-│ your app        │  tcpip-forward │ *.proxy.angkorsearch.dev  │  │ api.angkorsearch.dev   │
+│ localhost:3000  │◄──────────────►│ proxy.mekongtunnel.dev    │  │ mekongtunnel.dev       │
+│ your app        │  tcpip-forward │ *.proxy.mekongtunnel.dev  │  │ api.mekongtunnel.dev   │
 └─────────────────┘                └───────────────────────────┘  └────────────────────────┘
 ```
 
@@ -59,7 +59,7 @@ Developer machine                  Proxy edge                     Public web/API
 | npm CLI + SDK | Node.js 18+ | v2.0.0 | [npm](https://www.npmjs.com/package/mekong-cli) |
 | Python CLI + SDK | Python 3.8+ | v2.1.0 | [PyPI](https://pypi.org/project/mekong-tunnel/) |
 | VS Code Extension | TypeScript | v1.5.0 | [Marketplace](https://marketplace.visualstudio.com/items?itemName=KhmerStack.mekong-tunnel) |
-| Frontend | Next.js 16 / React 19 | latest | [angkorsearch.dev](https://angkorsearch.dev) |
+| Frontend | Next.js 16 / React 19 | latest | [mekongtunnel.dev](https://mekongtunnel.dev) |
 
 ---
 
@@ -200,10 +200,10 @@ In production, nginx usually owns public `:80` and `:443`, then proxies to the t
 
 | Public hostname | Role |
 |-----------------|------|
-| `angkorsearch.dev` | Frontend + CLI approval UI |
-| `api.angkorsearch.dev` | API server |
-| `proxy.angkorsearch.dev` | Tunnel SSH/HTTPS entrypoint |
-| `*.proxy.angkorsearch.dev` | Generated tunnel URLs |
+| `mekongtunnel.dev` | Frontend + CLI approval UI |
+| `api.mekongtunnel.dev` | API server |
+| `proxy.mekongtunnel.dev` | Tunnel SSH/HTTPS entrypoint |
+| `*.proxy.mekongtunnel.dev` | Generated tunnel URLs |
 | `*.mekongtunnel.dev` | Optional branded wildcard custom domains |
 
 ### REST API Server (separate process)
@@ -216,7 +216,7 @@ In production, nginx usually owns public `:80` and `:443`, then proxies to the t
 
 ```
 1. mekong 3000
-   └─ opens SSH connection to proxy.angkorsearch.dev:22
+   └─ opens SSH connection to proxy.mekongtunnel.dev:22
    └─ sends tcpip-forward request for port 80
 
 2. SSH server
@@ -224,7 +224,7 @@ In production, nginx usually owns public `:80` and `:443`, then proxies to the t
    └─ registers tunnel in registry
    └─ prints URL to SSH terminal
 
-3. Browser visits https://happy-tiger-a1b2c3d4.proxy.angkorsearch.dev
+3. Browser visits https://happy-tiger-a1b2c3d4.proxy.mekongtunnel.dev
    └─ first browser visit to a generated tunnel redirects to a shared-tunnel notice on the root domain
    └─ clicking Continue to site sets a 24-hour warning cookie and returns to the shared URL
    └─ HTTPS proxy matches generated host or custom domain → finds tunnel in registry
@@ -245,11 +245,11 @@ In production, nginx usually owns public `:80` and `:443`, then proxies to the t
 ### Subdomain format
 
 ```
-happy-tiger-a1b2c3d4.proxy.angkorsearch.dev
+happy-tiger-a1b2c3d4.proxy.mekongtunnel.dev
 └─ adjective ─┘ └─noun─┘ └─8 hex chars─┘
 ```
 
-By default, generated tunnels use `*.proxy.angkorsearch.dev`. Login with `mekong login` to get a **reserved** subdomain that persists across reconnects, and use `mekong domain connect ...` for custom domains.
+By default, generated tunnels use `*.proxy.mekongtunnel.dev`. Login with `mekong login` to get a **reserved** subdomain that persists across reconnects, and use `mekong domain connect ...` for custom domains.
 
 ### Browser tunnel pages
 
@@ -389,12 +389,12 @@ GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-FRONTEND_URL=https://angkorsearch.dev
-ALLOWED_ORIGINS=https://angkorsearch.dev,http://localhost:3000,http://localhost:3001
-PUBLIC_URL=https://api.angkorsearch.dev
+FRONTEND_URL=https://mekongtunnel.dev
+ALLOWED_ORIGINS=https://mekongtunnel.dev,http://localhost:3000,http://localhost:3001
+PUBLIC_URL=https://api.mekongtunnel.dev
 API_ADDR=:8080
 RESEND_API_KEY=re_...               # Resend HTTP API key (preferred over SMTP on cloud)
-RESEND_FROM=Mekong Tunnel <noreply@angkorsearch.dev>
+RESEND_FROM=Mekong Tunnel <noreply@mekongtunnel.dev>
 # SMTP fallback (only used if RESEND_API_KEY is not set)
 SMTP_USER=you@gmail.com
 SMTP_PASS=app-specific-password
@@ -426,14 +426,14 @@ TELEGRAM_APPROVE_PATH=/telegram-link
 ### Environment variables (tunnel server)
 
 ```bash
-DOMAIN=proxy.angkorsearch.dev
+DOMAIN=proxy.mekongtunnel.dev
 SSH_ADDR=:22
 HTTP_ADDR=127.0.0.1:8081
 HTTPS_ADDR=127.0.0.1:8443
 STATS_ADDR=127.0.0.1:9090
 HOST_KEY_PATH=/opt/mekongtunnel/host_key
-TLS_CERT=/etc/letsencrypt/live/proxy.angkorsearch.dev/fullchain.pem
-TLS_KEY=/etc/letsencrypt/live/proxy.angkorsearch.dev/privkey.pem
+TLS_CERT=/etc/letsencrypt/live/proxy.mekongtunnel.dev/fullchain.pem
+TLS_KEY=/etc/letsencrypt/live/proxy.mekongtunnel.dev/privkey.pem
 ```
 
 ---
@@ -644,7 +644,7 @@ All SDKs also try `which`/`where mekong` first via shell PATH before falling bac
 ### Auth flow (`mekong login`)
 
 1. CLI calls `POST /api/cli/device` → gets `session_id` + `login_url`
-2. Opens `https://angkorsearch.dev/cli-auth?session=SESSION_ID` in browser
+2. Opens `https://mekongtunnel.dev/cli-auth?session=SESSION_ID` in browser
 3. Polls `GET /api/cli/device?session_id=` every few seconds until approved
 4. Saves token to `~/.mekong/config.json`
 
@@ -652,7 +652,7 @@ All SDKs also try `which`/`where mekong` first via shell PATH before falling bac
 
 Runs a diagnostic sequence:
 1. Checks binary path
-2. Checks SSH connectivity to `proxy.angkorsearch.dev:22`
+2. Checks SSH connectivity to `proxy.mekongtunnel.dev:22`
 3. Opens a real tunnel to a local test server
 4. Makes an HTTP request through the tunnel URL
 5. Reports pass/fail for each step
@@ -735,7 +735,7 @@ mailer.Config{
 
 ## 8. Backend REST API — All Endpoints
 
-Base URL: `https://api.angkorsearch.dev` (or `http://localhost:8080` for local dev)
+Base URL: `https://api.mekongtunnel.dev` (or `http://localhost:8080` for local dev)
 
 Authentication: `Authorization: Bearer <jwt_or_api_token>`
 
@@ -1092,7 +1092,7 @@ They are called by the tunnel edge server to validate tokens and resolve subdoma
 
 ---
 
-## 9. Frontend — angkorsearch.dev
+## 9. Frontend — mekongtunnel.dev
 
 The frontend lives in a separate repository: **`KhmerStack/mekongtunnel-ui`** (`dev` branch).
 
@@ -1152,7 +1152,7 @@ const mekong = require('mekong-cli/sdk')
 
 // Start tunnel
 const { url, stop } = await mekong.expose(3000)
-console.log(url)   // https://happy-tiger-a1b2.proxy.angkorsearch.dev
+console.log(url)   // https://happy-tiger-a1b2.proxy.mekongtunnel.dev
 stop()
 
 // With options
@@ -1252,7 +1252,7 @@ import mekong_tunnel as mekong
 
 # Start tunnel (blocking until stopped)
 tunnel = mekong.expose(8000)
-print(tunnel.url)     # https://happy-tiger-a1b2.proxy.angkorsearch.dev
+print(tunnel.url)     # https://happy-tiger-a1b2.proxy.mekongtunnel.dev
 tunnel.stop()
 
 # Context manager (auto-stop)
@@ -1468,10 +1468,10 @@ Frontend:
 
 | Public hostname | Purpose |
 |-----------------|---------|
-| `angkorsearch.dev` | Frontend |
-| `api.angkorsearch.dev` | API |
-| `proxy.angkorsearch.dev` | Tunnel SSH + HTTPS edge |
-| `*.proxy.angkorsearch.dev` | Generated public tunnel URLs |
+| `mekongtunnel.dev` | Frontend |
+| `api.mekongtunnel.dev` | API |
+| `proxy.mekongtunnel.dev` | Tunnel SSH + HTTPS edge |
+| `*.proxy.mekongtunnel.dev` | Generated public tunnel URLs |
 | `*.mekongtunnel.dev` | Optional branded wildcard custom domains |
 
 ### Preferred deploy commands
@@ -1524,7 +1524,7 @@ cd /opt/mekongtunnel
 
 ### TLS and nginx
 
-- issue a wildcard cert for `proxy.angkorsearch.dev` and `*.proxy.angkorsearch.dev`
+- issue a wildcard cert for `proxy.mekongtunnel.dev` and `*.proxy.mekongtunnel.dev`
 - optionally issue a second wildcard cert for `mekongtunnel.dev` and `*.mekongtunnel.dev`
 - nginx should terminate public `:80/:443` and proxy to MekongTunnel on `127.0.0.1:8081` and `127.0.0.1:8443`
 

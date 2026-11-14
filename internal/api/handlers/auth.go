@@ -212,6 +212,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		Remember *bool  `json:"remember"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		response.BadRequest(w, "invalid JSON body")
@@ -220,9 +221,22 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 
+	// Specific error codes so the login page can say exactly what is wrong.
+	// (Registration already reveals whether an email exists, so naming
+	// "no account" here does not leak anything new.) Not-verified and
+	// suspended are only reported after the password checks out.
 	user, err := h.DB.GetUserByEmail(r.Context(), body.Email)
 	if err != nil || user == nil {
-		response.Unauthorized(w, "invalid credentials")
+		response.Unauthorized(w, "account_not_found")
+		return
+	}
+
+	if user.PasswordHash == nil {
+		response.Unauthorized(w, "oauth_only")
+		return
+	}
+	if !auth.CheckPassword(*user.PasswordHash, body.Password) {
+		response.Unauthorized(w, "wrong_password")
 		return
 	}
 
@@ -233,11 +247,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	if !user.EmailVerified {
 		response.Error(w, http.StatusForbidden, "email_not_verified")
-		return
-	}
-
-	if user.PasswordHash == nil || !auth.CheckPassword(*user.PasswordHash, body.Password) {
-		response.Unauthorized(w, "invalid credentials")
 		return
 	}
 
@@ -287,34 +296,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := auth.GenerateAccessToken(user, h.JWTSecret)
+	accessToken, err := h.issueSession(w, r.Context(), user, body.Remember == nil || *body.Remember)
 	if err != nil {
 		response.InternalError(w, err)
 		return
 	}
-
-	rawRefresh, err := auth.GenerateSecureToken()
-	if err != nil {
-		response.InternalError(w, err)
-		return
-	}
-	refreshHash := auth.HashToken(rawRefresh)
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-
-	if err := h.DB.CreateRefreshToken(r.Context(), user.ID, refreshHash, expiresAt); err != nil {
-		response.InternalError(w, err)
-		return
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "mekong_refresh",
-		Value:    rawRefresh,
-		Path:     "/api/auth/refresh",
-		HttpOnly: true,
-		Secure:   strings.HasPrefix(h.FrontendURL, "https"),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   30 * 24 * 60 * 60,
-	})
 
 	response.Success(w, map[string]any{
 		"access_token":        accessToken,
@@ -443,23 +429,18 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		response.InternalError(w, err)
 		return
 	}
-	newHash := auth.HashToken(rawRefresh)
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-
-	if err := h.DB.CreateRefreshToken(r.Context(), user.ID, newHash, expiresAt); err != nil {
+	// Remembered sessions slide forward 30 days; browser sessions keep their
+	// original (short) expiry so they cannot be extended indefinitely.
+	remember := !isSessionOnly(r)
+	expiresAt := rt.ExpiresAt
+	if remember {
+		expiresAt = time.Now().Add(rememberedSessionTTL)
+	}
+	if err := h.DB.CreateRefreshToken(r.Context(), user.ID, auth.HashToken(rawRefresh), expiresAt); err != nil {
 		response.InternalError(w, err)
 		return
 	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "mekong_refresh",
-		Value:    rawRefresh,
-		Path:     "/api/auth/refresh",
-		HttpOnly: true,
-		Secure:   strings.HasPrefix(h.FrontendURL, "https"),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   30 * 24 * 60 * 60,
-	})
+	h.setRefreshCookies(w, rawRefresh, remember)
 
 	response.Success(w, map[string]any{
 		"access_token": accessToken,
@@ -595,6 +576,22 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = h.DB.MarkEmailVerifyTokenUsed(r.Context(), hash)
 
+	// The link proves the user owns the inbox, so sign them straight in —
+	// unless the account needs a second factor or is suspended, in which
+	// case they go through the normal login page.
+	user, err := h.DB.GetUserByID(r.Context(), vt.UserID)
+	if err == nil && user != nil && !user.Suspended && !user.TOTPEnabled && !user.EmailOTPEnabled {
+		if accessToken, err := h.issueSession(w, r.Context(), user, true); err == nil {
+			_ = h.DB.UpdateLastSeen(r.Context(), user.ID)
+			response.Success(w, map[string]any{
+				"message":      "email verified",
+				"access_token": accessToken,
+				"user":         sanitizeUser(user),
+			})
+			return
+		}
+	}
+
 	response.Success(w, map[string]any{"message": "email verified"})
 }
 
@@ -691,6 +688,7 @@ func (h *AuthHandler) VerifyEmailOTP(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Code      string `json:"code"`
 		TempToken string `json:"temp_token"`
+		Remember  *bool  `json:"remember"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		response.BadRequest(w, "invalid JSON body")
@@ -720,32 +718,11 @@ func (h *AuthHandler) VerifyEmailOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := auth.GenerateAccessToken(user, h.JWTSecret)
+	accessToken, err := h.issueSession(w, r.Context(), user, body.Remember == nil || *body.Remember)
 	if err != nil {
 		response.InternalError(w, err)
 		return
 	}
-
-	rawRefresh, err := auth.GenerateSecureToken()
-	if err != nil {
-		response.InternalError(w, err)
-		return
-	}
-	refreshHash := auth.HashToken(rawRefresh)
-	if err := h.DB.CreateRefreshToken(r.Context(), user.ID, refreshHash, time.Now().Add(30*24*time.Hour)); err != nil {
-		response.InternalError(w, err)
-		return
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "mekong_refresh",
-		Value:    rawRefresh,
-		Path:     "/api/auth/refresh",
-		HttpOnly: true,
-		Secure:   strings.HasPrefix(h.FrontendURL, "https"),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   30 * 24 * 60 * 60,
-	})
 
 	response.Success(w, map[string]any{
 		"access_token":        accessToken,
@@ -873,7 +850,7 @@ func (h *AuthHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
 			// Create new user.
 			email := strings.ToLower(ghUser.Email)
 			if email == "" {
-				email = fmt.Sprintf("github_%d@noreply.angkorsearch.dev", ghUser.ID)
+				email = fmt.Sprintf("github_%d@noreply.mekongtunnel.dev", ghUser.ID)
 			}
 			name := ghUser.Name
 			if name == "" {
@@ -1208,6 +1185,7 @@ func (h *AuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TempToken string `json:"temp_token"`
 		Code      string `json:"code"`
+		Remember  *bool  `json:"remember"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		response.BadRequest(w, "invalid JSON body")
@@ -1259,34 +1237,11 @@ func (h *AuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 
 	_ = h.DB.UpdateLastSeen(r.Context(), user.ID)
 
-	accessToken, err := auth.GenerateAccessToken(user, h.JWTSecret)
+	accessToken, err := h.issueSession(w, r.Context(), user, body.Remember == nil || *body.Remember)
 	if err != nil {
 		response.InternalError(w, err)
 		return
 	}
-
-	rawRefresh, err := auth.GenerateSecureToken()
-	if err != nil {
-		response.InternalError(w, err)
-		return
-	}
-	refreshHash := auth.HashToken(rawRefresh)
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-
-	if err := h.DB.CreateRefreshToken(r.Context(), user.ID, refreshHash, expiresAt); err != nil {
-		response.InternalError(w, err)
-		return
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "mekong_refresh",
-		Value:    rawRefresh,
-		Path:     "/api/auth/refresh",
-		HttpOnly: true,
-		Secure:   strings.HasPrefix(h.FrontendURL, "https"),
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   30 * 24 * 60 * 60,
-	})
 
 	response.Success(w, map[string]any{
 		"access_token":        accessToken,

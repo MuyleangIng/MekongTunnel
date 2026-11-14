@@ -34,8 +34,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-API_BASE = "https://api.angkorsearch.dev"
-WEB_BASE = "https://angkorsearch.dev"
+API_BASE = "https://api.mekongtunnel.dev"
+WEB_BASE = "https://mekongtunnel.dev"
 
 # ── Config helpers ────────────────────────────────────────────────────────────
 
@@ -217,12 +217,12 @@ def login(*, open_browser: bool = True) -> str:
     """
     Authenticate via the browser device flow.
 
-    Opens ``angkorsearch.dev/cli-auth`` in the browser, polls until the user
+    Opens ``mekongtunnel.dev/cli-auth`` in the browser, polls until the user
     approves, then saves the token to ``~/.mekong/config.json``.
 
     Returns the raw API token string.
     """
-    print("\nConnecting to angkorsearch.dev...", flush=True)
+    print("\nConnecting to mekongtunnel.dev...", flush=True)
 
     try:
         raw = _api_post("/api/cli/device")
